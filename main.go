@@ -47,6 +47,7 @@ var (
 	authCookieName   = flag.String("auth-cookie-name", "skorekeeper_auth", "Name of the cookie containing the JWT")
 	authJWKSURL      = flag.String("auth-jwks-url", "", "URL to the JWKS endpoint")
 	bootstrapAdmin   = flag.String("admin", "", "Email of temporary admin user for bootstrapping access policy")
+	minifyMode       = flag.Bool("minify", false, "Serve minified frontend assets from dist/")
 )
 
 // main starts the web server and registers the API handlers.
@@ -128,6 +129,7 @@ func main() {
 		AuthCookieName:        *authCookieName,
 		AuthJWKSURL:           *authJWKSURL,
 		BootstrapAdmin:        *bootstrapAdmin,
+		MinifyMode:            *minifyMode,
 	})
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
