@@ -32,14 +32,11 @@ The application will be accessible at `https://devtest.local:8080/` (or `localho
 ### Running Raft Cluster (HA Mode)
 To run a local 3-node Raft cluster for development:
 
-1.  **Node 1 (Leader):**
-    ```bash
-    go run . --use-mock-auth --addr :8080 --raft --raft-bootstrap --raft-bind :5001 --data-dir data/node1 --raft-secret secret
-    ```
-2.  **Node 2 (Follower):**
-    ```bash
-    go run . --use-mock-auth --addr :8081 --raft --raft-bind :5002 --data-dir data/node2 --raft-secret secret
-    ```
+    # Node 1 (Leader):
+    go run . --use-mock-auth --addr :8080 --raft --raft-bootstrap --raft-bind :5001 --cluster-addr :9091 --cluster-advertise localhost:9091 --data-dir data/node1 --raft-secret secret
+    
+    # Node 2 (Follower):
+    go run . --use-mock-auth --addr :8081 --raft --raft-bind :5002 --cluster-addr :9092 --cluster-advertise localhost:9092 --data-dir data/node2 --raft-secret secret
     *Note: You must manually join Node 2 to the cluster using the Cluster Dashboard or API.*
     
     *For E2E tests, the test runner handles this automatically.*
