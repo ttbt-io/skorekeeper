@@ -1,0 +1,114 @@
+<!--
+Copyright (c) 2026 TTBT Enterprises LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self';">
+    <title>Skorekeeper Cluster Manager</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; background: #f4f4f9; color: #333; }
+        h1 { border-bottom: 2px solid #ccc; padding-bottom: 0.5rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .hidden { display: none; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
+        input { width: 100%; padding: 0.5rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #0056b3; }
+        button.secondary { background: #6c757d; }
+        button.secondary:hover { background: #545b62; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #dee2e6; }
+        td span { user-select: all; }
+        th { background: #e9ecef; }
+        code { background: #f8f9fa; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.9em; word-break: break-all; }
+        .status-active { color: #28a745; font-weight: bold; }
+        .status-unknown { color: #ffc107; font-weight: bold; }
+        .error { color: #dc3545; margin-bottom: 1rem; font-weight: bold; }
+        .row { display: flex; gap: 1rem; }
+        .col { flex: 1; }
+    </style>
+</head>
+<body>
+    <h1>Cluster Manager</h1>
+
+    <div id="login-section" class="card">
+        <h2>Authentication Required</h2>
+        <p>Please enter the Raft Secret to manage the cluster.</p>
+        <div id="login-error" class="error hidden"></div>
+        <form id="login-form">
+            <label for="secret">Raft Secret</label>
+            <input type="password" id="secret" required>
+            <button type="button" id="btn-access-dashboard">Access Dashboard</button>
+        </form>
+    </div>
+
+    <div id="dashboard-section" class="hidden">
+        <div class="card">
+            <h2>Cluster Status</h2>
+            <div id="cluster-info" style="margin-bottom: 1rem;"></div>
+            <button id="refresh-btn" class="secondary">↻ Refresh</button>
+            <button id="show-add-node-btn">Add Node</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Node ID</th>
+                        <th>Address (Raft / Cluster)</th>
+                        <th>Role</th>
+                        <th>Version</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="nodes-table-body">
+                </tbody>
+            </table>
+        </div>
+
+        <div id="add-node-form-container" class="card hidden">
+            <h2>Add New Node</h2>
+            <p class="text-sm" style="margin-bottom: 1rem; color: #666;">Enter the node's HTTP address and Public Key. The leader will automatically discover the node's configuration and versions.</p>
+            <div id="add-error" class="error hidden"></div>
+            <form id="add-node-form">
+                <div class="row">
+                    <div class="col">
+                        <label for="http-addr">Cluster Address</label>
+                        <input type="text" id="http-addr" required placeholder="e.g., https://10.0.0.2:8080">
+                    </div>
+                    <div class="col">
+                        <label for="pub-key">Public Key (Base64)</label>
+                        <input type="text" id="pub-key" required placeholder="Node's public key fingerprint">
+                    </div>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal;">
+                        <input type="checkbox" id="non-voter" style="width: auto; margin-bottom: 0;"> Add as Non-Voter
+                    </label>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button type="button" id="btn-join-node">Join Node</button>
+                    <button type="button" class="secondary" id="cancel-add-btn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/api/cluster/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,351 @@
+TOP 1 - ROCKETS
+Speedy (#1) now batting
+Rockets 0, Aviators 0. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Speedy walks.
+BB
+Flash (#2) now batting
+Rockets 0, Aviators 0. 0 Outs. Speedy on 1st.
+⚾ Flash singles.
+1B
+➜ Speedy advances to 2nd.
+Slugger (#3) now batting
+Rockets 0, Aviators 0. 0 Outs. Flash on 1st, Speedy on 2nd.
+⚾ Slugger clears the fence!
+HR
+➜ 💎 Speedy scores!
+➜ 💎 Flash scores! **Rockets takes the lead!**
+Inning Summary: 3 Runs, 0 Hits, 0 LOB.
+BOTTOM 1 - AVIATORS
+Pilot (#11) now batting
+Rockets 3, Aviators 0. 0 Outs. Bases empty.
+⚾⚾ Pilot doubles.
+2B
+Wingman (#12) now batting
+Rockets 3, Aviators 0. 0 Outs. Pilot on 2nd.
+⚾ Wingman base hit.
+1B
+➜ 💎 Pilot scores!
+Bomber (#13) now batting
+Rockets 3, Aviators 1. 0 Outs. Wingman on 1st.
+⚾⚾ Bomber doubles.
+2B
+➜ 💎 Wingman scores!
+Zoom (#14) now batting
+Rockets 3, Aviators 2. 0 Outs. Bomber on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Zoom whiffs for the out.
+K
+1 Out
+Slider (#15) now batting
+Rockets 3, Aviators 2. 1 Out. Bomber on 2nd.
+🔴 Slider is out to Second Base.
+L4
+2 Outs
+Inning Summary: 2 Runs, 0 Hits, 1 LOB.
+TOP 2 - ROCKETS
+Cannon (#4) now batting
+Rockets 3, Aviators 2. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Cannon is set down on strikes.
+K
+1 Out
+Ace (#5) now batting
+Rockets 3, Aviators 2. 1 Out. Bases empty.
+🔴 Ace is out to 6-3 (Shortstop).
+6-3
+2 Outs
+Lefty (#6) now batting
+Rockets 3, Aviators 2. 2 Outs. Bases empty.
+🔴 Lefty is out to Center Field.
+F8
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 0 LOB.
+BOTTOM 2 - AVIATORS
+Knuckle (#17) now batting
+Rockets 3, Aviators 2. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Knuckle walks.
+BB
+Changeup (#18) now batting
+Rockets 3, Aviators 2. 0 Outs. Knuckle on 1st.
+🔴 Changeup is out.
+SH
+1 Out
+➜ Knuckle advances to 2nd.
+Fastball (#19) now batting
+Rockets 3, Aviators 2. 1 Out. Knuckle on 2nd.
+⚾ Fastball singles.
+1B
+➜ Knuckle advances to 3rd.
+Cutter (#20) now batting
+Rockets 3, Aviators 2. 1 Out. Fastball on 1st, Knuckle on 3rd.
+🔴 Cutter is out.
+SF
+2 Outs
+➜ 💎 Knuckle scores! **We are tied!**
+Sinker (#21) now batting
+Rockets 3, Aviators 3. 2 Outs. Fastball on 1st.
+🔴 Sinker is out to 6-3 (Shortstop).
+DP 6-3
+3 Outs
+➜ 🔴 Fastball put out.
+4 Outs
+Inning Summary: 1 Run, 0 Hits, 0 LOB.
+TOP 3 - ROCKETS
+Stretch (#7) now batting
+Rockets 3, Aviators 3. 0 Outs. Bases empty.
+⚾ Stretch base hit.
+1B
+Glove (#8) now batting
+Rockets 3, Aviators 3. 0 Outs. Stretch on 1st.
+⚾ Glove singles.
+1B
+➜ 💎 Stretch scores! **Rockets takes the lead!**
+Hotcorner (#9) now batting
+Rockets 4, Aviators 3. 0 Outs. Glove on 1st.
+⚾⚾ Hotcorner hits a double.
+2B
+➜ 💎 Glove scores!
+Rover (#10) now batting
+Rockets 5, Aviators 3. 0 Outs. Hotcorner on 2nd.
+🔴 Rover is out to Left Field.
+F7
+1 Out
+Power (#11) now batting
+Rockets 5, Aviators 3. 1 Out. Hotcorner on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Power swings through it for strike three.
+K
+2 Outs
+Rookie (#12) now batting
+Rockets 5, Aviators 3. 2 Outs. Hotcorner on 2nd.
+🔴 Rookie is out.
+Out
+3 Outs
+Inning Summary: 2 Runs, 0 Hits, 1 LOB.
+BOTTOM 3 - AVIATORS
+Glider (#22) now batting
+Rockets 5, Aviators 3. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Glider swings through it for strike three.
+K
+1 Out
+Pilot (#11) now batting
+Rockets 5, Aviators 3. 1 Out. Bases empty.
+⚾ Pilot singles.
+1B
+Wingman (#12) now batting
+Rockets 5, Aviators 3. 1 Out. Pilot on 1st.
+⚾ Wingman launches a moonshot!
+HR
+➜ 💎 Pilot scores! **We are tied!**
+Bomber (#13) now batting
+Rockets 5, Aviators 5. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Bomber is set down on strikes.
+K
+2 Outs
+Zoom (#14) now batting
+Rockets 5, Aviators 5. 2 Outs. Bases empty.
+🔴 Zoom is out.
+Out
+3 Outs
+Inning Summary: 2 Runs, 0 Hits, 0 LOB.
+TOP 4 - ROCKETS
+Speedy (#1) now batting
+Rockets 5, Aviators 5. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Speedy walks.
+BB
+Flash (#2) now batting
+Rockets 5, Aviators 5. 0 Outs. Speedy on 1st.
+⚾ Flash singles.
+1B
+➜ Speedy advances to 2nd.
+Slugger (#3) now batting
+Rockets 5, Aviators 5. 0 Outs. Flash on 1st, Speedy on 2nd.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Slugger walks.
+BB
+➜ Speedy advances to 3rd.
+➜ Flash advances to 2nd.
+Cannon (#4) now batting
+Rockets 5, Aviators 5. 0 Outs. Bases loaded (Slugger, Flash, Speedy).
+• Strike
+• Strike
+• Strike
+❌ Cannon is set down on strikes.
+K
+1 Out
+Ace (#5) now batting
+Rockets 5, Aviators 5. 1 Out. Bases loaded (Slugger, Flash, Speedy).
+• Strike
+• Strike
+• Strike
+❌ Ace goes down swinging.
+K
+2 Outs
+Lefty (#6) now batting
+Rockets 5, Aviators 5. 2 Outs. Bases loaded (Slugger, Flash, Speedy).
+⚾ Lefty crushes a massive home run!
+HR
+➜ 💎 Speedy scores!
+➜ 💎 Flash scores!
+➜ 💎 Slugger scores! **Rockets takes the lead!**
+Inning Summary: 4 Runs, 0 Hits, 0 LOB.
+BOTTOM 4 - AVIATORS
+Slider (#15) now batting
+Rockets 9, Aviators 5. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Slider walks.
+BB
+Curve (#16) now batting
+Rockets 9, Aviators 5. 0 Outs. Slider on 1st.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Curve walks.
+BB
+➜ Slider advances to 2nd.
+Knuckle (#17) now batting
+Rockets 9, Aviators 5. 0 Outs. Curve on 1st, Slider on 2nd.
+⚾ Knuckle singles.
+1B
+➜ 💎 Slider scores!
+➜ Curve advances to 3rd.
+Changeup (#18) now batting
+Rockets 9, Aviators 6. 0 Outs. Knuckle on 1st, Curve on 3rd.
+⚾⚾ Changeup hits a double.
+2B
+➜ 💎 Curve scores!
+➜ 💎 Knuckle scores!
+Inning Summary: 3 Runs, 0 Hits, 1 LOB.
+TOP 5 - ROCKETS
+Stretch (#7) now batting
+Rockets 9, Aviators 8. 0 Outs. Bases empty.
+🔴 Stretch is out.
+Out
+1 Out
+Glove (#8) now batting
+Rockets 9, Aviators 8. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Glove is set down on strikes.
+K
+2 Outs
+Hotcorner (#9) now batting
+Rockets 9, Aviators 8. 2 Outs. Bases empty.
+⚾ Hotcorner base hit.
+1B
+Rover (#10) now batting
+Rockets 9, Aviators 8. 2 Outs. Hotcorner on 1st.
+➜ 🔴 Hotcorner put out.
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 0 LOB.
+BOTTOM 5 - AVIATORS
+Fastball (#19) now batting
+Rockets 9, Aviators 8. 0 Outs. Bases empty.
+⚾ Fastball singles.
+1B
+Cutter (#20) now batting
+Rockets 9, Aviators 8. 0 Outs. Fastball on 1st.
+• Strike
+• Strike
+• Strike
+❌ Cutter goes down swinging.
+K
+1 Out
+Sinker (#21) now batting
+Rockets 9, Aviators 8. 1 Out. Fastball on 1st.
+• Strike
+• Strike
+• Strike
+❌ Sinker whiffs for the out.
+K
+2 Outs
+Glider (#22) now batting
+Rockets 9, Aviators 8. 2 Outs. Fastball on 1st.
+🔴 Glider is out to Right Field.
+F9
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 1 LOB.
+TOP 6 - ROCKETS
+Hotcorner placed on 1st.
+Rover (#10) now batting
+Rockets 9, Aviators 8. 0 Outs. Hotcorner on 1st.
+🔴 Rover is out.
+SH
+1 Out
+➜ Hotcorner advances to 3rd.
+Power (#11) now batting
+Rockets 9, Aviators 8. 1 Out. Hotcorner on 3rd.
+🔴 Power is out.
+SF
+2 Outs
+➜ 💎 Hotcorner scores!
+Rookie (#12) now batting
+Rockets 10, Aviators 8. 2 Outs. Bases empty.
+⚾ Rookie base hit.
+1B
+Speedy (#1) now batting
+Rockets 10, Aviators 8. 2 Outs. Rookie on 1st.
+➜ 🔴 Rookie put out.
+3 Outs
+• Strike
+• Strike
+• Strike
+❌ Speedy goes down swinging.
+K
+4 Outs
+Inning Summary: 1 Run, 0 Hits, 0 LOB.
+BOTTOM 6 - AVIATORS
+Glider placed on 1st.
+Pilot (#11) now batting
+Rockets 10, Aviators 8. 0 Outs. Glider on 1st.
+⚾ Pilot singles.
+1B
+➜ Glider advances to 3rd.
+Wingman (#12) now batting
+Rockets 10, Aviators 8. 0 Outs. Pilot on 1st, Glider on 3rd.
+⚾ Wingman base hit.
+1B
+➜ 💎 Glider scores!
+➜ Pilot advances to 2nd.
+Bomber (#13) now batting
+Rockets 10, Aviators 9. 0 Outs. Wingman on 1st, Pilot on 2nd.
+⚾⚾ Bomber doubles.
+2B
+➜ 💎 Pilot scores! **We are tied!**
+➜ Wingman advances to 3rd.
+Inning Summary: 2 Runs, 0 Hits, 2 LOB.
+FINAL - GAME SUMMARY
+Match Report
+Final Score: Rockets 10, Aviators 10. The game ends in a tie.

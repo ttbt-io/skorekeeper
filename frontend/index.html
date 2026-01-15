@@ -1,0 +1,906 @@
+<!--
+Copyright (c) 2026 TTBT Enterprises LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skorekeeper</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="./services/errorLogger.js"></script>
+</head><body>
+    <!-- Dashboard -->
+    <div id="dashboard-view" class="view-container">
+        <header class="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20 flex items-center gap-4">
+            <button id="btn-menu-dashboard" class="text-white hover:bg-slate-800 p-2 rounded -ml-2">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 class="text-xl font-bold tracking-tight" data-testid="app-title">Skorekeeper</h1>
+            <button id="btn-new-game" class="ml-auto bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-sm font-bold shadow">
+                + New Game
+            </button>
+        </header>
+        <div class="bg-white border-b border-gray-200 p-4 sticky top-[60px] z-10 shadow-sm">
+            <div class="max-w-3xl mx-auto flex flex-col gap-3">
+                <input type="text" id="dashboard-search" placeholder="Search games..." class="w-full border p-3 rounded shadow-sm text-sm">
+            </div>
+        </div>
+        <main class="flex-1 overflow-y-auto p-4" id="game-list-container"><div class="max-w-3xl mx-auto space-y-6" id="game-list"></div></main>
+    </div>
+
+    <!-- Teams View -->
+    <div id="teams-view" class="view-container hidden">
+        <header class="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20 flex items-center gap-4">
+            <button id="btn-menu-teams" class="text-white hover:bg-slate-800 p-2 rounded -ml-2">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 class="text-xl font-bold tracking-tight">Teams</h1>
+            <button id="btn-create-team" class="ml-auto bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-sm font-bold shadow">
+                + New Team
+            </button>
+        </header>
+        <main class="flex-1 overflow-y-auto p-4" id="teams-list-container">
+            <div class="max-w-3xl mx-auto space-y-4" id="teams-list">
+                <!-- Team cards injected here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Statistics View -->
+    <div id="statistics-view" class="view-container hidden">
+        <header class="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20 flex items-center gap-4">
+            <button id="btn-menu-stats" class="text-white hover:bg-slate-800 p-2 rounded -ml-2">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 class="text-xl font-bold tracking-tight">Statistics</h1>
+            <div class="ml-auto flex gap-2">
+                <button id="btn-stats-columns" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm font-bold shadow border border-slate-500 flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2m0 10V7a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path></svg>
+                    Columns
+                </button>
+                <button id="btn-rebuild-stats" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm font-bold shadow border border-slate-500">
+                    Rebuild
+                </button>
+            </div>
+        </header>
+        <div class="bg-white border-b border-gray-200 p-4 sticky top-[60px] z-10 shadow-sm">
+            <div class="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-3">
+                <select id="filter-team" class="border p-2 rounded text-sm">
+                    <option value="">All Teams</option>
+                </select>
+                <input type="text" id="filter-event" placeholder="Filter by event..." class="border p-2 rounded text-sm">
+                <div class="flex items-center gap-2 md:col-span-2">
+                    <input type="date" id="filter-date-start" class="border p-2 rounded text-sm flex-1">
+                    <span class="text-gray-400">to</span>
+                    <input type="date" id="filter-date-end" class="border p-2 rounded text-sm flex-1">
+                </div>
+            </div>
+        </div>
+        <main class="flex-1 overflow-y-auto p-4">
+            <div class="max-w-5xl mx-auto space-y-6" id="stats-content">
+                <!-- Stats content injected here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Scoresheet View -->
+    <div id="scoresheet-view" class="view-container hidden">
+        <div class="header-wrapper">
+            <header class="bg-slate-900 text-white p-2 shadow-md flex justify-between items-center px-4 border-b border-slate-700">
+                <div class="flex items-center gap-3">
+                    <button id="btn-menu-scoresheet" class="text-gray-400 hover:text-white p-2 -ml-2">
+                        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                    </button>
+                    <div><h1 class="text-sm font-bold" id="header-game-title">Game</h1></div>
+                    <span id="game-status-indicator" class="hidden ml-2 px-2 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded uppercase">FINAL</span>
+                </div>
+                <div id="sync-status-container" class="flex items-center gap-2 text-xs text-gray-400"></div>
+                <div class="flex items-center gap-1">
+                    <button id="btn-share-game" class="text-gray-400 hover:text-white p-3" title="Share Game">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+                    </button>
+                    <button id="btn-undo" class="text-gray-400 hover:text-white p-3" title="Undo">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                    </button>
+                    <button id="btn-redo" class="text-gray-400 hover:text-white p-3" title="Redo">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path></svg>
+                    </button>
+                </div>
+            </header>
+            <div class="scoreboard-container" id="scoresheet-scoreboard">
+                <div class="sb-row text-gray-400">
+                    <div class="sb-team">Team</div>
+                    <div class="scoreboard-row-content" id="sb-header-innings"></div>
+                    <div class="sb-stats">
+                        <div class="sb-stat">R</div>
+                        <div class="sb-stat">H</div>
+                        <div class="sb-stat">E</div>
+                    </div>
+                </div>
+                <div class="sb-row">
+                    <div class="sb-team text-yellow-400" id="sb-name-away">AWAY</div>
+                    <div class="scoreboard-row-content" id="sb-innings-away"></div>
+                    <div class="sb-stats">
+                        <div class="sb-stat" id="sb-r-away">0</div>
+                        <div class="sb-stat" id="sb-h-away">0</div>
+                        <div class="sb-stat" id="sb-e-away">0</div>
+                    </div>
+                </div>
+                <div class="sb-row">
+                    <div class="sb-team" id="sb-name-home">HOME</div>
+                    <div class="scoreboard-row-content" id="sb-innings-home"></div>
+                    <div class="sb-stats">
+                        <div class="sb-stat" id="sb-r-home">0</div>
+                        <div class="sb-stat" id="sb-h-home">0</div>
+                        <div class="sb-stat" id="sb-e-home">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="team-switcher"><div id="tab-away" class="team-tab active">AWAY</div><div id="tab-home" class="team-tab inactive">HOME</div></div>
+        </div>
+        <div class="grid-container" id="grid-container">
+            <div id="scoresheet-grid" class="scoresheet-grid"></div>
+        </div>
+        <div id="feed-container" class="hidden flex-1 overflow-hidden flex flex-col bg-slate-900 text-white">
+            <div id="narrative-feed" class="flex-1 overflow-y-auto p-4 space-y-4 font-serif italic text-lg leading-relaxed"></div>
+        </div>
+        </div>
+    </div>
+
+    <!-- Broadcast View (OBS Overlay) -->
+    <div id="broadcast-view" class="view-container hidden bg-transparent">
+        <div id="scorebug" class="fixed bottom-10 left-1/2 -translate-x-1/2 flex items-center bg-slate-900/90 text-white rounded-lg shadow-2xl border border-slate-700 overflow-hidden font-sans h-16 px-4 gap-6">
+            <!-- Score & Teams -->
+            <div class="flex items-center gap-4 border-r border-slate-700 pr-6 h-full">
+                <div class="flex flex-col items-center">
+                    <span id="bug-away-name" class="text-[10px] font-black uppercase text-gray-400">AWAY</span>
+                    <span id="bug-away-score" class="text-2xl font-black">0</span>
+                </div>
+                <div class="text-xl font-light text-slate-600">vs</div>
+                <div class="flex flex-col items-center">
+                    <span id="bug-home-name" class="text-[10px] font-black uppercase text-gray-400">HOME</span>
+                    <span id="bug-home-score" class="text-2xl font-black">0</span>
+                </div>
+            </div>
+
+            <!-- Inning & Outs -->
+            <div class="flex flex-col items-center justify-center min-w-[60px]">
+                <div id="bug-inning" class="text-lg font-black flex items-center gap-1">
+                    <span id="bug-inning-arrow">▲</span>
+                    <span id="bug-inning-num">1</span>
+                </div>
+                <div class="flex gap-1 mt-1">
+                    <div id="bug-out-1" class="w-2 h-2 rounded-full bg-slate-700"></div>
+                    <div id="bug-out-2" class="w-2 h-2 rounded-full bg-slate-700"></div>
+                </div>
+            </div>
+
+            <!-- Count & Diamond -->
+            <div class="flex items-center gap-6 pl-4 border-l border-slate-700 h-full">
+                <div id="bug-count" class="text-2xl font-black font-mono tracking-widest text-yellow-400">0-0</div>
+                <div class="relative w-10 h-10 transform rotate-45 border-2 border-slate-700">
+                    <div id="bug-base-1" class="absolute -top-1 -right-1 w-4 h-4 bg-slate-800 border border-slate-600"></div>
+                    <div id="bug-base-2" class="absolute -top-1 -left-1 w-4 h-4 bg-slate-800 border border-slate-600"></div>
+                    <div id="bug-base-3" class="absolute -bottom-1 -left-1 w-4 h-4 bg-slate-800 border border-slate-600"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual View -->
+    <div id="manual-view" class="view-container hidden bg-white">
+        <header class="bg-slate-900 text-white p-4 shadow-md flex items-center gap-4">
+            <button id="btn-manual-back" class="text-white hover:bg-slate-800 p-2 rounded -ml-2">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+            </button>
+            <h1 class="text-xl font-bold tracking-tight">User Manual</h1>
+        </header>
+        <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+            <!-- Sidebar / TOC -->
+            <aside class="w-full md:w-64 bg-gray-100 border-r border-gray-200 flex flex-col flex-shrink-0 max-h-[30vh] md:max-h-full overflow-hidden">
+                <div class="p-4 border-b border-gray-200 bg-gray-50">
+                    <input type="text" id="manual-search" placeholder="Search..." class="w-full border p-2 rounded text-sm">
+                </div>
+                <nav id="manual-toc" class="flex-1 overflow-y-auto p-2 space-y-1">
+                    <!-- TOC Items injected here -->
+                </nav>
+            </aside>
+            <!-- Main Content -->
+            <main id="manual-content" class="flex-1 overflow-y-auto p-6 md:p-8 prose max-w-none text-gray-800">
+                <!-- Content injected here -->
+                <div class="text-center text-gray-500 mt-10">Select a topic to get started.</div>
+            </main>
+        </div>
+    </div>
+
+    <!-- New Game Modal -->
+    <div id="new-game-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-lg rounded-xl p-6 shadow-2xl m-4">
+            <h2 class="text-2xl font-bold mb-4 flex justify-between items-center">
+                New Game
+                <button class="text-gray-400 hover:text-blue-500" data-help-section="dashboard" title="Help">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </h2>
+            <form id="new-game-form" class="space-y-4">
+                <div>
+                    <input type="text" id="game-event-input" placeholder="Event / Tournament Name (Optional)" class="w-full border p-3 rounded mb-2" maxlength="100">
+                    <input type="text" id="game-location-input" placeholder="Location / Field (Optional)" class="w-full border p-3 rounded mb-2" maxlength="100">
+                    <input type="datetime-local" id="game-date-input" class="w-full border p-3 rounded text-gray-600">
+                </div>
+                <div class="grid grid-cols-1 gap-4 mb-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="team-away-select">Away Team</label>
+                        <select id="team-away-select" class="shadow border rounded w-full py-2 px-3 text-gray-700 mb-2">
+                            <option value="">-- Select Team (Optional) --</option>
+                        </select>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" id="team-away-input" type="text" placeholder="Or enter Away Team Name" maxlength="50">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="team-home-select">Home Team</label>
+                        <select id="team-home-select" class="shadow border rounded w-full py-2 px-3 text-gray-700 mb-2">
+                            <option value="">-- Select Team (Optional) --</option>
+                        </select>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" id="team-home-input" type="text" placeholder="Or enter Home Team Name" maxlength="50">
+                    </div>
+                </div>
+                <div class="flex gap-2"><button type="button" id="btn-cancel-new-game" class="flex-1 py-3 border rounded">Cancel</button><button type="button" id="btn-start-new-game" class="flex-1 py-3 bg-blue-600 text-white rounded">Start</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Game Modal -->
+    <div id="edit-game-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-lg rounded-xl p-6 shadow-2xl m-4">
+            <h2 class="text-2xl font-bold mb-4 flex justify-between items-center">
+                Edit Game Details
+                <button class="text-gray-400 hover:text-blue-500" data-help-section="dashboard" title="Help">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </h2>
+            <form id="edit-game-form" class="space-y-4">
+                <input type="hidden" id="edit-game-id">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-1">Event & Location</label>
+                    <input type="text" id="edit-game-event" placeholder="Event Name" class="w-full border p-3 rounded mb-2" maxlength="100">
+                    <input type="text" id="edit-game-location" placeholder="Location" class="w-full border p-3 rounded mb-2" maxlength="100">
+                    <label class="block text-gray-700 text-sm font-bold mb-1">Date</label>
+                    <input type="datetime-local" id="edit-game-date" class="w-full border p-3 rounded text-gray-600">
+                </div>
+                <div class="grid grid-cols-1 gap-4 mb-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-team-away">Away Team</label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" id="edit-team-away" type="text" maxlength="50">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-team-home">Home Team</label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" id="edit-team-home" type="text" maxlength="50">
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" id="btn-cancel-edit-game" class="flex-1 py-3 border rounded">Cancel</button>
+                    <button type="button" id="btn-save-edit-game" class="flex-1 py-3 bg-blue-600 text-white rounded font-bold">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CSO Modal -->
+    <div id="cso-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden">
+        <div class="absolute inset-0 modal-backdrop-blur"></div>
+        <div class="cso-modal-content bg-slate-800 text-white rounded-xl shadow-2xl w-[95%] max-w-lg transform transition-transform duration-300 flex flex-col max-h-[90vh] relative z-10">
+            <div class="cso-header flex justify-between items-center p-3 border-b border-slate-700">
+                <div class="flex items-center gap-3"><span class="text-yellow-500 font-bold text-xl">●</span><div><h2 class="text-base font-bold" id="cso-title">Batting</h2><div class="text-xs text-gray-400" id="cso-subtitle">Inning 1</div></div></div>
+                <div class="flex items-center gap-2">
+                    <button id="btn-change-pitcher" class="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded border border-slate-600 text-gray-300 font-mono" title="Change Pitcher">P: #<span id="cso-pitcher-num">--</span></button>
+                    <button class="text-gray-400 hover:text-white p-2" data-help-section="scoring" title="Help">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </button>
+                    <button id="btn-close-cso" class="text-gray-400 hover:text-white p-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                </div>
+            </div>
+            
+            <div class="cso-body p-3 flex-1 overflow-y-auto flex flex-col relative">
+                <!-- MAIN INTERACTION AREA -->
+                <div id="cso-main-view" class="flex flex-col h-full">
+                    <div class="flex gap-4 mb-2">
+                        <div class="cso-zoom-container shadow-md relative">
+                            <svg viewBox="0 0 200 200" class="w-full h-full"></svg>
+                            <div class="zoom-outcome" id="zoom-outcome-text"></div>
+                            
+                            <!-- SIDE MENU (Inside Zoom Container) -->
+                            <div id="cso-runner-menu" class="runner-menu-side hidden">
+                                <div class="flex justify-between items-center border-b border-yellow-600 mb-1 pb-1"><span class="text-yellow-400 font-bold text-xs" id="runner-menu-title">Runner</span><button id="btn-close-runner-menu" class="text-gray-400 text-[10px]">X</button></div>
+                                <div class="grid grid-cols-1 gap-1" id="runner-menu-options"></div>
+                            </div>
+                        </div>
+                        <div id="side-controls" class="flex-1 flex flex-col justify-center gap-2">
+                            <button id="btn-runner-actions" class="hidden bg-yellow-600 text-black font-black py-3 rounded">RUNNER ACTIONS</button>
+                            <button id="btn-show-bip" class="bg-green-600 text-white font-black py-3 rounded">BALL IN PLAY</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 mb-2"><div id="pitch-sequence-container" class="h-6 flex items-center overflow-x-auto bg-gray-800 rounded px-1 flex-1"></div><button id="btn-undo-pitch" class="text-red-400 font-bold px-2">⌫</button></div>
+                    <div id="action-area-pitch" class="flex flex-col flex-1 gap-2">
+                        <div class="grid grid-cols-2 gap-2 flex-1">
+                            <button id="btn-ball" class="bg-blue-600 text-white font-black rounded py-4 shadow select-none">BALL</button>
+                            <button id="btn-strike" class="bg-red-600 text-white font-black rounded py-4 shadow select-none">STRIKE</button>
+                            <button id="btn-foul" class="bg-gray-600 text-white font-black rounded py-4 shadow">FOUL</button>
+                            <button id="btn-out" class="bg-yellow-600 text-black font-black rounded py-4 shadow select-none">OUT</button>
+                        </div>
+                        <div class="text-center text-xs text-gray-500">Long-press for options</div>
+                        <div class="grid grid-cols-4 gap-1"><button class="bg-gray-700 text-xs py-2 rounded" data-auto-advance="HBP">HBP</button><button class="bg-gray-700 text-xs py-2 rounded" data-auto-advance="CI">CI</button><button class="bg-gray-700 text-xs py-2 rounded" data-auto-advance="IBB">IBB</button><button id="btn-clear-all" class="bg-gray-700 text-xs py-2 rounded">CLR</button></div>
+                    </div>
+                    <div id="action-area-recorded" class="hidden flex flex-col flex-1 justify-center"><button id="btn-toggle-action" class="bg-gray-700 text-green-400 font-black text-xl py-8 rounded border-2 border-green-500 shadow-lg">PLAY RECORDED<br><span class="text-sm text-gray-400 font-normal">Tap to Edit</span></button></div>
+                </div>
+                <div id="cso-bip-view" class="hidden flex flex-col gap-4 h-full absolute inset-0 bg-slate-800 p-3 z-20">
+                    <h3 class="font-bold text-yellow-400 text-center">Result of Play for Batter</h3>
+                    <div class="flex flex-col flex-1 gap-1">
+                        <div class="flex justify-center items-center bg-black rounded p-2 text-yellow-400 font-mono text-xl tracking-widest mb-2 h-12"><span id="sequence-display">_</span><button class="ml-auto text-red-400 text-sm font-bold px-2" id="btn-backspace">⌫</button></div>
+                        <div class="field-svg-keyboard flex-1 border-2 border-gray-600 rounded relative bg-green-800">
+                            <svg viewBox="0 0 200 200" class="absolute inset-0 w-full h-full">
+                                <path d="M100,170 L33,103 A 80.4 80.4 0 0 1 167,103 Z" fill="#9a6f44" />
+                                <path d="M100,170 L0,65 M100,170 L200,65 M0,65 A 116.6,116.6 0 0 1 200,65" stroke="white" stroke-width="2" fill="none" />
+                                <rect x="96" y="166" width="8" height="8" fill="white" transform="rotate(45 100 170)" />
+                                <rect x="141" y="121" width="8" height="8" fill="white" transform="rotate(45 145 125)" />
+                                <rect x="51" y="121" width="8" height="8" fill="white" transform="rotate(45 55 125)" />
+                                <rect x="96" y="76" width="8" height="8" fill="white" transform="rotate(45 100 80)" />
+                                <g class="pos-key" data-pos="1" transform="translate(100, 125)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">1</text></g>
+                                <g class="pos-key" data-pos="2" transform="translate(100, 185)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">2</text></g>
+                                <g class="pos-key" data-pos="3" transform="translate(155, 115)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">3</text></g>
+                                <g class="pos-key" data-pos="4" transform="translate(130, 70)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">4</text></g>
+                                <g class="pos-key" data-pos="5" transform="translate(45, 115)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">5</text></g>
+                                <g class="pos-key" data-pos="6" transform="translate(70, 70)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">6</text></g>
+                                <g class="pos-key" data-pos="7" transform="translate(35, 40)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">7</text></g>
+                                <g class="pos-key" data-pos="8" transform="translate(100, 25)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">8</text></g>
+                                <g class="pos-key" data-pos="9" transform="translate(165, 40)"><circle r="12" fill="rgba(0,0,0,0.3)" stroke="white"/><text dy="4" text-anchor="middle" fill="white" font-size="12" font-weight="bold">9</text></g>
+                                <!-- Hit location marker will be injected here by JS -->
+                            </svg>
+                            <button id="btn-loc" class="absolute top-2 right-2 w-10 h-10 bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center rounded-lg shadow-lg text-lg" title="Toggle Hit Location Input">📍</button>
+                            <div id="div-traj-controls" class="hidden flex flex-col gap-2 absolute top-14 right-2 z-30">
+                                <button class="cycle-btn flex-1 p-2 text-sm w-10 h-10 flex items-center justify-center" id="btn-traj">G</button>
+                                <button class="bg-red-600 hover:bg-red-500 text-white font-bold w-10 h-10 rounded shadow-lg flex items-center justify-center text-sm" id="btn-clear-loc" title="Clear Hit Location">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex gap-2">
+                            <button class="cycle-btn" id="btn-res"><span id="btn-res-text">SAFE</span><svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+                            <button class="cycle-btn" id="btn-base"><span id="btn-base-text">1B</span><svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+                            <button class="cycle-btn" id="btn-type"><span id="btn-type-text">HIT</span><svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+                        </div>
+                        <div class="flex gap-2"><button class="bg-gray-600 flex-1 py-3 rounded text-white" id="btn-cancel-bip">Cancel</button><button class="bg-blue-600 flex-1 py-3 rounded text-white font-bold" id="btn-save-bip">SAVE</button></div>
+                    </div>
+                </div>
+                <div id="cso-runner-action-view" class="hidden flex flex-col h-full bg-slate-800 p-3">
+                    <div class="flex justify-between items-center border-b border-gray-600 pb-2 mb-2">
+                        <h3 class="font-bold text-white">Runner Actions</h3>
+                    </div>
+                    <div id="runner-action-list" class="flex-1 overflow-y-auto flex flex-col gap-3"></div>
+                    <div class="mt-2 pt-2 border-t border-gray-600 flex gap-2">
+                         <button id="btn-close-runner-action" class="bg-gray-600 flex-1 py-3 rounded text-white">Cancel</button>
+                         <button id="btn-save-runner-actions" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded shadow-lg">SAVE</button>
+                    </div>
+                </div>
+                <div id="cso-runner-advance-view" class="hidden flex flex-col bg-slate-800 p-3 z-20 w-full">
+                    <div class="flex justify-between items-center border-b border-gray-600 pb-2 mb-2">
+                        <h3 class="font-bold text-yellow-400">Update Runners</h3>
+                    </div>
+                    <div id="runner-advance-list" class="flex-1 overflow-y-auto flex flex-col gap-3"></div>
+                    <div class="mt-2 pt-2 border-t border-gray-600 flex gap-2">
+                        <button id="btn-runner-advance-close" class="bg-gray-600 flex-1 py-3 rounded text-white">Cancel</button>
+                        <button id="btn-finish-turn" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded shadow-lg">FINISH TURN</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    <div id="column-context-menu" class="fixed bg-gray-800 text-white p-2 rounded shadow-lg hidden z-50" style="z-index: 70;">
+        <button class="block w-full text-left p-2 hover:bg-gray-700" id="btn-menu-add-col">Add Column</button>
+        <button class="block w-full text-left p-2 hover:bg-gray-700" id="btn-menu-remove-col">Remove Column</button>
+    </div>
+    <div id="game-context-menu" class="fixed bg-gray-800 text-white p-2 rounded shadow-lg hidden z-50" style="z-index: 70;">
+        <button class="block w-full text-left p-2 hover:bg-gray-700" id="btn-menu-edit-game">Edit Game Details</button>
+        <button class="block w-full text-left p-2 hover:bg-red-700 text-red-400" id="btn-menu-delete-game">Delete Game</button>
+    </div>
+    <div id="player-context-menu" class="fixed bg-gray-800 text-white p-2 rounded shadow-lg hidden z-50" style="z-index: 70;">
+        <!-- Content will be injected by showSubstitutionMenu -->
+    </div>
+    <div id="cso-long-press-submenu" class="fixed bg-gray-800 text-white p-2 rounded shadow-lg hidden z-50" style="z-index: 70;"><div class="flex justify-between p-2 border-b border-yellow-600"><span class="text-yellow-400 font-bold">Options</span><button class="text-gray-400 hover:text-white" id="btn-close-long-press-menu"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><div class="grid gap-2 p-2 overflow-y-auto content-start" id="submenu-content"></div></div>
+    
+    <div id="options-context-menu" class="fixed bg-gray-800 text-white p-2 rounded shadow-lg hidden" style="z-index: 80;">
+        <div class="grid gap-1 p-1 overflow-y-auto content-start max-h-[300px]" id="options-menu-content"></div>
+    </div>
+
+    <!-- Team Modal -->
+    <div id="team-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-2xl rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <h2 id="team-modal-title" class="text-2xl font-bold mb-4 border-b pb-2">New Team</h2>
+            <div class="flex-1 overflow-y-auto pr-2">
+                <input type="hidden" id="team-id">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Team Name</label>
+                        <input type="text" id="team-name" class="w-full border p-2 rounded text-lg" placeholder="e.g. Springfield Atoms" maxlength="50">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Short Name / Abbr</label>
+                        <input type="text" id="team-short-name" class="w-full border p-2 rounded text-lg" placeholder="e.g. SFG" maxlength="5">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Team Color</label>
+                        <input type="color" id="team-color" class="w-full h-[46px] border p-1 rounded" value="#2563eb">
+                    </div>
+                </div>
+
+                <div class="flex border-b mb-4">
+                    <button type="button" id="tab-team-roster" class="px-4 py-2 font-bold border-b-2 border-blue-600 text-blue-600">Roster</button>
+                    <button type="button" id="tab-team-members" class="px-4 py-2 font-bold border-b-2 border-transparent text-gray-500 hover:text-blue-600">Members & Sharing</button>
+                </div>
+
+                <div id="team-roster-view">
+                    <div class="mb-2 flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-gray-800">Roster</h3>
+                        <button type="button" id="btn-add-team-player" class="text-blue-600 hover:text-blue-800 text-sm font-bold">+ Add Player</button>
+                    </div>
+                    <div class="grid grid-cols-[60px_1fr_60px_40px] gap-2 mb-1 px-1">
+                        <span class="text-xs font-bold text-gray-500 text-center">#</span>
+                        <span class="text-xs font-bold text-gray-500">Name</span>
+                        <span class="text-xs font-bold text-gray-500 text-center">Pos</span>
+                        <span></span>
+                    </div>
+                    <div id="team-roster-container" class="space-y-2">
+                        <!-- Player rows injected here -->
+                    </div>
+                </div>
+
+                <div id="team-members-view" class="hidden">
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Team Members</h3>
+                    <p class="text-xs text-gray-500 mb-4">Manage who can score games and view rosters for this team.</p>
+                    
+                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6">
+                        <h4 class="text-sm font-bold text-gray-700 mb-2">Invite New Member</h4>
+                        <div class="flex gap-2">
+                            <input type="email" id="member-invite-email" class="flex-1 border p-2 rounded text-sm" placeholder="user@example.com">
+                            <select id="member-invite-role" class="border p-2 rounded text-sm">
+                                <option value="scorekeeper">Scorekeeper (Write)</option>
+                                <option value="spectator">Spectator (Read)</option>
+                                <option value="admin">Admin (Full)</option>
+                            </select>
+                            <button type="button" id="btn-add-member" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-blue-500">Add</button>
+                        </div>
+                    </div>
+
+                    <div id="team-members-container" class="space-y-3">
+                        <!-- Members injected here -->
+                    </div>
+                </div>
+            </div>
+            <div class="border-t pt-4 mt-4 flex justify-end gap-3">
+                <button id="btn-cancel-team" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-save-team" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow">Save Team</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player Profile Modal -->
+    <div id="player-profile-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-4xl rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center border-b pb-4 mb-4">
+                <div>
+                    <h2 id="profile-name" class="text-3xl font-bold text-slate-900">Player Name</h2>
+                    <p id="profile-subtitle" class="text-gray-500 font-mono text-lg">#99 • Position</p>
+                </div>
+                <button id="btn-close-profile" class="text-gray-400 hover:text-gray-600 p-2">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Left: Stats -->
+                <div>
+                    <h3 class="text-xl font-bold mb-4 text-gray-800">Season Statistics</h3>
+                    <div id="profile-stats-card" class="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-4 mb-6">
+                        <!-- Injected via JS -->
+                    </div>
+
+                    <h3 class="text-xl font-bold mb-4 text-gray-800">Recent Games</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-100 text-gray-600"><tr><th class="p-2">Date</th><th class="p-2">Opponent</th><th class="p-2">Performance</th></tr></thead>
+                            <tbody id="profile-game-log" class="divide-y divide-gray-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Right: Spray Chart -->
+                <div class="flex flex-col">
+                    <h3 class="text-xl font-bold mb-4 text-gray-800">Spray Chart</h3>
+                    <div class="flex-1 bg-green-800 rounded-xl border-4 border-slate-800 relative shadow-inner overflow-hidden min-h-[300px]">
+                        <svg id="profile-spray-chart" viewBox="0 0 200 200" class="absolute inset-0 w-full h-full">
+                            <!-- Field Paths -->
+                            <path d="M100,185 L147,140 L100,95 L53,140 Z" fill="#9a6f44" stroke="none"></path> <!-- Infield Dirt -->
+                            <path d="M100,185 L147,140 L100,95 L53,140 Z" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"></path>
+                            <!-- Outfield Fence -->
+                            <path d="M 0,83 A 114,114 0 0 1 200,83" stroke="rgba(255,255,255,0.2)" stroke-width="2" fill="none"></path>
+                            <!-- Foul Lines -->
+                            <line x1="100" y1="185" x2="200" y2="85" stroke="white" stroke-width="1"></line>
+                            <line x1="100" y1="185" x2="0" y2="85" stroke="white" stroke-width="1"></line>
+                            <!-- Bases -->
+                            <rect x="98" y="183" width="4" height="4" fill="white" transform="rotate(45 100 185)"></rect> <!-- Home -->
+                            <rect x="145" y="138" width="4" height="4" fill="white" transform="rotate(45 147 140)"></rect> <!-- 1B -->
+                            <rect x="98" y="93" width="4" height="4" fill="white" transform="rotate(45 100 95)"></rect> <!-- 2B -->
+                            <rect x="51" y="138" width="4" height="4" fill="white" transform="rotate(45 53 140)"></rect> <!-- 3B -->
+                            
+                            <!-- Markers Group -->
+                            <g id="spray-markers"></g>
+                        </svg>
+                    </div>
+                    <div class="flex justify-center gap-4 mt-2 text-xs font-bold text-gray-600">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-400 border border-white"></span> Hit</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500 border border-white"></span> Out</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-yellow-400 border border-white"></span> Error</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Game Modal -->
+    <div id="share-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2">Share Game</h2>
+            
+            <div class="flex-1 overflow-y-auto pr-2">
+                <!-- Public Link -->
+                <div class="mb-6">
+                    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-widest mb-3">Public Access</h3>
+                    <div class="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <span class="text-sm font-medium">Public Read-Only Link</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="share-public-toggle" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <div id="public-link-container" class="mt-3 hidden space-y-2">
+                        <div class="flex gap-2">
+                            <input type="text" id="public-share-url" class="flex-1 border p-2 rounded text-[10px] bg-gray-100" readonly>
+                            <button id="btn-copy-share-url" class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold whitespace-nowrap">Copy Link</button>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="broadcast-share-url" class="flex-1 border p-2 rounded text-[10px] bg-gray-100" readonly>
+                            <button id="btn-copy-broadcast-url" class="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold whitespace-nowrap">Copy OBS</button>
+                        </div>
+                        <div id="share-qrcode" class="flex justify-center my-4"></div>
+                    </div>
+                </div>
+
+                <!-- Collaborators -->
+                <div>
+                    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-widest mb-3">Invite Collaborators</h3>
+                    <div class="flex gap-2 mb-4">
+                        <input type="email" id="share-invite-email" class="flex-1 border p-2 rounded text-sm" placeholder="user@example.com">
+                        <button id="btn-share-add-user" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold shadow">Add</button>
+                    </div>
+                    <div id="game-collaborators-list" class="space-y-2">
+                        <!-- Collaborators injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t pt-4 mt-4 flex justify-end">
+                <button id="btn-close-share" class="px-6 py-2 bg-slate-800 text-white font-bold rounded hover:bg-slate-700 shadow">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Lineup Modal -->
+    <div id="edit-lineup-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-2xl rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2 flex justify-between items-center">
+                Edit Lineup
+                <button class="text-gray-400 hover:text-blue-500" data-help-section="lineup" title="Help">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </h2>
+            <div class="flex-1 overflow-y-auto pr-2">
+                <div class="mb-6">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Team Name</label>
+                    <input type="text" id="lineup-team-name" class="w-full border p-2 rounded text-lg font-bold" maxlength="50">
+                </div>
+
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-lg font-bold text-gray-800">Starters</h3>
+                        <button type="button" id="btn-add-starter-row" class="text-blue-600 hover:text-blue-800 text-sm font-bold">+ Add Row</button>
+                    </div>
+                    <div class="grid grid-cols-[30px_45px_1fr_55px_44px] gap-1 mb-1 px-1">
+                        <span></span>
+                        <span class="text-xs font-bold text-gray-500 text-center">#</span>
+                        <span class="text-xs font-bold text-gray-500">Name</span>
+                        <span class="text-xs font-bold text-gray-500 text-center">Pos</span>
+                        <span></span>
+                    </div>
+                    <div id="lineup-starters-container" class="space-y-2">
+                        <!-- Starter rows injected here -->
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-lg font-bold text-gray-800">Substitutes</h3>
+                        <button type="button" id="btn-add-sub-row" class="text-blue-600 hover:text-blue-800 text-sm font-bold">+ Add Row</button>
+                    </div>
+                    <div class="grid grid-cols-[30px_45px_1fr_44px] gap-1 mb-1 px-1">
+                        <span></span>
+                        <span class="text-xs font-bold text-gray-500 text-center">#</span>
+                        <span class="text-xs font-bold text-gray-500">Name</span>
+                        <span></span>
+                    </div>
+                    <div id="lineup-subs-container" class="space-y-2 mb-4">
+                        <!-- Sub rows injected here -->
+                    </div>
+                </div>
+            </div>
+            <div class="border-t pt-4 mt-4 flex justify-end gap-3">
+                <button id="btn-cancel-lineup" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-save-lineup" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="substitution-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-sm rounded-xl p-6 shadow-2xl m-4">
+            <h2 class="text-xl font-bold mb-4">Substitute Player</h2>
+            <div class="mb-4 text-sm text-gray-600">
+                Replacing: <span id="sub-outgoing-name" class="font-bold"></span> (#<span id="sub-outgoing-num"></span>)
+            </div>
+            <form id="sub-form" class="space-y-4">
+        <div class="mb-4">
+            <label class="block text-gray-300 text-sm font-bold mb-2" for="sub-incoming-num">Incoming Player (Search # or Name)</label>
+            <input id="sub-incoming-num" type="search" list="sub-options" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-2" placeholder="Search..." maxlength="50">
+            <datalist id="sub-options"></datalist>
+            <input id="sub-incoming-name" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" placeholder="Name" maxlength="50">
+        </div>
+        <div class="mb-4">
+            <label class="block text-gray-300 text-sm font-bold mb-2" for="sub-incoming-pos">Position</label>
+            <input id="sub-incoming-pos" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" placeholder="Position" maxlength="10">
+        </div>
+                <div class="flex gap-2 pt-2">
+                    <button type="button" id="btn-cancel-sub" class="flex-1 py-3 border rounded">Cancel</button>
+                                                 <button type="button" id="btn-confirm-sub" class="flex-1 py-3 bg-blue-600 text-white rounded font-bold">Confirm</button>                </div>
+            </form>
+        </div>
+    </div>
+    <div id="conflict-resolution-modal" class="fixed inset-0 z-[80] flex items-center justify-center hidden modal-backdrop-blur p-4">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl">
+            <h2 class="text-2xl font-bold mb-4 text-red-600">Sync Conflict Detected</h2>
+            <p class="text-gray-700 mb-6">Your local changes conflict with actions performed by another user on the server. How would you like to resolve this?</p>
+            
+            <div class="grid gap-4">
+                <button id="btn-conflict-force-save" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow">
+                    Overwrite Server with Local State
+                    <span class="block text-xs font-normal opacity-90">Authoritative: Discards server changes and pushes yours.</span>
+                </button>
+
+                <button id="btn-conflict-overwrite" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow">
+                    Overwrite Local with Server State
+                    <span class="block text-xs font-normal opacity-90">Safe: You lose your local unsynced changes.</span>
+                </button>
+                
+                <button id="btn-conflict-fork" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow">
+                    Save as New Game (Fork)
+                    <span class="block text-xs font-normal opacity-90">Keeps both versions as separate games.</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <div id="save-indicator" class="fixed bottom-4 right-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-full text-sm font-bold hidden z-50 flex items-center gap-2">
+        <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+        Saving...
+    </div>
+
+    <!-- Sidebar Backdrop -->
+    <div id="sidebar-backdrop" class="fixed inset-0 z-40 hidden modal-backdrop-blur"></div>
+
+    <!-- Sidebar -->
+    <div id="app-sidebar" class="fixed inset-y-0 left-0 w-64 bg-slate-900 text-white z-50 transform -translate-x-full transition-transform duration-300 shadow-xl flex flex-col">
+        <!-- Sidebar Header (Auth) -->
+        <div id="sidebar-auth" class="p-4 border-b border-slate-700 bg-slate-800 min-h-[80px] flex items-center">
+            <!-- Auth content injected here -->
+        </div>
+
+        <!-- Sidebar Menu Items -->
+        <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+            <button id="sidebar-btn-dashboard" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 hidden text-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                Dashboard
+            </button>
+            <button id="sidebar-btn-teams" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                Teams
+            </button>
+            <button id="sidebar-btn-stats" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                Statistics
+            </button>
+
+            <div id="sidebar-game-actions" class="border-t border-slate-700 pt-2 mt-2 hidden">
+                <div class="text-xs font-bold text-gray-500 uppercase px-4 mb-2">Current Game</div>
+                
+                <button id="sidebar-btn-view-grid" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 mb-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    Scorecard
+                </button>
+                <button id="sidebar-btn-view-feed" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 mb-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path></svg>
+                    Feed
+                </button>
+
+                <button id="sidebar-btn-add-inning" class="w-full text-left py-3 px-4 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-3 mb-2 border border-slate-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    Add Inning
+                </button>
+                <button id="sidebar-btn-end-game" class="w-full text-left py-3 px-4 bg-red-900 hover:bg-red-800 rounded flex items-center gap-3 border border-red-700 text-red-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    End Game
+                </button>
+            </div>
+
+            <div id="sidebar-export-actions" class="border-t border-slate-700 pt-2 mt-2 hidden">
+                <div class="text-xs font-bold text-gray-500 uppercase px-4 mb-2">Export</div>
+                <button id="sidebar-btn-export-pdf" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.586-.897l-6-2.5a1 1 0 00-.828 0l-6 2.5A1 1 0 005 9.414V19a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11v6m0 0l-3-3m3 3l3-3"></path></svg>
+                    Export to PDF
+                </button>
+            </div>
+
+            <button id="sidebar-btn-backup" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-lg mt-4 border-t border-slate-700 pt-4">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                Backup / Restore
+            </button>
+            <button id="sidebar-btn-manual" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                User Manual
+            </button>
+            <button id="sidebar-btn-report-bug" class="w-full text-left py-3 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Report a Bug
+            </button>
+            <button id="sidebar-btn-clear-cache" class="w-full text-left py-2 px-4 hover:bg-slate-700 rounded flex items-center gap-3 text-sm text-gray-400 hover:text-white mt-auto">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                Clear Cache & Reload
+            </button>
+        </nav>
+        
+        <div class="p-4 text-xs text-slate-500 border-t border-slate-800 text-center">
+            Skorekeeper v<span id="app-version">0.1</span>
+        </div>
+    </div>
+
+    <!-- Backup Modal -->
+    <div id="backup-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl m-4">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2">Backup Data</h2>
+            <div class="space-y-4 mb-6">
+                <p class="text-sm text-gray-600">Export your data to a file for safekeeping or to transfer to another device.</p>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="backup-include-games" class="w-5 h-5" checked>
+                    <label for="backup-include-games" class="font-bold text-gray-800">Include Games</label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="backup-include-teams" class="w-5 h-5" checked>
+                    <label for="backup-include-teams" class="font-bold text-gray-800">Include Teams</label>
+                </div>
+                <div class="flex items-center gap-2 pl-6">
+                    <input type="checkbox" id="backup-remote-data" class="w-4 h-4" checked>
+                    <label for="backup-remote-data" class="text-sm text-gray-600">Fetch remote data from server</label>
+                </div>
+                <div id="backup-progress" class="hidden text-sm text-blue-600 font-mono animate-pulse">Preparing...</div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-backup" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-start-backup" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow">Download Backup</button>
+            </div>
+            <div class="mt-4 pt-4 border-t">
+                <h3 class="font-bold text-gray-700 mb-2">Restore</h3>
+                <button id="btn-open-restore" class="w-full py-2 border-2 border-dashed border-gray-400 rounded text-gray-600 hover:bg-gray-50 font-bold">Import / Restore Backup File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore Modal -->
+    <div id="restore-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-2xl rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2">Restore Backup</h2>
+            
+            <div id="restore-step-1" class="flex-1 flex flex-col items-center justify-center py-10">
+                <input type="file" id="restore-file-input" accept=".jsonl,.json" class="hidden">
+                <button id="btn-select-restore-file" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg hover:bg-blue-500 mb-4">Select Backup File</button>
+                <p class="text-sm text-gray-500">Supported format: .jsonl (Skorekeeper Backup)</p>
+            </div>
+
+            <div id="restore-step-2" class="hidden flex-1 flex flex-col overflow-hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <p class="text-sm text-gray-600">Select items to restore:</p>
+                    <div class="gap-2 flex">
+                        <button id="btn-restore-select-all" class="text-xs text-blue-600 font-bold hover:underline">Select All</button>
+                        <button id="btn-restore-select-none" class="text-xs text-blue-600 font-bold hover:underline">Select None</button>
+                    </div>
+                </div>
+                <div id="restore-list-container" class="flex-1 overflow-y-auto border rounded bg-gray-50 p-2 space-y-1">
+                    <!-- Items injected here -->
+                </div>
+                <div id="restore-progress" class="hidden mt-4 text-sm text-blue-600 font-mono">Restoring...</div>
+            </div>
+
+            <div class="border-t pt-4 mt-4 flex justify-end gap-3">
+                <button id="btn-cancel-restore" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-confirm-restore" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow hidden">Restore Selected</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bug Report Modal -->
+    <div id="bug-report-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl m-4">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2">Report a Bug</h2>
+            <div class="space-y-4 mb-6">
+                <p class="text-sm text-gray-600">Please describe what happened. A report file containing the current app state and recent errors will be downloaded to help with troubleshooting.</p>
+                <textarea id="bug-report-description" class="w-full border p-3 rounded h-32 text-sm" placeholder="Describe the bug..."></textarea>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="bug-include-state" class="w-5 h-5" checked disabled>
+                    <label for="bug-include-state" class="text-sm font-bold text-gray-800">Include Internal App State (Required)</label>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-bug-report" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-download-bug-report" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow">Download Report</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Column Selection Modal -->
+    <div id="stats-columns-modal" class="fixed inset-0 z-[60] flex items-center justify-center hidden modal-backdrop-blur">
+        <div class="bg-white w-full max-w-lg rounded-xl p-6 shadow-2xl m-4 flex flex-col max-h-[90vh]">
+            <h2 class="text-2xl font-bold mb-4 border-b pb-2">Select Columns</h2>
+            <div class="flex-1 overflow-y-auto pr-2 space-y-6">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Hitting Stats</h3>
+                    <div id="stats-cols-hitting" class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <!-- Checkboxes injected by JS -->
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Pitching Stats</h3>
+                    <div id="stats-cols-pitching" class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <!-- Checkboxes injected by JS -->
+                    </div>
+                </div>
+            </div>
+            <div class="border-t pt-4 mt-4 flex justify-end gap-3">
+                <button id="btn-cancel-stats-cols" class="px-4 py-2 border rounded hover:bg-gray-100">Cancel</button>
+                <button id="btn-save-stats-cols" class="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-500 shadow">Save Selection</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./init.js"></script>
+</body>
+</html>

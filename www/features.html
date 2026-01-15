@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Features - Skorekeeper</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased selection:bg-blue-200 selection:text-blue-900 flex flex-col min-h-screen">
+
+    <!-- Navigation -->
+    <nav class="flex-shrink-0 w-full z-50 bg-white border-b border-slate-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <a href="index.html" class="flex-shrink-0 flex items-center gap-2 hover:opacity-80 transition-opacity">
+                    <span class="font-black text-xl tracking-tighter text-slate-900">SKOREKEEPER</span>
+                </a>
+                <div class="flex items-center space-x-4">
+                    <a href="index.html" class="text-slate-500 hover:text-slate-900 font-medium transition-colors text-sm">Home</a>
+                    <a href="manual.html" class="text-slate-500 hover:text-slate-900 font-medium transition-colors text-sm">Manual</a>
+                    <a href="https://github.com/ttbt-io/skorekeeper" class="text-slate-500 hover:text-slate-900 transition-colors" aria-label="GitHub">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd" /></svg>
+                    </a>
+                    <a href="https://app.skorekeeper.org/" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg">Launch App</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="bg-white pt-24 pb-16 border-b border-slate-200">
+        <div class="max-w-4xl mx-auto px-4 text-center">
+            <h1 class="text-5xl font-black text-slate-900 mb-6 tracking-tight">System Tour</h1>
+            <p class="text-xl text-slate-600 leading-relaxed">
+                Skorekeeper is built on an event-sourced architecture, providing a level of reliability and detail often missing from digital scoring.
+            </p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start mb-32">
+            <div>
+                <h2 class="text-3xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <span class="flex items-center justify-center w-10 h-10 bg-blue-600 text-white rounded-lg text-lg">1</span>
+                    The Contextual Scoring Overlay
+                </h2>
+                <p class="text-lg text-slate-600 mb-8 leading-relaxed">
+                    Most scoring apps force you through generic menus. Skorekeeper uses a <strong>Contextual Scoring Overlay (CSO)</strong> that adapts to the situation on the field.
+                </p>
+                <div class="space-y-6">
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Smart Pitch Tracking</h3>
+                        <p class="text-sm text-slate-600">The system automatically calculates counts and identifies outcome triggers like Strikeouts (K/ꓘ) and Walks (BB). Mid-at-bat pitching changes are tracked seamlessly.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Dynamic Base Paths</h3>
+                        <p class="text-sm text-slate-600">The CSO Diamond view allows for precision runner tracking. Tap a path to record a Steal (SB), Wild Pitch (WP), or Error (E). The system predicts logical advancements while allowing for manual overrides.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="sticky top-24">
+                <img src="assets/website-hero-scorecard.png" alt="CSO Interface" class="rounded-2xl shadow-2xl border border-slate-200">
+                <p class="mt-4 text-center text-sm text-slate-500 italic">The adaptation of traditional paper scorekeeping into a responsive digital grid.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start mb-32">
+            <div class="order-2 lg:order-1 sticky top-24">
+                <img src="assets/website-season-stats.png" alt="Analytics Table" class="rounded-2xl shadow-2xl border border-slate-200">
+                <div class="grid grid-cols-3 gap-4 mt-6">
+                    <div class="bg-blue-50 p-4 rounded-xl text-center">
+                        <div class="text-blue-600 font-bold text-xl">AVG</div>
+                        <div class="text-xs text-blue-400 uppercase font-black">Derivation</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-xl text-center">
+                        <div class="text-purple-600 font-bold text-xl">WHIP</div>
+                        <div class="text-xs text-purple-400 uppercase font-black">Efficiency</div>
+                    </div>
+                    <div class="bg-orange-50 p-4 rounded-xl text-center">
+                        <div class="text-orange-600 font-bold text-xl">ERA</div>
+                        <div class="text-xs text-orange-400 uppercase font-black">Defense</div>
+                    </div>
+                </div>
+            </div>
+            <div class="order-1 lg:order-2">
+                <h2 class="text-3xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <span class="flex items-center justify-center w-10 h-10 bg-purple-600 text-white rounded-lg text-lg">2</span>
+                    The Incremental Stats Engine
+                </h2>
+                <p class="text-lg text-slate-600 mb-8 leading-relaxed">
+                    Performance matters—not just on the field, but in the app. Our stats engine is designed for high-performance retrieval across massive game histories.
+                </p>
+                <div class="space-y-6">
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Automated Aggregation</h3>
+                        <p class="text-sm text-slate-600">Every time you save a game, Skorekeeper incrementally updates your team's historical statistics. This ensures that the leaderboards load instantly, even after hundreds of games.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Detailed Player Profiles</h3>
+                        <p class="text-sm text-slate-600">View season-long spray charts for every player. Identify a pull-hitter's tendency or track a pitcher's strike percentage over time. Every hit location is indexed and searchable.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start mb-32">
+            <div>
+                <h2 class="text-3xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <span class="flex items-center justify-center w-10 h-10 bg-orange-600 text-white rounded-lg text-lg">3</span>
+                    Event-Sourced Reality
+                </h2>
+                <p class="text-lg text-slate-600 mb-8 leading-relaxed">
+                    Skorekeeper doesn't just store the score; it stores the <strong>history</strong>. This architectural choice enables features that are impossible in standard database models.
+                </p>
+                <div class="space-y-6">
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Deterministic State</h3>
+                        <p class="text-sm text-slate-600">Your game state is derived by replaying a log of actions. This guarantees that every user sees the exact same data and enables a perfect, multi-session Undo/Redo history.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Intelligent Sync</h3>
+                        <p class="text-sm text-slate-600">When multiple users edit a game simultaneously, Skorekeeper identifies the divergence. You can choose to Fast-Forward, Fork the game, or overwrite—ensuring data integrity without losing work.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="sticky top-24">
+                <div class="bg-slate-900 rounded-2xl p-8 text-white font-mono text-sm shadow-2xl">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                        <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                        <span class="ml-2 text-slate-500">Action Log</span>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="text-blue-400">GAME_START <span class="text-slate-500">...</span></div>
+                        <div class="text-green-400">PITCH <span class="text-slate-500">{ type: "strike", code: "Swinging" }</span></div>
+                        <div class="text-green-400">PITCH <span class="text-slate-500">{ type: "ball" }</span></div>
+                        <div class="text-yellow-400">PLAY_RESULT <span class="text-slate-500">{ res: "Safe", base: "1B" }</span></div>
+                        <div class="text-red-400">UNDO <span class="text-slate-500">{ refId: "..." }</span></div>
+                        <div class="text-blue-400 animate-pulse">_</div>
+                    </div>
+                </div>
+                <p class="mt-4 text-center text-sm text-slate-500 italic">The immutable log of actions that serves as the single source of truth.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+            <div class="order-2 lg:order-1 sticky top-24">
+                <div class="feature-card bg-slate-900 border-slate-800 text-white p-0 overflow-hidden shadow-2xl">
+                    <div class="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
+                        <span class="font-bold text-xs uppercase tracking-widest text-slate-400">Broadcast Overlay Preview</span>
+                        <div class="flex gap-1">
+                            <div class="w-2 h-2 rounded-full bg-red-500"></div>
+                            <div class="w-2 h-2 rounded-full bg-slate-600"></div>
+                        </div>
+                    </div>
+                    <div class="p-8 flex flex-col items-center justify-center gap-6 h-48 bg-slate-900">
+                        <div class="flex items-center gap-8">
+                            <div class="text-center"><div class="text-xs text-slate-500">AWAY</div><div class="text-4xl font-black">4</div></div>
+                            <div class="text-slate-700 text-2xl font-light">vs</div>
+                            <div class="text-center"><div class="text-xs text-slate-500">HOME</div><div class="text-4xl font-black">2</div></div>
+                        </div>
+                        <div class="px-4 py-1 bg-yellow-600 text-black text-xs font-black rounded uppercase">Top 5 • 1 Out • 2-1 Count</div>
+                    </div>
+                </div>
+            </div>
+            <div class="order-1 lg:order-2">
+                <h2 class="text-3xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <span class="flex items-center justify-center w-10 h-10 bg-blue-600 text-white rounded-lg text-lg">4</span>
+                    Broadcast Ready
+                </h2>
+                <p class="text-lg text-slate-600 mb-8 leading-relaxed">
+                    Share your game with more than just the dugout. Skorekeeper provides tools for real-time consumption by fans and streamers.
+                </p>
+                <div class="space-y-6">
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">OBS Browser Source</h3>
+                        <p class="text-sm text-slate-600">Integrated directly with OBS. Copy a dedicated broadcast link and add it as a browser source to show a professional scoreboard overlay on your stream that updates as you score.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3 class="font-bold text-slate-900 mb-2">Narrative Play-by-Play</h3>
+                        <p class="text-sm text-slate-600">For fans following from home, the "Feed" view provides a readable transcript of the game, including pitch sequences and situational context, updating in real-time.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Roadmap -->
+    <section class="bg-white py-24 border-t border-slate-200">
+        <div class="max-w-4xl mx-auto px-4 text-center">
+            <h2 class="text-3xl font-black text-slate-900 mb-8 uppercase tracking-tight">Forward Looking</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
+                <div class="p-6 bg-slate-50 rounded-xl border border-slate-100">
+                    <h4 class="font-bold text-slate-900 mb-2 italic">Refining the UX</h4>
+                    <p class="text-sm text-slate-600">We are constantly improving the mobile scoring experience, focusing on reducing tap counts and improving "blind" entry for those keeping their eyes on the field.</p>
+                </div>
+                <div class="p-6 bg-slate-50 rounded-xl border border-slate-100">
+                    <h4 class="font-bold text-slate-900 mb-2 italic">Open Standards</h4>
+                    <p class="text-sm text-slate-600">Skorekeeper is an open-source project. Our goal is to enable true data ownership, allowing teams to export their logs into any standard format for third-party analysis.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Call to Action -->
+    <section class="py-24 bg-slate-900 text-center">
+        <h2 class="text-3xl font-black text-white mb-6 uppercase tracking-tight">Ready to upgrade your game?</h2>
+        <p class="text-slate-400 mb-8 max-w-xl mx-auto">
+            Online synchronization and team collaboration features are currently available by invitation only.
+        </p>
+        <a href="https://app.skorekeeper.org/" class="inline-flex justify-center items-center px-8 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-500 hover:-translate-y-0.5 transition-all">
+            Launch Skorekeeper
+        </a>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-400 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
+            <div>&copy; 2026 TTBT Enterprises LLC. All rights reserved.</div>
+            <div class="flex gap-6">
+                <a href="index.html" class="hover:text-white transition-colors font-bold">Home</a>
+                <a href="terms.html" class="hover:text-white transition-colors">Terms</a>
+                <a href="privacy.html" class="hover:text-white transition-colors">Privacy Policy</a>
+                <a href="https://github.com/ttbt-io/skorekeeper" class="hover:text-white transition-colors">GitHub</a>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

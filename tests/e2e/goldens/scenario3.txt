@@ -1,0 +1,275 @@
+TOP 1 - ODDBALLS
+Odd (#1) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bases empty.
+⚾ Odd base hit.
+1B
+Weird (#2) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Odd on 1st.
+⚾ Weird singles.
+1B
+➜ Odd advances to 2nd.
+Strange (#3) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Weird on 1st, Odd on 2nd.
+⚾ Strange base hit.
+1B
+➜ Odd advances to 3rd.
+➜ Weird advances to 2nd.
+Quirk (#4) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bases loaded (Strange, Weird, Odd).
+🔴 Quirk is out to Shortstop.
+TP L6
+1 Out
+➜ 🔴 Odd put out.
+2 Outs
+➜ 🔴 Weird put out.
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 1 LOB.
+BOTTOM 1 - RULEBENDERS
+Bender (#13) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Bender walks.
+BB
+Twist (#14) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bender on 1st.
+🔴 Twist is out to 6-4-3 (Shortstop).
+DP 6-4-3
+1 Out
+➜ 🔴 Bender put out.
+2 Outs
+Loop (#15) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Loop is set down on strikes.
+K
+1 Out
+Inning Summary: 0 Runs, 0 Hits, 0 LOB.
+TOP 2 - ODDBALLS
+Peculiar (#5) now batting
+Oddballs 0, Rulebenders 0. 0 Outs. Bases empty.
+• Ball
+• Ball
+⚾ Peculiar It is high! It is far! It is gone!
+HR
+**Oddballs takes the lead!**
+Curious (#7) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Curious whiffs for the out.
+K
+1 Out
+Rare (#8) now batting
+Oddballs 1, Rulebenders 0. 1 Out. Bases empty.
+🔴 Rare is out.
+Out
+2 Outs
+Unique (#9) now batting
+Oddballs 1, Rulebenders 0. 2 Outs. Bases empty.
+🔴 Unique is out to Center Field.
+F8
+3 Outs
+Inning Summary: 1 Run, 0 Hits, 0 LOB.
+BOTTOM 2 - RULEBENDERS
+Kink (#17) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+⚾ Kink singles.
+1B
+Mistaken record for Kink was cleared.
+Knot (#16) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+🔴 Knot is out for batting out of order.
+BOO
+1 Out
+Kink (#17) now batting
+Oddballs 1, Rulebenders 0. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Kink is set down on strikes.
+K
+2 Outs
+Warp (#18) now batting
+Oddballs 1, Rulebenders 0. 2 Outs. Bases empty.
+⚾ Warp base hit.
+1B
+Coil (#19) now batting
+Oddballs 1, Rulebenders 0. 2 Outs. Warp on 1st.
+🔴 Coil is out.
+Out
+3 Outs
+➜ Warp advances to 2nd.
+Inning Summary: 0 Runs, 0 Hits, 1 LOB.
+TOP 3 - ODDBALLS
+Unusual (#11) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+⚾⚾ Unusual doubles.
+2B
+• Strike
+• Strike
+• Strike
+❌ Unusual whiffs for the out.
+K
+1 Out
+Freak (#10) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+Mistaken record was moved here from another slot.
+Wild (#12) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Wild walks.
+BB
+Odd (#1) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Wild on 1st, Freak on 2nd.
+🔴 Odd is out.
+Out
+1 Out
+Weird (#2) now batting
+Oddballs 1, Rulebenders 0. 1 Out. Wild on 1st, Freak on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Weird swings through it for strike three.
+K
+2 Outs
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+BOTTOM 3 - RULEBENDERS
+Arc (#21) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
+⚾⚾⚾ Arc triples deep into the gap.
+3B
+Curve (#22) now batting
+Oddballs 1, Rulebenders 0. 0 Outs. Arc on 3rd.
+⚾ Curve base hit.
+1B
+➜ 💎 Arc scores! **We are tied!**
+Swerve (#23) now batting
+Oddballs 1, Rulebenders 1. 0 Outs. Curve on 1st.
+• Strike
+• Strike
+• Strike
+❌ Swerve goes down swinging.
+K
+1 Out
+Zigzag (#24) now batting
+Oddballs 1, Rulebenders 1. 1 Out. Curve on 1st.
+🔴 Zigzag is out to First Base.
+DP L3
+2 Outs
+➜ 🔴 Curve put out.
+3 Outs
+Inning Summary: 1 Run, 0 Hits, 0 LOB.
+TOP 4 - ODDBALLS
+Strange (#3) now batting
+Oddballs 1, Rulebenders 1. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Strange goes down swinging.
+D3
+1 Out
+⚾ Strange reaches on a dropped 3rd strike.
+D3
+Quirk (#4) now batting
+Oddballs 1, Rulebenders 1. 0 Outs. Strange on 1st.
+🔴 Quirk is out to Catcher.
+F2
+1 Out
+Peculiar (#5) now batting
+Oddballs 1, Rulebenders 1. 1 Out. Strange on 1st.
+⚾ Peculiar reaches on catcher interference.
+CI
+➜ Strange advances to 2nd.
+Bizarre (#6) now batting
+Oddballs 1, Rulebenders 1. 1 Out. Peculiar on 1st, Strange on 2nd.
+⚾ Bizarre reaches on a fielder's choice.
+FC
+➜ 🔴 Strange put out.
+2 Outs
+➜ Peculiar advances to 2nd.
+Curious (#7) now batting
+Oddballs 1, Rulebenders 1. 2 Outs. Bizarre on 1st, Peculiar on 2nd.
+➜ 🔴 Peculiar out due to interference.
+3 Outs
+⚾ Curious reaches on a fielder's choice.
+FC
+➜ Bizarre advances to 2nd.
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+BOTTOM 4 - RULEBENDERS
+Bender (#13) now batting
+Oddballs 1, Rulebenders 1. 0 Outs. Bases empty.
+⚾ Bender launches a moonshot!
+HR
+**Rulebenders takes the lead!**
+Twist (#14) now batting
+Oddballs 1, Rulebenders 2. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Twist walks.
+BB
+Loop (#15) now batting
+Oddballs 1, Rulebenders 2. 0 Outs. Twist on 1st.
+🤕 Loop is hit by pitch.
+HBP
+➜ Twist advances to 2nd.
+Knot (#16) now batting
+Oddballs 1, Rulebenders 2. 0 Outs. Loop on 1st, Twist on 2nd.
+🔴 Knot is out to Center Field.
+F8
+1 Out
+Kink (#17) now batting
+Oddballs 1, Rulebenders 2. 1 Out. Loop on 1st, Twist on 2nd.
+🔴 Kink is out to Right Field.
+F9
+2 Outs
+Warp (#18) now batting
+Oddballs 1, Rulebenders 2. 2 Outs. Loop on 1st, Twist on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Warp goes down swinging.
+K
+3 Outs
+Inning Summary: 1 Run, 0 Hits, 2 LOB.
+TOP 5 - ODDBALLS
+Rare (#8) now batting
+Oddballs 1, Rulebenders 2. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Rare walks.
+BB
+➜ 🔴 Rare put out.
+1 Out
+Unique (#9) now batting
+Oddballs 1, Rulebenders 2. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Unique goes down swinging.
+K
+2 Outs
+Freak (#10) now batting
+Oddballs 1, Rulebenders 2. 2 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Freak swings through it for strike three.
+K
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 0 LOB.
+FINAL - GAME SUMMARY
+Match Report
+Final Score: Oddballs 1, Rulebenders 2. Rulebenders wins!
