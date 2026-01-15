@@ -18,6 +18,15 @@ import { ScoresheetRenderer } from '../../frontend/renderers/scoresheetRenderer.
 import { StatsRenderer } from '../../frontend/renderers/statsRenderer.js';
 import { TeamsRenderer } from '../../frontend/renderers/teamsRenderer.js';
 
+// Mock utils.js to prevent timezone issues with formatDate
+jest.mock('../../frontend/utils.js', () => {
+    const originalUtils = jest.requireActual('../../frontend/utils.js');
+    return {
+        ...originalUtils,
+        formatDate: () => '12/31/2024',
+    };
+});
+
 // Mock Utils if necessary, but we are using JSDOM so element creation is fine.
 // We rely on createTextNode, createElement, etc.
 
