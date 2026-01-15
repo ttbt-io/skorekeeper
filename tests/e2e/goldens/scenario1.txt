@@ -1,0 +1,532 @@
+TOP 1 - FIREBIRDS
+Smith (#1) now batting
+Firebirds 0, Icebreakers 0. 0 Outs. Bases empty.
+⚾ Smith drills a hit to Outfield.
+1B
+Davis (#2) now batting
+Firebirds 0, Icebreakers 0. 0 Outs. Smith on 1st.
+⚾⚾ Davis deep fly ball double to Outfield.
+2B
+➜ Smith advances to 3rd.
+Brown (#3) now batting
+Firebirds 0, Icebreakers 0. 0 Outs. Davis on 2nd, Smith on 3rd.
+• Strike
+• Strike
+• Strike
+❌ Brown whiffs for the out.
+K
+1 Out
+Taylor (#4) now batting
+Firebirds 0, Icebreakers 0. 1 Out. Davis on 2nd, Smith on 3rd.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Taylor walks.
+BB
+Anderson (#5) now batting
+Firebirds 0, Icebreakers 0. 1 Out. Bases loaded (Taylor, Davis, Smith).
+⚾ Anderson goes yard!
+HR
+➜ 💎 Smith scores!
+➜ 💎 Davis scores!
+➜ 💎 Taylor scores! **Firebirds takes the lead!**
+Thomas (#6) now batting
+Firebirds 4, Icebreakers 0. 1 Out. Bases empty.
+🔴 Thomas is out to 6-3 (Shortstop).
+6-3
+2 Outs
+Martinez (#7) now batting
+Firebirds 4, Icebreakers 0. 2 Outs. Bases empty.
+🔴 Martinez is out to Outfield.
+F
+3 Outs
+Inning Summary: 4 Runs, 0 Hits, 0 LOB.
+BOTTOM 1 - ICEBREAKERS
+Jones (#13) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Jones walks.
+BB
+Wilson (#14) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Jones on 1st.
+⚾ Wilson reaches on an error by the defense.
+E
+➜ Jones advances to 2nd.
+Miller (#15) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Wilson on 1st, Jones on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Miller caught looking.
+ꓘ
+1 Out
+Moore (#16) now batting
+Firebirds 4, Icebreakers 0. 1 Out. Wilson on 1st, Jones on 2nd.
+⚾ Moore reaches on a fielder's choice.
+FC
+➜ 🔴 Jones put out.
+2 Outs
+➜ Wilson advances to 2nd.
+Jackson (#17) now batting
+Firebirds 4, Icebreakers 0. 2 Outs. Moore on 1st, Wilson on 2nd.
+🔴 Jackson is out to Infield.
+L
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+TOP 2 - FIREBIRDS
+Robinson (#8) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Bases empty.
+⚾ Robinson finds the hole for a single to Infield.
+1B
+Rodriguez (#9) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Robinson on 1st.
+🔴 Rodriguez is out to First Base.
+SH3
+1 Out
+➜ Robinson advances to 2nd.
+Lee (#10) now batting
+Firebirds 4, Icebreakers 0. 1 Out. Robinson on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Lee swings through it for strike three.
+K
+2 Outs
+Hall (#11) now batting
+Firebirds 4, Icebreakers 0. 2 Outs. Robinson on 2nd.
+🤕 Hall is hit by pitch.
+HBP
+Allen (#12) now batting
+Firebirds 4, Icebreakers 0. 2 Outs. Hall on 1st, Robinson on 2nd.
+🔴 Allen is out to 4-3 (Second Base).
+4-3
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+BOTTOM 2 - ICEBREAKERS
+White (#18) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Bases empty.
+⚾ White drills a hit to Outfield.
+1B
+Harris (#19) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. White on 1st.
+➜ 🏃 White steals 2nd!
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Harris walks.
+BB
+Clark (#20) now batting
+Firebirds 4, Icebreakers 0. 0 Outs. Harris on 1st, White on 2nd.
+⚾⚾⚾ Clark triples deep into the gap to Outfield.
+3B
+➜ 💎 White scores!
+➜ 💎 Harris scores!
+Lewis (#21) now batting
+Firebirds 4, Icebreakers 2. 0 Outs. Clark on 3rd.
+🔴 Lewis is out to Outfield.
+F
+1 Out
+➜ 💎 Clark scores!
+Walker (#22) now batting
+Firebirds 4, Icebreakers 3. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Walker whiffs for the out.
+K
+2 Outs
+Young (#23) now batting
+Firebirds 4, Icebreakers 3. 2 Outs. Bases empty.
+🔴 Young is out to 1-3 (Pitcher).
+1-3
+3 Outs
+Inning Summary: 3 Runs, 0 Hits, 0 LOB.
+TOP 3 - FIREBIRDS
+Smith (#1) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Smith whiffs for the out.
+D3
+1 Out
+⚾ Smith reaches on a dropped 3rd strike.
+D3
+Davis (#2) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Smith on 1st.
+➜ 🔴 Smith put out.
+1 Out
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Davis walks.
+BB
+Brown (#3) now batting
+Firebirds 4, Icebreakers 3. 1 Out. Davis on 1st.
+➜ 🔴 Davis put out.
+2 Outs
+⚾ Brown finds the hole for a single to Infield.
+1B
+Taylor (#4) now batting
+Firebirds 4, Icebreakers 3. 2 Outs. Brown on 1st.
+➜ Brown advances on the throw.
+🤌 Taylor is intentionally walked.
+IBB
+Anderson (#5) now batting
+Firebirds 4, Icebreakers 3. 2 Outs. Taylor on 1st, Brown on 2nd.
+🔴 Anderson flies out to Infield.
+IFF
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+BOTTOM 3 - ICEBREAKERS
+King (#24) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Bases empty.
+⚾ King lines a sharp single to Outfield.
+1B
+Jones (#13) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. King on 1st.
+🔴 Jones is out to 6-4-3 (Shortstop).
+DP 6-4-3
+1 Out
+➜ 🔴 King put out.
+2 Outs
+Wilson (#14) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Bases empty.
+🔴 Wilson is out to Outfield.
+F
+1 Out
+Inning Summary: 0 Runs, 0 Hits, 0 LOB.
+TOP 4 - FIREBIRDS
+Thomas (#6) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Bases empty.
+⚾ Thomas ground ball base hit to Infield.
+1B
+Martinez (#7) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Thomas on 1st.
+⚾⚾ Martinez laces a two-bagger to Outfield.
+2B
+➜ Thomas advances to 3rd.
+Robinson (#8) now batting
+Firebirds 4, Icebreakers 3. 0 Outs. Martinez on 2nd, Thomas on 3rd.
+🔴 Robinson is out to Outfield.
+SF
+1 Out
+➜ 💎 Thomas scores!
+Rodriguez (#9) now batting
+Firebirds 5, Icebreakers 3. 1 Out. Martinez on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Rodriguez goes down swinging.
+K
+2 Outs
+Lee (#10) now batting
+Firebirds 5, Icebreakers 3. 2 Outs. Martinez on 2nd.
+⚾ Lee lines a sharp single to Outfield.
+1B
+➜ 💎 Martinez scores!
+Hall (#11) now batting
+Firebirds 6, Icebreakers 3. 2 Outs. Lee on 1st.
+🔴 Hall is out to 5-3 (Third Base).
+5-3
+3 Outs
+Inning Summary: 2 Runs, 0 Hits, 1 LOB.
+BOTTOM 4 - ICEBREAKERS
+Miller (#15) now batting
+Firebirds 6, Icebreakers 3. 0 Outs. Bases empty.
+⚾ Miller It is high! It is far! It is gone!
+HR
+Moore (#16) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Moore walks.
+BB
+Jackson (#17) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Moore on 1st.
+⚾ Jackson reaches on catcher interference.
+CI
+➜ Moore advances to 2nd.
+White (#18) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Jackson on 1st, Moore on 2nd.
+• Strike
+• Strike
+• Strike
+❌ White goes down swinging.
+K
+1 Out
+Harris (#19) now batting
+Firebirds 6, Icebreakers 4. 1 Out. Jackson on 1st, Moore on 2nd.
+⚾ Harris reaches on a fielder's choice.
+FC
+➜ 🔴 Moore put out.
+2 Outs
+➜ Jackson advances to 2nd.
+Clark (#20) now batting
+Firebirds 6, Icebreakers 4. 2 Outs. Harris on 1st, Jackson on 2nd.
+🔴 Clark is out to Infield.
+L
+3 Outs
+Inning Summary: 1 Run, 0 Hits, 2 LOB.
+TOP 5 - FIREBIRDS
+Allen (#12) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Allen walks.
+BB
+Smith (#1) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Allen on 1st.
+⚾ Smith hits a worm-burner single to Infield.
+1B
+➜ Allen advances to 2nd.
+Davis (#2) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Smith on 1st, Allen on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Davis swings through it for strike three.
+K
+1 Out
+Brown (#3) now batting
+Firebirds 6, Icebreakers 4. 1 Out. Smith on 1st, Allen on 2nd.
+➜ 🔴 Allen out due to interference.
+2 Outs
+⚾ Brown reaches on a fielder's choice.
+FC
+➜ Smith advances to 2nd.
+Taylor (#4) now batting
+Firebirds 6, Icebreakers 4. 2 Outs. Brown on 1st, Smith on 2nd.
+• Strike
+• Strike
+• Strike
+❌ Taylor is set down on strikes.
+K
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 2 LOB.
+BOTTOM 5 - ICEBREAKERS
+Lewis (#21) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Bases empty.
+⚾ Lewis lines a sharp single to Outfield.
+1B
+Walker (#22) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Lewis on 1st.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Walker walks.
+BB
+➜ Lewis advances to 2nd.
+Young (#23) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Walker on 1st, Lewis on 2nd.
+⚾ Young hits a worm-burner single to Infield.
+1B
+➜ Lewis advances to 3rd.
+➜ Walker advances to 2nd.
+King (#24) now batting
+Firebirds 6, Icebreakers 4. 0 Outs. Bases loaded (Young, Walker, Lewis).
+⚾ King reaches on a fielder's choice.
+FC
+➜ 🔴 Lewis put out.
+1 Out
+➜ Walker advances to 3rd.
+➜ Young advances to 2nd.
+Jones (#13) now batting
+Firebirds 6, Icebreakers 4. 1 Out. Bases loaded (King, Young, Walker).
+⚾ Jones It is high! It is far! It is gone!
+HR
+➜ 💎 Walker scores!
+➜ 💎 Young scores!
+➜ 💎 King scores! **Icebreakers takes the lead!**
+Wilson (#14) now batting
+Firebirds 6, Icebreakers 8. 1 Out. Bases empty.
+• Strike
+• Strike
+• Strike
+❌ Wilson whiffs for the out.
+K
+2 Outs
+Miller (#15) now batting
+Firebirds 6, Icebreakers 8. 2 Outs. Bases empty.
+🔴 Miller is out to 3-1 (First Base).
+3-1
+3 Outs
+🔄 Substitution: -> Green
+Inning Summary: 4 Runs, 0 Hits, 0 LOB.
+TOP 6 - FIREBIRDS
+Green (#25) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Bases empty.
+⚾ Green laces a base hit to Outfield.
+1B
+Thomas (#6) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Green on 1st.
+⚾⚾ Thomas skies a double to Outfield.
+2B
+➜ Green advances to 3rd.
+Martinez (#7) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Thomas on 2nd, Green on 3rd.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Martinez walks.
+BB
+Robinson (#8) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Bases loaded (Martinez, Thomas, Green).
+• Strike
+• Strike
+• Strike
+❌ Robinson is set down on strikes.
+K
+1 Out
+Rodriguez (#9) now batting
+Firebirds 6, Icebreakers 8. 1 Out. Bases loaded (Martinez, Thomas, Green).
+⚾ Rodriguez reaches on a fielder's choice.
+FC
+➜ 🔴 Green put out.
+2 Outs
+➜ Thomas advances to 3rd.
+➜ Martinez advances to 2nd.
+Lee (#10) now batting
+Firebirds 6, Icebreakers 8. 2 Outs. Bases loaded (Rodriguez, Martinez, Thomas).
+• Strike
+• Strike
+• Strike
+❌ Lee swings through it for strike three.
+K
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 3 LOB.
+BOTTOM 6 - ICEBREAKERS
+Moore (#16) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Moore walks.
+BB
+Jackson (#17) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Moore on 1st.
+➜ 🔴 Moore out for leaving early.
+1 Out
+⚾ Jackson hits a worm-burner single to Infield.
+1B
+White (#18) now batting
+Firebirds 6, Icebreakers 8. 1 Out. Jackson on 1st.
+🔴 White is out to Outfield.
+F
+2 Outs
+Harris (#19) now batting
+Firebirds 6, Icebreakers 8. 2 Outs. Jackson on 1st.
+🔴 Harris is out to 4-3 (Second Base).
+4-3
+3 Outs
+Inning Summary: 0 Runs, 0 Hits, 1 LOB.
+TOP 7 - FIREBIRDS
+Hall (#11) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Bases empty.
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Hall walks.
+BB
+Allen (#12) now batting
+Firebirds 6, Icebreakers 8. 0 Outs. Hall on 1st.
+⚾ Allen crushes a massive home run!
+HR
+➜ 💎 Hall scores! **We are tied!**
+Smith (#1) now batting
+Firebirds 8, Icebreakers 8. 0 Outs. Bases empty.
+⚾⚾ Smith drills a double to Outfield.
+2B
+Davis (#2) now batting
+Firebirds 8, Icebreakers 8. 0 Outs. Smith on 2nd.
+⚾ Davis ground ball base hit to Infield.
+1B
+➜ Smith advances to 3rd.
+Brown (#3) now batting
+Firebirds 8, Icebreakers 8. 0 Outs. Davis on 1st, Smith on 3rd.
+🔴 Brown is out to Outfield.
+SF
+1 Out
+➜ 💎 Smith scores! **Firebirds takes the lead!**
+Taylor (#4) now batting
+Firebirds 9, Icebreakers 8. 1 Out. Davis on 1st.
+• Strike
+• Strike
+• Strike
+❌ Taylor is set down on strikes.
+K
+2 Outs
+Green (#25) now batting
+Firebirds 9, Icebreakers 8. 2 Outs. Davis on 1st.
+• Strike
+• Strike
+• Strike
+❌ Green whiffs for the out.
+K
+3 Outs
+Inning Summary: 3 Runs, 0 Hits, 1 LOB.
+BOTTOM 7 - ICEBREAKERS
+Clark (#20) now batting
+Firebirds 9, Icebreakers 8. 0 Outs. Bases empty.
+⚾ Clark drills a hit to Outfield.
+1B
+Lewis (#21) now batting
+Firebirds 9, Icebreakers 8. 0 Outs. Clark on 1st.
+🔴 Lewis is out to Infield.
+SH
+1 Out
+➜ Clark advances to 2nd.
+Walker (#22) now batting
+Firebirds 9, Icebreakers 8. 1 Out. Clark on 2nd.
+⚾ Walker squeaks one through to Infield.
+1B
+➜ Clark advances to 3rd.
+Young (#23) now batting
+Firebirds 9, Icebreakers 8. 1 Out. Walker on 1st, Clark on 3rd.
+🤌 Young is intentionally walked.
+IBB
+➜ Walker advances to 2nd.
+King (#24) now batting
+Firebirds 9, Icebreakers 8. 1 Out. Bases loaded (Young, Walker, Clark).
+• Strike
+• Strike
+• Strike
+❌ King swings through it for strike three.
+K
+2 Outs
+Jones (#13) now batting
+Firebirds 9, Icebreakers 8. 2 Outs. Bases loaded (Young, Walker, Clark).
+• Ball
+• Ball
+• Ball
+• Ball
+🚶 Jones walks.
+BB
+➜ 💎 Clark scores! **We are tied!**
+➜ Walker advances to 3rd.
+➜ Young advances to 2nd.
+Wilson (#14) now batting
+Firebirds 9, Icebreakers 9. 2 Outs. Bases loaded (Jones, Young, Walker).
+⚾ Wilson laces a base hit to Outfield.
+1B
+➜ 💎 Walker scores! **Icebreakers takes the lead!**
+➜ Young advances to 3rd.
+➜ Jones advances to 2nd.
+Inning Summary: 2 Runs, 0 Hits, 3 LOB.
+FINAL - GAME SUMMARY
+Match Report
+Final Score: Firebirds 9, Icebreakers 10. Icebreakers wins!

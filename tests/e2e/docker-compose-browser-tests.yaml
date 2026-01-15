@@ -1,0 +1,80 @@
+services:
+  chrome:
+    container_name: "chrome"
+    image: "chromedp/headless-shell:141.0.7390.37"
+    user: "${TEST_UID:-65534}:${TEST_GID:-65534}"
+    shm_size: "2gb"
+    command: [
+      "--ignore-certificate-errors",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      "--window-size=768x1024",
+      "--disable-popup-blocking",
+    ]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - type: tmpfs
+        target: /nonexistent
+        tmpfs:
+          size: 10M
+          mode: 0o777
+      - shared-downloads:/downloads
+
+  devtest:
+    container_name: "devtest"
+    image: "skorekeeper-app"
+    user: "${TEST_UID:-65534}:${TEST_GID:-65534}"
+    command: [
+      "--with-chromedp=ws://chrome:9222",
+      "--test.run=${TEST_RUN:-.*}",
+      "-test.count=1",
+      "-test.failfast",
+      "-test.v",
+      "-minify=${MINIFY_BOOL}"
+    ]
+    environment:
+      - TEST_RUN=${TEST_RUN}
+      - UPDATE_GOLDENS=${UPDATE_GOLDENS}
+    volumes:
+      - type: tmpfs
+        target: /data
+        tmpfs:
+          size: 100M
+          mode: 0o1777
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+          mode: 0o1777
+      - type: bind
+        source: ../../demo
+        target: /demo
+      - type: bind
+        source: ./goldens
+        target: /tests/e2e/goldens
+      - shared-downloads:/downloads
+    networks:
+      default:
+        aliases:
+          - devtest.local
+          - devtest.public
+    depends_on:
+      chrome:
+        condition: service_healthy
+
+networks:
+  default:
+    internal: true
+
+volumes:
+  shared-downloads:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=100m,mode=1777"
+

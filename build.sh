@@ -1,0 +1,43 @@
+#!/bin/bash -e
+# Copyright (c) 2026 TTBT Enterprises LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http:#www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+buildall=false
+if [[ $1 == "-all" ]]; then
+  buildall=true
+fi
+
+echo "--- Building Skorekeeper PWA ---"
+
+echo "[1/3] Installing Node.js dependencies..."
+npm install
+
+echo "[2/3] Building Frontend Assets (Tailwind CSS)..."
+mkdir -p frontend/dist www/assets/manual
+touch frontend/dist/.keep
+npm run build:css
+if [[ $buildall == "true" ]]; then
+  ./tools/screenshots/run-screenshots.sh
+  ./tools/website-assets/generate-assets.sh
+  ./tools/build-website.sh
+fi
+cp www/assets/manual/*.png frontend/assets/manual/
+node tools/update-sw-manifest.mjs
+node tools/minify.mjs
+
+echo "[3/3] Building Go Backend..."
+CGO_ENABLED=0 go build -ldflags="-s -w" -o skorekeeper .
+
+echo "--- Build Complete! ---"
+echo " executable: ./skorekeeper"

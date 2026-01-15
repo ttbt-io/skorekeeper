@@ -1,0 +1,53 @@
+# --- Skorekeeper Build Artifacts ---
+# Binaries
+skorekeeper
+backend/readfile/readfile
+tools/website-assets/generator-app
+tools/website-assets/output/
+*.exe
+*.test
+*.prof
+
+# Frontend Build
+frontend/dist/
+frontend/css/style.css
+frontend/assets/demo-game.json
+frontend/assets/manual/
+
+# Website Build
+www/assets/css/style.css
+www/assets/js/manualContent.js
+www/assets/manual/
+www/assets/website-*.png
+
+# Dependencies
+node_modules/
+
+# Local Data and Secrets
+data/
+backend/data/
+*.key
+master.key
+.env
+
+# --- General System/IDE Ignores ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Logs and Temp ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.gemini/
+.gemini_security/
+tmp/
+
+# --- Project specific ---
+tests/e2e/test-app
+demo/
+push-docker.sh
