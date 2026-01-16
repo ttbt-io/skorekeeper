@@ -89,4 +89,8 @@ func TestGameStore_MetadataSidecar(t *testing.T) {
 	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
 		t.Error("Metadata file was not deleted after PurgeGame")
 	}
+	jsonPath := filepath.Join(tmpDir, "games", fmt.Sprintf("%s.json", gameId))
+	if _, err := os.Stat(jsonPath); !os.IsNotExist(err) {
+		t.Error("Game JSON file was not deleted after PurgeGame")
+	}
 }
