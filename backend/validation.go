@@ -206,6 +206,8 @@ func validateGameStart(payload json.RawMessage) error {
 		Home             string              `json:"home"`
 		Event            string              `json:"event"`
 		Location         string              `json:"location"`
+		AwayTeamID       string              `json:"awayTeamId"`
+		HomeTeamID       string              `json:"homeTeamId"`
 		InitialRosterIds map[string][]string `json:"initialRosterIds"`
 	}
 	if err := json.Unmarshal(payload, &p); err != nil {
@@ -529,17 +531,24 @@ func validateRemoveColumn(payload json.RawMessage) error {
 
 func validateGameMetadataUpdate(payload json.RawMessage) error {
 	var p struct {
-		ID       string `json:"id"`
-		Event    string `json:"event"`
-		Location string `json:"location"`
-		Away     string `json:"away"`
-		Home     string `json:"home"`
+		ID          string       `json:"id"`
+		Date        string       `json:"date"`
+		Event       string       `json:"event"`
+		Location    string       `json:"location"`
+		Away        string       `json:"away"`
+		Home        string       `json:"home"`
+		AwayTeamID  string       `json:"awayTeamId"`
+		HomeTeamID  string       `json:"homeTeamId"`
+		Permissions *Permissions `json:"permissions"`
 	}
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
 	if !isValidUUID(p.ID) {
 		return fmt.Errorf("invalid game ID")
+	}
+	if err := validateStringLen(p.Date, 50, "date"); err != nil {
+		return err
 	}
 	if err := validateStringLen(p.Event, 100, "event"); err != nil {
 		return err
@@ -553,6 +562,7 @@ func validateGameMetadataUpdate(payload json.RawMessage) error {
 	if err := validateStringLen(p.Home, 50, "home team"); err != nil {
 		return err
 	}
+	// We allow non-UUID values for team IDs to accommodate existing data with UI-placeholder values.
 	return nil
 }
 
@@ -663,16 +673,24 @@ func ApplyAction(g *Game, raw json.RawMessage) (bool, error) {
 			ID          string      `json:"id"`
 			OwnerID     string      `json:"ownerId"`
 			Date        string      `json:"date"`
+			Location    string      `json:"location"`
+			Event       string      `json:"event"`
 			Away        string      `json:"away"`
 			Home        string      `json:"home"`
+			AwayTeamID  string      `json:"awayTeamId"`
+			HomeTeamID  string      `json:"homeTeamId"`
 			Permissions Permissions `json:"permissions"`
 		}
 		if err := json.Unmarshal(action.Payload, &p); err == nil {
 			g.ID = p.ID
 			g.OwnerID = p.OwnerID
 			g.Date = p.Date
+			g.Location = p.Location
+			g.Event = p.Event
 			g.Away = p.Away
 			g.Home = p.Home
+			g.AwayTeamID = p.AwayTeamID
+			g.HomeTeamID = p.HomeTeamID
 			g.Permissions = p.Permissions
 		}
 	} else if action.Type == ActionGameMetadataUpdate {
@@ -680,6 +698,11 @@ func ApplyAction(g *Game, raw json.RawMessage) (bool, error) {
 			AwayTeamID  *string      `json:"awayTeamId"`
 			HomeTeamID  *string      `json:"homeTeamId"`
 			Permissions *Permissions `json:"permissions"`
+			Date        *string      `json:"date"`
+			Location    *string      `json:"location"`
+			Event       *string      `json:"event"`
+			Away        *string      `json:"away"`
+			Home        *string      `json:"home"`
 		}
 		if err := json.Unmarshal(action.Payload, &p); err == nil {
 			if p.AwayTeamID != nil {
@@ -690,6 +713,21 @@ func ApplyAction(g *Game, raw json.RawMessage) (bool, error) {
 			}
 			if p.Permissions != nil {
 				g.Permissions = *p.Permissions
+			}
+			if p.Date != nil {
+				g.Date = *p.Date
+			}
+			if p.Location != nil {
+				g.Location = *p.Location
+			}
+			if p.Event != nil {
+				g.Event = *p.Event
+			}
+			if p.Away != nil {
+				g.Away = *p.Away
+			}
+			if p.Home != nil {
+				g.Home = *p.Home
 			}
 		}
 	} else if action.Type == ActionGameFinalize {

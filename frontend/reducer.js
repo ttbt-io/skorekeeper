@@ -290,6 +290,8 @@ function applyGameMetadataUpdate(state, payload) {
         ...state,
         away: payload.away || state.away,
         home: payload.home || state.home,
+        awayTeamId: payload.awayTeamId !== undefined ? payload.awayTeamId : state.awayTeamId,
+        homeTeamId: payload.homeTeamId !== undefined ? payload.homeTeamId : state.homeTeamId,
         date: payload.date || state.date,
         event: payload.event !== undefined ? payload.event : state.event,
         location: payload.location !== undefined ? payload.location : state.location,

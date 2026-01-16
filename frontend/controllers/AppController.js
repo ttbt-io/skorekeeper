@@ -2351,8 +2351,15 @@ export class AppController {
      * @async
      */
     async createGame() {
-        const awayId = document.getElementById('team-away-select').value;
-        const homeId = document.getElementById('team-home-select').value;
+        const getSanitizedId = (id) => {
+            if (!id || id.startsWith('--')) {
+                return null;
+            }
+            return id;
+        };
+
+        const awayId = getSanitizedId(document.getElementById('team-away-select').value);
+        const homeId = getSanitizedId(document.getElementById('team-home-select').value);
         let away = document.getElementById('team-away-input').value;
         let home = document.getElementById('team-home-input').value;
 
