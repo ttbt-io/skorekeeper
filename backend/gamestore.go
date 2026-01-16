@@ -149,13 +149,19 @@ func (gs *GameStore) SaveGame(game *Game) error {
 
 	// Save Metadata Sidecar
 	meta := GameMetadata{
-		ID:          game.ID,
-		OwnerID:     game.OwnerID,
-		Permissions: game.Permissions,
-		AwayTeamID:  game.AwayTeamID,
-		HomeTeamID:  game.HomeTeamID,
-		Status:      game.Status,
-		DeletedAt:   game.DeletedAt,
+		ID:            game.ID,
+		SchemaVersion: game.SchemaVersion,
+		Date:          game.Date,
+		Location:      game.Location,
+		Event:         game.Event,
+		Away:          game.Away,
+		Home:          game.Home,
+		OwnerID:       game.OwnerID,
+		Permissions:   game.Permissions,
+		AwayTeamID:    game.AwayTeamID,
+		HomeTeamID:    game.HomeTeamID,
+		Status:        game.Status,
+		DeletedAt:     game.DeletedAt,
 	}
 	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
 		log.Printf("Warning: Failed to save metadata sidecar for game %s: %v", gameId, err)
@@ -357,10 +363,11 @@ func (gs *GameStore) DeleteGame(gameId string) error {
 
 	// Save Metadata Tombstone
 	meta := GameMetadata{
-		ID:        gameId,
-		OwnerID:   g.OwnerID,
-		Status:    "deleted",
-		DeletedAt: tombstone.DeletedAt,
+		ID:            gameId,
+		SchemaVersion: CurrentSchemaVersion,
+		OwnerID:       g.OwnerID,
+		Status:        "deleted",
+		DeletedAt:     tombstone.DeletedAt,
 	}
 	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
 		log.Printf("Warning: Failed to save metadata tombstone for game %s: %v", gameId, err)
@@ -420,13 +427,19 @@ type GameSummary struct {
 
 // GameMetadata contains only the fields needed for indexing.
 type GameMetadata struct {
-	ID          string      `json:"id"`
-	OwnerID     string      `json:"ownerId"`
-	Permissions Permissions `json:"permissions"`
-	AwayTeamID  string      `json:"awayTeamId"`
-	HomeTeamID  string      `json:"homeTeamId"`
-	Status      string      `json:"status"`
-	DeletedAt   int64       `json:"deletedAt"`
+	ID            string      `json:"id"`
+	SchemaVersion int         `json:"schemaVersion"`
+	Date          string      `json:"date,omitempty"`
+	Location      string      `json:"location,omitempty"`
+	Event         string      `json:"event,omitempty"`
+	Away          string      `json:"away,omitempty"`
+	Home          string      `json:"home,omitempty"`
+	OwnerID       string      `json:"ownerId"`
+	Permissions   Permissions `json:"permissions"`
+	AwayTeamID    string      `json:"awayTeamId"`
+	HomeTeamID    string      `json:"homeTeamId"`
+	Status        string      `json:"status"`
+	DeletedAt     int64       `json:"deletedAt"`
 }
 
 // ListAllGameMetadata returns metadata for all games without loading full action logs.
@@ -520,13 +533,19 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			// We could optionally generate the .meta.json here for self-repair,
 			// but for now we just return the data.
 			if !yield(GameMetadata{
-				ID:          g.ID,
-				OwnerID:     g.OwnerID,
-				Permissions: g.Permissions,
-				AwayTeamID:  g.AwayTeamID,
-				HomeTeamID:  g.HomeTeamID,
-				Status:      g.Status,
-				DeletedAt:   g.DeletedAt,
+				ID:            g.ID,
+				SchemaVersion: g.SchemaVersion,
+				Date:          g.Date,
+				Location:      g.Location,
+				Event:         g.Event,
+				Away:          g.Away,
+				Home:          g.Home,
+				OwnerID:       g.OwnerID,
+				Permissions:   g.Permissions,
+				AwayTeamID:    g.AwayTeamID,
+				HomeTeamID:    g.HomeTeamID,
+				Status:        g.Status,
+				DeletedAt:     g.DeletedAt,
 			}, nil) {
 				return
 			}
@@ -544,13 +563,19 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			}
 
 			if !yield(GameMetadata{
-				ID:          g.ID,
-				OwnerID:     g.OwnerID,
-				Permissions: g.Permissions,
-				AwayTeamID:  g.AwayTeamID,
-				HomeTeamID:  g.HomeTeamID,
-				Status:      g.Status,
-				DeletedAt:   g.DeletedAt,
+				ID:            g.ID,
+				SchemaVersion: g.SchemaVersion,
+				Date:          g.Date,
+				Location:      g.Location,
+				Event:         g.Event,
+				Away:          g.Away,
+				Home:          g.Home,
+				OwnerID:       g.OwnerID,
+				Permissions:   g.Permissions,
+				AwayTeamID:    g.AwayTeamID,
+				HomeTeamID:    g.HomeTeamID,
+				Status:        g.Status,
+				DeletedAt:     g.DeletedAt,
 			}, nil) {
 				return
 			}
