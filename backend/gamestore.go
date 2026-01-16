@@ -159,7 +159,10 @@ func (gs *GameStore) SaveGame(game *Game) error {
 	}
 	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
 		log.Printf("Warning: Failed to save metadata sidecar for game %s: %v", gameId, err)
-		// Non-fatal, we can fall back to main file
+		// Non-fatal, we can fall back to main file, but we must remove the stale meta file to force that fallback.
+		if rmErr := os.Remove(filepath.Join(gs.DataDir, metaFilename)); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("Error removing stale metadata file: %v", rmErr)
+		}
 	}
 
 	// Update cache with JSON representation (for callers that might need bytes, or just to keep it warm)
@@ -361,6 +364,8 @@ func (gs *GameStore) DeleteGame(gameId string) error {
 	}
 	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
 		log.Printf("Warning: Failed to save metadata tombstone for game %s: %v", gameId, err)
+		// Ensure we don't leave a confusing active meta file for a deleted game
+		os.Remove(filepath.Join(gs.DataDir, metaFilename))
 	}
 
 	// Update cache with tombstone
@@ -435,6 +440,14 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			return
 		}
 
+		// Snapshot dirty IDs first to ensure consistency during iteration
+		gs.dirtyMu.Lock()
+		dirtySet := make(map[string]bool, len(gs.dirty))
+		for id := range gs.dirty {
+			dirtySet[id] = true
+		}
+		gs.dirtyMu.Unlock()
+
 		// Map to track which games exist and which have metadata sidecars
 		// key: gameID
 		hasMeta := make(map[string]bool)
@@ -448,11 +461,19 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			if strings.HasSuffix(name, ".meta.json") {
 				encodedId := strings.TrimSuffix(name, ".meta.json")
 				if id, err := url.PathUnescape(encodedId); err == nil {
+					// If the game is dirty, the disk version is stale. Skip it.
+					if dirtySet[id] {
+						continue
+					}
 					hasMeta[id] = true
 				}
 			} else if strings.HasSuffix(name, ".json") {
 				encodedId := strings.TrimSuffix(name, ".json")
 				if id, err := url.PathUnescape(encodedId); err == nil {
+					// If the game is dirty, the disk version is stale. Skip it.
+					if dirtySet[id] {
+						continue
+					}
 					hasGame[id] = true
 				}
 			}
@@ -460,7 +481,7 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 
 		processed := make(map[string]bool)
 
-		// 1. Process Metadata Files (Fast Path)
+		// 2. Process Metadata Files (Fast Path)
 		for id := range hasMeta {
 			processed[id] = true
 
@@ -482,7 +503,7 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			}
 		}
 
-		// 2. Process Remaining Game Files (Legacy/Fallback Path)
+		// 3. Process Remaining Game Files (Legacy/Fallback Path)
 		for id := range hasGame {
 			if processed[id] {
 				continue
@@ -511,36 +532,9 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			}
 		}
 
-		// 3. Scan Dirty Cache (for games created in memory but not yet flushed)
-		// These might be newer than what's on disk.
-		gs.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(gs.dirty))
-		for id := range gs.dirty {
-			dirtyIds = append(dirtyIds, id)
-		}
-		gs.dirtyMu.Unlock()
-
-		for _, id := range dirtyIds {
-			if processed[id] {
-				// If we already yielded from disk, we might have yielded STALE data if the dirty one is newer.
-				// However, Registry logic usually handles eventual consistency.
-				// STRICTLY speaking, dirty cache is authoritative.
-				// If we yielded disk data, we should probably have checked dirty cache FIRST?
-				// But ListAllGameMetadata is usually for rebuilding index.
-				// If the system was clean, dirty should be empty.
-				// If system is running and we call this (e.g. policy update triggering partial rebuild?),
-				// we want the LATEST.
-				// Since we yield, we can't "unyield".
-				// Ideally we should check dirty cache BEFORE disk scan for each ID?
-				// Or merge them.
-				// Given the complexity, and that Rebuild happens mostly on startup (when dirty is empty),
-				// this order is *mostly* fine.
-				// BUT if we are running and call this, we might yield disk data then dirty data?
-				// Duplicate yields?
-				// Registry rebuild usually wipes maps and fills them. Duplicate calls might be redundant but harmless?
-				// Let's prevent duplicates.
-				continue
-			}
+		// 4. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'processed' or 'seen' because we explicitly skipped these IDs in the disk loop
 
 			// Must verify existence (LoadGame handles cache lookup)
 			g, err := gs.LoadGame(id)
@@ -575,6 +569,14 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 			return
 		}
 
+		// Snapshot dirty IDs first to ensure consistency during iteration
+		gs.dirtyMu.Lock()
+		dirtySet := make(map[string]bool, len(gs.dirty))
+		for id := range gs.dirty {
+			dirtySet[id] = true
+		}
+		gs.dirtyMu.Unlock()
+
 		seen := make(map[string]bool)
 
 		for _, file := range files {
@@ -582,6 +584,11 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 				encodedGameId := strings.TrimSuffix(file.Name(), ".json")
 				gameId, err := url.PathUnescape(encodedGameId)
 				if err != nil {
+					continue
+				}
+
+				// If the game is dirty, the disk version is stale. Skip it.
+				if dirtySet[gameId] {
 					continue
 				}
 
@@ -599,18 +606,9 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 			}
 		}
 
-		// 2. Scan Dirty Cache (New games not yet on disk)
-		gs.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(gs.dirty))
-		for id := range gs.dirty {
-			dirtyIds = append(dirtyIds, id)
-		}
-		gs.dirtyMu.Unlock()
-
-		for _, id := range dirtyIds {
-			if seen[id] {
-				continue
-			}
+		// 2. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'seen' because we explicitly skipped these IDs in the disk loop
 
 			g, err := gs.LoadGame(id)
 			if err != nil {

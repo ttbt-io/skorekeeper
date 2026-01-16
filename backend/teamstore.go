@@ -202,6 +202,14 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 			return
 		}
 
+		// Snapshot dirty IDs first to ensure consistency during iteration
+		ts.dirtyMu.Lock()
+		dirtySet := make(map[string]bool, len(ts.dirty))
+		for id := range ts.dirty {
+			dirtySet[id] = true
+		}
+		ts.dirtyMu.Unlock()
+
 		seen := make(map[string]bool)
 
 		for _, file := range files {
@@ -211,6 +219,12 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 				if err != nil {
 					continue
 				}
+
+				// If the team is dirty, the disk version is stale. Skip it.
+				if dirtySet[teamId] {
+					continue
+				}
+
 				seen[teamId] = true
 
 				t, err := ts.LoadTeam(teamId)
@@ -231,18 +245,9 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 			}
 		}
 
-		// 2. Scan Dirty Cache
-		ts.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(ts.dirty))
-		for id := range ts.dirty {
-			dirtyIds = append(dirtyIds, id)
-		}
-		ts.dirtyMu.Unlock()
-
-		for _, id := range dirtyIds {
-			if seen[id] {
-				continue
-			}
+		// 2. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'seen' because we explicitly skipped these IDs in the disk loop
 
 			t, err := ts.LoadTeam(id)
 			if err != nil {
@@ -275,6 +280,14 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 			return
 		}
 
+		// Snapshot dirty IDs first to ensure consistency during iteration
+		ts.dirtyMu.Lock()
+		dirtySet := make(map[string]bool, len(ts.dirty))
+		for id := range ts.dirty {
+			dirtySet[id] = true
+		}
+		ts.dirtyMu.Unlock()
+
 		seen := make(map[string]bool)
 
 		for _, file := range files {
@@ -284,6 +297,12 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 				if err != nil {
 					continue
 				}
+
+				// If the team is dirty, the disk version is stale. Skip it.
+				if dirtySet[teamId] {
+					continue
+				}
+
 				seen[teamId] = true
 
 				t, err := ts.LoadTeam(teamId)
@@ -298,18 +317,10 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 			}
 		}
 
-		// 2. Scan Dirty Cache
-		ts.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(ts.dirty))
-		for id := range ts.dirty {
-			dirtyIds = append(dirtyIds, id)
-		}
-		ts.dirtyMu.Unlock()
+		// 2. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'seen' because we explicitly skipped these IDs in the disk loop
 
-		for _, id := range dirtyIds {
-			if seen[id] {
-				continue
-			}
 			t, err := ts.LoadTeam(id)
 			if err != nil {
 				log.Printf("Error: Failed to load dirty team %s: %v", id, err)
