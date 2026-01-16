@@ -213,7 +213,7 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 		seen := make(map[string]bool)
 
 		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
 				encodedTeamId := strings.TrimSuffix(file.Name(), ".json")
 				teamId, err := url.PathUnescape(encodedTeamId)
 				if err != nil {
@@ -291,7 +291,7 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 		seen := make(map[string]bool)
 
 		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
 				encodedTeamId := strings.TrimSuffix(file.Name(), ".json")
 				teamId, err := url.PathUnescape(encodedTeamId)
 				if err != nil {

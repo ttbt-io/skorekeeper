@@ -605,7 +605,7 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 		seen := make(map[string]bool)
 
 		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
 				encodedGameId := strings.TrimSuffix(file.Name(), ".json")
 				gameId, err := url.PathUnescape(encodedGameId)
 				if err != nil {
