@@ -1155,6 +1155,12 @@ func (rm *RaftManager) Shutdown() error {
 func (rm *RaftManager) closeStores() {
 	rm.logKeyMu.Lock()
 	defer rm.logKeyMu.Unlock()
+	if rm.logKey != nil {
+		rm.logKey.Wipe()
+	}
+	if rm.prevLogKey != nil {
+		rm.prevLogKey.Wipe()
+	}
 	if rm.logStore != nil {
 		if c, ok := rm.logStore.(io.Closer); ok {
 			c.Close()

@@ -236,15 +236,17 @@ func (f *FSM) applyAction(gameId string, data []byte, index uint64) error {
 		return nil
 	}
 
-	if err := f.gs.SaveGame(g); err != nil {
+	if err := f.gs.SaveGameInMemory(g, f.rm == nil); err != nil {
 		return err
 	}
-
-	// We still need bytes for broadcast
 	newBytes, _ := json.Marshal(g)
 	f.r.UpdateGame(*g)
 	f.broadcastGameUpdate(gameId, newBytes, false, 1) // false = broadcast action
 	return nil
+}
+
+func (f *FSM) broadcastGameUpdate(gameId string, data []byte, skipBroadcast bool, numActions int) {
+	f.hm.BroadcastToGame(gameId, data, skipBroadcast, numActions)
 }
 
 func (f *FSM) applyActions(gameId string, actions []json.RawMessage, index uint64) error {
@@ -275,11 +277,12 @@ func (f *FSM) applyActions(gameId string, actions []json.RawMessage, index uint6
 		return nil
 	}
 
-	if err := f.gs.SaveGame(g); err != nil {
+	if err := f.gs.SaveGameInMemory(g, f.rm == nil); err != nil {
 		return err
 	}
 
 	newBytes, _ := json.Marshal(g)
+
 	f.r.UpdateGame(*g)
 	f.broadcastGameUpdate(gameId, newBytes, false, len(actions))
 	return nil
@@ -348,7 +351,7 @@ func (f *FSM) applySaveTeam(id string, data []byte, index uint64) error {
 		t.LastRaftIndex = index
 	}
 
-	if err := f.ts.SaveTeam(&t); err != nil {
+	if err := f.ts.SaveTeamInMemory(&t, f.rm == nil); err != nil {
 		return err
 	}
 	f.r.UpdateTeam(t)
@@ -585,6 +588,7 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 	dirty := false
 	deleted := false
 	totalActions := 0
+	forceDiskSave := false
 
 	// 2. Apply Loop (In-Memory)
 	for _, item := range j.items {
@@ -594,13 +598,10 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 		}
 
 		if deleted {
-			// If game was deleted in this batch, subsequent actions in the same batch should fail
-			// unless it's a completely new SaveGame (overwrite).
 			if item.cmd.Type != CmdSaveGame {
 				results[item.index] = fmt.Errorf("cannot apply command to deleted game %s", j.id)
 				continue
 			}
-			// If it IS a SaveGame, we allow it to proceed (recreation/overwrite)
 			g = &Game{ID: j.id}
 			deleted = false
 		}
@@ -616,6 +617,7 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 			g.LastRaftIndex = item.raftIndex
 			dirty = true
 			deleted = false
+			forceDiskSave = true
 			j.skipBroadcast = true
 			results[item.index] = nil
 
@@ -637,10 +639,8 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 				results[item.index] = actionErr
 			} else {
 				g.LastRaftIndex = item.raftIndex
-				dirty = true
 				if changed {
-					// If an action was applied, we must broadcast the update,
-					// even if a SaveGame earlier in the batch suggested skipping it.
+					dirty = true
 					j.skipBroadcast = false
 				}
 				results[item.index] = nil
@@ -649,7 +649,8 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 		case CmdDeleteGame:
 			deleted = true
 			g.LastRaftIndex = item.raftIndex
-			dirty = true // Need to persist the deletion (which is a Remove op)
+			dirty = true
+			forceDiskSave = true
 			results[item.index] = nil
 		}
 	}
@@ -669,11 +670,18 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 				j.dirty = true
 			}
 		} else {
-			if err := f.gs.SaveGame(g); err != nil {
-				log.Printf("Batch Error: failed to save game %s: %v", j.id, err)
+			var saveErr error
+			if forceDiskSave {
+				saveErr = f.gs.SaveGame(g)
+			} else {
+				saveErr = f.gs.SaveGameInMemory(g, f.rm == nil)
+			}
+
+			if saveErr != nil {
+				log.Printf("Batch Error: failed to save game %s: %v", j.id, saveErr)
 				for _, item := range j.items {
 					if results[item.index] == nil {
-						results[item.index] = err
+						results[item.index] = saveErr
 					}
 				}
 			} else {
@@ -699,6 +707,7 @@ func (f *FSM) processTeamJob(j *resourceJob, results []interface{}) {
 
 	dirty := false
 	deleted := false
+	forceDiskSave := false
 
 	for _, item := range j.items {
 		if item.raftIndex > 0 && item.raftIndex <= t.LastRaftIndex {
@@ -725,13 +734,13 @@ func (f *FSM) processTeamJob(j *resourceJob, results []interface{}) {
 			t = &newT
 			t.LastRaftIndex = item.raftIndex
 			dirty = true
-			deleted = false
 			j.skipBroadcast = true
 			results[item.index] = nil
 		case CmdDeleteTeam:
 			deleted = true
 			t.LastRaftIndex = item.raftIndex
 			dirty = true
+			forceDiskSave = true
 			results[item.index] = nil
 		}
 	}
@@ -750,11 +759,18 @@ func (f *FSM) processTeamJob(j *resourceJob, results []interface{}) {
 				j.dirty = true
 			}
 		} else {
-			if err := f.ts.SaveTeam(t); err != nil {
-				log.Printf("Batch Error: failed to save team %s: %v", j.id, err)
+			var saveErr error
+			if forceDiskSave {
+				saveErr = f.ts.SaveTeam(t)
+			} else {
+				saveErr = f.ts.SaveTeamInMemory(t, f.rm == nil)
+			}
+
+			if saveErr != nil {
+				log.Printf("Batch Error: failed to save team %s: %v", j.id, saveErr)
 				for _, item := range j.items {
 					if results[item.index] == nil {
-						results[item.index] = err
+						results[item.index] = saveErr
 					}
 				}
 			} else {
@@ -779,6 +795,16 @@ func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
 func (s *FSMSnapshot) Release() {}
 
 func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
+	// 1. Flush all dirty state to disk so the snapshotter reads fresh data
+	if err := f.gs.FlushAll(); err != nil {
+		log.Printf("FSM Snapshot Error: flushing games failed: %v", err)
+		return nil, err
+	}
+	if err := f.ts.FlushAll(); err != nil {
+		log.Printf("FSM Snapshot Error: flushing teams failed: %v", err)
+		return nil, err
+	}
+
 	if f.rm != nil {
 		if err := f.rm.RotateLogKey(); err != nil {
 			log.Printf("Warning: failed to rotate log key during snapshot: %v", err)
@@ -797,6 +823,12 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	return nil
 }
 
-func (f *FSM) broadcastGameUpdate(gameId string, data []byte, skipBroadcast bool, numActions int) {
-	f.hm.BroadcastToGame(gameId, data, skipBroadcast, numActions)
+func (f *FSM) FlushAll() error {
+	if err := f.gs.FlushAll(); err != nil {
+		return err
+	}
+	if err := f.ts.FlushAll(); err != nil {
+		return err
+	}
+	return nil
 }

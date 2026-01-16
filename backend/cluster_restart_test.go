@@ -114,6 +114,11 @@ func TestClusterRestart(t *testing.T) {
 		s.Close()
 	}
 	for _, rm := range rms {
+		if rm.FSM != nil {
+			if err := rm.FSM.FlushAll(); err != nil {
+				t.Errorf("Node %s FlushAll failed: %v", rm.NodeID, err)
+			}
+		}
 		rm.Shutdown()
 	}
 	// Give Raft time to shutdown ports
