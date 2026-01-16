@@ -51,8 +51,8 @@ func TestFSM_SaveTeam_DelayedPersistence(t *testing.T) {
 
 	// Verify Disk (Should not exist)
 	path := filepath.Join(tmpDir, "teams", teamId+".json")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("File should exist on disk after delayed save")
+if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("File should NOT exist on disk before flush")
 	}
 
 	// Trigger Snapshot
