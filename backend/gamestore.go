@@ -137,6 +137,7 @@ func (gs *GameStore) SaveGame(game *Game) error {
 
 	encodedGameId := url.PathEscape(gameId)
 	filename := filepath.Join("games", fmt.Sprintf("%s.json", encodedGameId))
+	metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
 
 	if len(game.ActionLog) == 0 {
 		log.Printf("SaveGame WARNING: Saving game %s with 0 actions!", gameId)
@@ -144,6 +145,30 @@ func (gs *GameStore) SaveGame(game *Game) error {
 
 	if err := gs.storage.SaveDataFile(filename, game); err != nil {
 		return fmt.Errorf("storage.SaveDataFile: %w", err)
+	}
+
+	// Save Metadata Sidecar
+	meta := GameMetadata{
+		ID:            game.ID,
+		SchemaVersion: game.SchemaVersion,
+		Date:          game.Date,
+		Location:      game.Location,
+		Event:         game.Event,
+		Away:          game.Away,
+		Home:          game.Home,
+		OwnerID:       game.OwnerID,
+		Permissions:   game.Permissions,
+		AwayTeamID:    game.AwayTeamID,
+		HomeTeamID:    game.HomeTeamID,
+		Status:        game.Status,
+		DeletedAt:     game.DeletedAt,
+	}
+	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
+		log.Printf("Warning: Failed to save metadata sidecar for game %s: %v", gameId, err)
+		// Non-fatal, we can fall back to main file, but we must remove the stale meta file to force that fallback.
+		if rmErr := os.Remove(filepath.Join(gs.DataDir, metaFilename)); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("Error removing stale metadata file: %v", rmErr)
+		}
 	}
 
 	// Update cache with JSON representation (for callers that might need bytes, or just to keep it warm)
@@ -330,9 +355,24 @@ func (gs *GameStore) DeleteGame(gameId string) error {
 
 	encodedGameId := url.PathEscape(gameId)
 	filename := filepath.Join("games", fmt.Sprintf("%s.json", encodedGameId))
+	metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
 
 	if err := gs.storage.SaveDataFile(filename, tombstone); err != nil {
 		return fmt.Errorf("storage.SaveDataFile (tombstone): %w", err)
+	}
+
+	// Save Metadata Tombstone
+	meta := GameMetadata{
+		ID:            gameId,
+		SchemaVersion: CurrentSchemaVersion,
+		OwnerID:       g.OwnerID,
+		Status:        "deleted",
+		DeletedAt:     tombstone.DeletedAt,
+	}
+	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
+		log.Printf("Warning: Failed to save metadata tombstone for game %s: %v", gameId, err)
+		// Ensure we don't leave a confusing active meta file for a deleted game
+		os.Remove(filepath.Join(gs.DataDir, metaFilename))
 	}
 
 	// Update cache with tombstone
@@ -355,13 +395,19 @@ func (gs *GameStore) PurgeGame(gameId string) error {
 
 	encodedGameId := url.PathEscape(gameId)
 	filename := filepath.Join("games", fmt.Sprintf("%s.json", encodedGameId))
+	metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
 	fullPath := filepath.Join(gs.DataDir, filename)
+	fullMetaPath := filepath.Join(gs.DataDir, metaFilename)
 
 	if err := os.Remove(fullPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("could not purge game file: %w", err)
 		}
-		return fmt.Errorf("could not purge game file: %w", err)
+	}
+	if err := os.Remove(fullMetaPath); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: could not purge meta file for game %s: %v", gameId, err)
+		}
 	}
 	return nil
 }
@@ -381,13 +427,19 @@ type GameSummary struct {
 
 // GameMetadata contains only the fields needed for indexing.
 type GameMetadata struct {
-	ID          string      `json:"id"`
-	OwnerID     string      `json:"ownerId"`
-	Permissions Permissions `json:"permissions"`
-	AwayTeamID  string      `json:"awayTeamId"`
-	HomeTeamID  string      `json:"homeTeamId"`
-	Status      string      `json:"status"`
-	DeletedAt   int64       `json:"deletedAt"`
+	ID            string      `json:"id"`
+	SchemaVersion int         `json:"schemaVersion"`
+	Date          string      `json:"date,omitempty"`
+	Location      string      `json:"location,omitempty"`
+	Event         string      `json:"event,omitempty"`
+	Away          string      `json:"away,omitempty"`
+	Home          string      `json:"home,omitempty"`
+	OwnerID       string      `json:"ownerId"`
+	Permissions   Permissions `json:"permissions"`
+	AwayTeamID    string      `json:"awayTeamId"`
+	HomeTeamID    string      `json:"homeTeamId"`
+	Status        string      `json:"status"`
+	DeletedAt     int64       `json:"deletedAt"`
 }
 
 // ListAllGameMetadata returns metadata for all games without loading full action logs.
@@ -401,50 +453,107 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			return
 		}
 
-		seen := make(map[string]bool)
-
-		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-				encodedGameId := strings.TrimSuffix(file.Name(), ".json")
-				gameId, err := url.PathUnescape(encodedGameId)
-				if err != nil {
-					continue
-				}
-
-				seen[gameId] = true
-
-				g, err := gs.LoadGame(gameId)
-				if err != nil {
-					log.Printf("Registry Warning: failed to load game %s from disk: %v", gameId, err)
-					continue
-				}
-
-				if !yield(GameMetadata{
-					ID:          g.ID,
-					OwnerID:     g.OwnerID,
-					Permissions: g.Permissions,
-					AwayTeamID:  g.AwayTeamID,
-					HomeTeamID:  g.HomeTeamID,
-					Status:      g.Status,
-					DeletedAt:   g.DeletedAt,
-				}, nil) {
-					return
-				}
-			}
-		}
-
-		// 2. Scan Dirty Cache (for games created in memory but not yet flushed)
+		// Snapshot dirty IDs first to ensure consistency during iteration
 		gs.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(gs.dirty))
+		dirtySet := make(map[string]bool, len(gs.dirty))
 		for id := range gs.dirty {
-			dirtyIds = append(dirtyIds, id)
+			dirtySet[id] = true
 		}
 		gs.dirtyMu.Unlock()
 
-		for _, id := range dirtyIds {
-			if seen[id] {
-				continue // Already processed from disk scan
+		// Map to track which games exist and which have metadata sidecars
+		// key: gameID
+		hasMeta := make(map[string]bool)
+		hasGame := make(map[string]bool)
+
+		for _, file := range files {
+			if file.IsDir() {
+				continue
 			}
+			name := file.Name()
+			if strings.HasSuffix(name, ".meta.json") {
+				encodedId := strings.TrimSuffix(name, ".meta.json")
+				if id, err := url.PathUnescape(encodedId); err == nil {
+					// If the game is dirty, the disk version is stale. Skip it.
+					if dirtySet[id] {
+						continue
+					}
+					hasMeta[id] = true
+				}
+			} else if strings.HasSuffix(name, ".json") {
+				encodedId := strings.TrimSuffix(name, ".json")
+				if id, err := url.PathUnescape(encodedId); err == nil {
+					// If the game is dirty, the disk version is stale. Skip it.
+					if dirtySet[id] {
+						continue
+					}
+					hasGame[id] = true
+				}
+			}
+		}
+
+		processed := make(map[string]bool)
+
+		// 2. Process Metadata Files (Fast Path)
+		for id := range hasMeta {
+			processed[id] = true
+
+			// Load Metadata Sidecar
+			encodedGameId := url.PathEscape(id)
+			metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
+
+			var meta GameMetadata
+			if err := gs.storage.ReadDataFile(metaFilename, &meta); err != nil {
+				log.Printf("Registry Warning: failed to load metadata for %s: %v. Falling back to main file.", id, err)
+				// Fallback to main file if meta load fails
+				hasGame[id] = true // Ensure we try loading main file
+				processed[id] = false
+				continue
+			}
+
+			if !yield(meta, nil) {
+				return
+			}
+		}
+
+		// 3. Process Remaining Game Files (Legacy/Fallback Path)
+		for id := range hasGame {
+			if processed[id] {
+				continue
+			}
+			processed[id] = true
+
+			// Load Full Game
+			g, err := gs.LoadGame(id)
+			if err != nil {
+				log.Printf("Registry Warning: failed to load game %s from disk: %v", id, err)
+				continue
+			}
+
+			// We could optionally generate the .meta.json here for self-repair,
+			// but for now we just return the data.
+			if !yield(GameMetadata{
+				ID:            g.ID,
+				SchemaVersion: g.SchemaVersion,
+				Date:          g.Date,
+				Location:      g.Location,
+				Event:         g.Event,
+				Away:          g.Away,
+				Home:          g.Home,
+				OwnerID:       g.OwnerID,
+				Permissions:   g.Permissions,
+				AwayTeamID:    g.AwayTeamID,
+				HomeTeamID:    g.HomeTeamID,
+				Status:        g.Status,
+				DeletedAt:     g.DeletedAt,
+			}, nil) {
+				return
+			}
+		}
+
+		// 4. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'processed' or 'seen' because we explicitly skipped these IDs in the disk loop
 
 			// Must verify existence (LoadGame handles cache lookup)
 			g, err := gs.LoadGame(id)
@@ -454,13 +563,19 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 			}
 
 			if !yield(GameMetadata{
-				ID:          g.ID,
-				OwnerID:     g.OwnerID,
-				Permissions: g.Permissions,
-				AwayTeamID:  g.AwayTeamID,
-				HomeTeamID:  g.HomeTeamID,
-				Status:      g.Status,
-				DeletedAt:   g.DeletedAt,
+				ID:            g.ID,
+				SchemaVersion: g.SchemaVersion,
+				Date:          g.Date,
+				Location:      g.Location,
+				Event:         g.Event,
+				Away:          g.Away,
+				Home:          g.Home,
+				OwnerID:       g.OwnerID,
+				Permissions:   g.Permissions,
+				AwayTeamID:    g.AwayTeamID,
+				HomeTeamID:    g.HomeTeamID,
+				Status:        g.Status,
+				DeletedAt:     g.DeletedAt,
 			}, nil) {
 				return
 			}
@@ -479,13 +594,26 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 			return
 		}
 
+		// Snapshot dirty IDs first to ensure consistency during iteration
+		gs.dirtyMu.Lock()
+		dirtySet := make(map[string]bool, len(gs.dirty))
+		for id := range gs.dirty {
+			dirtySet[id] = true
+		}
+		gs.dirtyMu.Unlock()
+
 		seen := make(map[string]bool)
 
 		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
 				encodedGameId := strings.TrimSuffix(file.Name(), ".json")
 				gameId, err := url.PathUnescape(encodedGameId)
 				if err != nil {
+					continue
+				}
+
+				// If the game is dirty, the disk version is stale. Skip it.
+				if dirtySet[gameId] {
 					continue
 				}
 
@@ -503,18 +631,9 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 			}
 		}
 
-		// 2. Scan Dirty Cache (New games not yet on disk)
-		gs.dirtyMu.Lock()
-		dirtyIds := make([]string, 0, len(gs.dirty))
-		for id := range gs.dirty {
-			dirtyIds = append(dirtyIds, id)
-		}
-		gs.dirtyMu.Unlock()
-
-		for _, id := range dirtyIds {
-			if seen[id] {
-				continue
-			}
+		// 2. Scan Dirty Cache (Authoritative)
+		for id := range dirtySet {
+			// No need to check 'seen' because we explicitly skipped these IDs in the disk loop
 
 			g, err := gs.LoadGame(id)
 			if err != nil {

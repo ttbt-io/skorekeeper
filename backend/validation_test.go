@@ -43,6 +43,22 @@ func TestValidateAction(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "GAME_START with invalid team IDs",
+			action: fmt.Sprintf(`{
+				"id": "%s",
+				"type": "GAME_START",
+				"payload": {
+					"id": "%s",
+					"date": "2025-12-18T14:57:39Z",
+					"away": "Team A",
+					"home": "Team B",
+					"awayTeamId": "-- Select Team (Optional) --",
+					"homeTeamId": "-- Select Team (Optional) --"
+				}
+			}`, validUUID, validUUID),
+			wantErr: false,
+		},
+		{
 			name: "Valid PITCH",
 			action: fmt.Sprintf(`{
 				"id": "%s",
@@ -100,6 +116,24 @@ func TestValidateAction(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Valid GAME_METADATA_UPDATE Full",
+			action: fmt.Sprintf(`{
+				"id": "%s",
+				"type": "GAME_METADATA_UPDATE",
+				"payload": {
+					"id": "%s",
+					"date": "2024-01-01",
+					"location": "Stadium",
+					"event": "Championship",
+					"away": "Team A",
+					"home": "Team B",
+					"awayTeamId": "%s",
+					"homeTeamId": "%s"
+				}
+			}`, validUUID, validUUID, validUUID, validUUID),
+			wantErr: false,
+		},
+		{
 			name: "Valid PLAY_RESULT",
 			action: fmt.Sprintf(`{
 				"id": "%s",
@@ -135,6 +169,19 @@ func TestValidateAction(t *testing.T) {
 					"updates": [{"key": "away-0-c1", "base": 1, "action": "to 2nd"}]
 				}
 			}`, validUUID),
+			wantErr: false,
+		},
+		{
+			name: "GAME_METADATA_UPDATE with invalid team IDs",
+			action: fmt.Sprintf(`{
+				"id": "%s",
+				"type": "GAME_METADATA_UPDATE",
+				"payload": {
+					"id": "%s",
+					"awayTeamId": "-- Select Team (Optional) --",
+					"homeTeamId": "-- Select Team (Optional) --"
+				}
+			}`, validUUID, validUUID),
 			wantErr: false,
 		},
 		{
@@ -406,4 +453,49 @@ func TestSpecificValidators(t *testing.T) {
 			t.Error("Expected error for inning < 1")
 		}
 	})
+}
+
+func TestApplyAction_MetadataUpdate(t *testing.T) {
+	g := &Game{
+		ID:        "game-meta-test",
+		ActionLog: []json.RawMessage{},
+	}
+	validUUID := "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+
+	// Action with full metadata
+	actionJSON := fmt.Sprintf(`{
+		"id": "%s",
+		"type": "GAME_METADATA_UPDATE",
+		"payload": {
+			"date": "2024-05-20",
+			"location": "Main Field",
+			"event": "Playoffs",
+			"away": "Visitors",
+			"home": "Hosts"
+		}
+	}`, validUUID)
+
+	changed, err := ApplyAction(g, json.RawMessage(actionJSON))
+	if err != nil {
+		t.Fatalf("ApplyAction failed: %v", err)
+	}
+	if !changed {
+		t.Error("Expected changed=true")
+	}
+
+	if g.Date != "2024-05-20" {
+		t.Errorf("Date not updated, got %s", g.Date)
+	}
+	if g.Location != "Main Field" {
+		t.Errorf("Location not updated, got %s", g.Location)
+	}
+	if g.Event != "Playoffs" {
+		t.Errorf("Event not updated, got %s", g.Event)
+	}
+	if g.Away != "Visitors" {
+		t.Errorf("Away not updated, got %s", g.Away)
+	}
+	if g.Home != "Hosts" {
+		t.Errorf("Home not updated, got %s", g.Home)
+	}
 }

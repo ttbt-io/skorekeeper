@@ -241,6 +241,7 @@ func TestBackupRestore(t *testing.T) {
 	// 4b. Re-Login to see data (since we wiped/logged out in Step 3)
 	// Restored game is owned by "test@example.com", so we must match.
 	runStep(t, ctx, "Login to verify data",
+		chromedp.Sleep(1000*time.Millisecond),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return LoginWithUser(ctx, baseURL, "test@example.com")
 		}),
