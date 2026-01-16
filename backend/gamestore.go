@@ -109,6 +109,9 @@ type GameStore struct {
 	storage *storage.Storage
 	mu      sync.Map // Stores *sync.RWMutex for each gameId to protect writes and reads
 	cache   sync.Map // Stores the latest []byte (JSON) for each gameId (for backward compat / cache)
+
+	dirtyMu sync.Mutex
+	dirty   map[string]bool
 }
 
 // NewGameStore creates a new GameStore.
@@ -118,6 +121,7 @@ func NewGameStore(dataDir string, s *storage.Storage) *GameStore {
 		storage: s,
 		mu:      sync.Map{},
 		cache:   sync.Map{},
+		dirty:   make(map[string]bool),
 	}
 }
 
@@ -149,6 +153,84 @@ func (gs *GameStore) SaveGame(game *Game) error {
 		gs.cache.Store(gameId, jsonBytes)
 	}
 
+	gs.dirtyMu.Lock()
+	delete(gs.dirty, gameId)
+	gs.dirtyMu.Unlock()
+
+	return nil
+}
+
+// SaveGameInMemory updates the in-memory cache and marks the game as dirty.
+// If forceSync is true, it writes to disk immediately (behaving like SaveGame).
+func (gs *GameStore) SaveGameInMemory(game *Game, forceSync bool) error {
+	// 1. Update Cache (Authoritative)
+	jsonBytes, err := json.Marshal(game)
+	if err != nil {
+		return err
+	}
+	gs.cache.Store(game.ID, jsonBytes)
+
+	// 2. Handle Persistence
+	if forceSync {
+		return gs.SaveGame(game)
+	}
+
+	// 3. Mark as Dirty
+	gs.dirtyMu.Lock()
+	gs.dirty[game.ID] = true
+	gs.dirtyMu.Unlock()
+
+	return nil
+}
+
+// Flush persists a specific game to disk if it is dirty.
+func (gs *GameStore) Flush(gameId string) error {
+	gs.dirtyMu.Lock()
+	if !gs.dirty[gameId] {
+		gs.dirtyMu.Unlock()
+		return nil
+	}
+	gs.dirtyMu.Unlock()
+
+	// Load from cache (Authoritative)
+	val, ok := gs.cache.Load(gameId)
+	if !ok {
+		// If it's not in cache but marked dirty, that's an issue.
+		// However, it might have been evicted (if we had eviction).
+		// For now, assume it's fine or already saved?
+		// Better to be safe: check if we can load it?
+		// If we can't load from cache, we can't flush what we don't have.
+		// We should clear the dirty flag?
+		gs.dirtyMu.Lock()
+		delete(gs.dirty, gameId)
+		gs.dirtyMu.Unlock()
+		return fmt.Errorf("game %s marked dirty but not found in cache", gameId)
+	}
+
+	var g Game
+	if err := json.Unmarshal(val.([]byte), &g); err != nil {
+		return fmt.Errorf("failed to unmarshal game from cache for flush: %w", err)
+	}
+
+	// SaveGame will clear the dirty flag
+	return gs.SaveGame(&g)
+}
+
+// FlushAll persists all dirty games to disk.
+func (gs *GameStore) FlushAll() error {
+	gs.dirtyMu.Lock()
+	// Copy dirty keys to slice to release lock while flushing
+	dirtyIds := make([]string, 0, len(gs.dirty))
+	for id := range gs.dirty {
+		dirtyIds = append(dirtyIds, id)
+	}
+	gs.dirtyMu.Unlock()
+
+	for _, id := range dirtyIds {
+		if err := gs.Flush(id); err != nil {
+			return fmt.Errorf("failed to flush game %s: %w", id, err)
+		}
+	}
 	return nil
 }
 
@@ -311,14 +393,15 @@ type GameMetadata struct {
 // ListAllGameMetadata returns metadata for all games without loading full action logs.
 func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 	return func(yield func(GameMetadata, error) bool) {
+		// 1. Scan Disk
 		gamesDir := filepath.Join(gs.DataDir, "games")
 		files, err := os.ReadDir(gamesDir)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				yield(GameMetadata{}, fmt.Errorf("could not read games directory: %w", err))
-			}
+		if err != nil && !os.IsNotExist(err) {
+			yield(GameMetadata{}, fmt.Errorf("could not read games directory: %w", err))
 			return
 		}
+
+		seen := make(map[string]bool)
 
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
@@ -328,8 +411,11 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 					continue
 				}
 
+				seen[gameId] = true
+
 				g, err := gs.LoadGame(gameId)
 				if err != nil {
+					log.Printf("Registry Warning: failed to load game %s from disk: %v", gameId, err)
 					continue
 				}
 
@@ -346,20 +432,54 @@ func (gs *GameStore) ListAllGameMetadata() iter.Seq2[GameMetadata, error] {
 				}
 			}
 		}
+
+		// 2. Scan Dirty Cache (for games created in memory but not yet flushed)
+		gs.dirtyMu.Lock()
+		dirtyIds := make([]string, 0, len(gs.dirty))
+		for id := range gs.dirty {
+			dirtyIds = append(dirtyIds, id)
+		}
+		gs.dirtyMu.Unlock()
+
+		for _, id := range dirtyIds {
+			if seen[id] {
+				continue // Already processed from disk scan
+			}
+
+			// Must verify existence (LoadGame handles cache lookup)
+			g, err := gs.LoadGame(id)
+			if err != nil {
+				log.Printf("Error: Failed to load dirty game %s: %v", id, err)
+				continue
+			}
+
+			if !yield(GameMetadata{
+				ID:          g.ID,
+				OwnerID:     g.OwnerID,
+				Permissions: g.Permissions,
+				AwayTeamID:  g.AwayTeamID,
+				HomeTeamID:  g.HomeTeamID,
+				Status:      g.Status,
+				DeletedAt:   g.DeletedAt,
+			}, nil) {
+				return
+			}
+		}
 	}
 }
 
 // ListAllGames returns an iterator over all games found in the flat games directory.
 func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 	return func(yield func(*Game, error) bool) {
+		// 1. Scan Disk
 		gamesDir := filepath.Join(gs.DataDir, "games")
 		files, err := os.ReadDir(gamesDir)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				yield(nil, fmt.Errorf("could not read games directory: %w", err))
-			}
+		if err != nil && !os.IsNotExist(err) {
+			yield(nil, fmt.Errorf("could not read games directory: %w", err))
 			return
 		}
+
+		seen := make(map[string]bool)
 
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
@@ -368,6 +488,8 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 				if err != nil {
 					continue
 				}
+
+				seen[gameId] = true
 
 				g, err := gs.LoadGame(gameId)
 				if err != nil {
@@ -378,6 +500,30 @@ func (gs *GameStore) ListAllGames() iter.Seq2[*Game, error] {
 				if !yield(g, nil) {
 					return
 				}
+			}
+		}
+
+		// 2. Scan Dirty Cache (New games not yet on disk)
+		gs.dirtyMu.Lock()
+		dirtyIds := make([]string, 0, len(gs.dirty))
+		for id := range gs.dirty {
+			dirtyIds = append(dirtyIds, id)
+		}
+		gs.dirtyMu.Unlock()
+
+		for _, id := range dirtyIds {
+			if seen[id] {
+				continue
+			}
+
+			g, err := gs.LoadGame(id)
+			if err != nil {
+				log.Printf("Error: Failed to load dirty game %s: %v", id, err)
+				continue
+			}
+			g.normalize()
+			if !yield(g, nil) {
+				return
 			}
 		}
 	}

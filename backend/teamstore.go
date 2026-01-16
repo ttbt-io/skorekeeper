@@ -84,7 +84,11 @@ func (t *Team) normalize() {
 type TeamStore struct {
 	DataDir string
 	storage *storage.Storage
-	mu      sync.Map // Stores *sync.Mutex for each teamId to protect writes
+	mu      sync.Map // Stores *sync.RWMutex for each teamId to protect writes
+
+	cache   sync.Map // Stores latest []byte (JSON) for each teamId
+	dirtyMu sync.Mutex
+	dirty   map[string]bool
 }
 
 // NewTeamStore creates a new TeamStore.
@@ -93,6 +97,7 @@ func NewTeamStore(dataDir string, s *storage.Storage) *TeamStore {
 		DataDir: dataDir,
 		storage: s,
 		mu:      sync.Map{},
+		dirty:   make(map[string]bool),
 	}
 }
 
@@ -100,8 +105,8 @@ func NewTeamStore(dataDir string, s *storage.Storage) *TeamStore {
 func (ts *TeamStore) SaveTeam(team *Team) error {
 	teamId := team.ID
 	// Get or create a mutex for this specific team
-	m, _ := ts.mu.LoadOrStore(teamId, &sync.Mutex{})
-	mutex := m.(*sync.Mutex)
+	m, _ := ts.mu.LoadOrStore(teamId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
 
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -112,12 +117,37 @@ func (ts *TeamStore) SaveTeam(team *Team) error {
 	if err := ts.storage.SaveDataFile(filename, team); err != nil {
 		return fmt.Errorf("storage.SaveDataFile: %w", err)
 	}
+
+	// Update cache
+	if jsonBytes, err := json.Marshal(team); err == nil {
+		ts.cache.Store(teamId, jsonBytes)
+	}
+
+	ts.dirtyMu.Lock()
+	delete(ts.dirty, teamId)
+	ts.dirtyMu.Unlock()
+
 	return nil
 }
 
 // LoadTeam loads the team data by ID.
 // Handles migration from legacy JSON.
 func (ts *TeamStore) LoadTeam(teamId string) (*Team, error) {
+	m, _ := ts.mu.LoadOrStore(teamId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
+
+	mutex.RLock()
+	defer mutex.RUnlock()
+
+	if val, ok := ts.cache.Load(teamId); ok {
+		var t Team
+		if err := json.Unmarshal(val.([]byte), &t); err == nil {
+			t.normalize()
+			return &t, nil
+		}
+		ts.cache.Delete(teamId)
+	}
+
 	encodedTeamId := url.PathEscape(teamId)
 	filename := filepath.Join("teams", fmt.Sprintf("%s.json", encodedTeamId))
 
@@ -133,6 +163,11 @@ func (ts *TeamStore) LoadTeam(teamId string) (*Team, error) {
 		return nil, fmt.Errorf("legacy schema version %d no longer supported", t.SchemaVersion)
 	}
 	t.normalize()
+
+	// Update cache
+	if jsonBytes, err := json.Marshal(&t); err == nil {
+		ts.cache.Store(teamId, jsonBytes)
+	}
 
 	return &t, nil
 }
@@ -159,14 +194,15 @@ type TeamMetadata struct {
 // ListAllTeamMetadata returns an iterator over metadata for all teams.
 func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 	return func(yield func(TeamMetadata, error) bool) {
+		// 1. Scan Disk
 		teamsDir := filepath.Join(ts.DataDir, "teams")
 		files, err := os.ReadDir(teamsDir)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				yield(TeamMetadata{}, fmt.Errorf("could not read teams directory: %w", err))
-			}
+		if err != nil && !os.IsNotExist(err) {
+			yield(TeamMetadata{}, fmt.Errorf("could not read teams directory: %w", err))
 			return
 		}
+
+		seen := make(map[string]bool)
 
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
@@ -175,6 +211,7 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 				if err != nil {
 					continue
 				}
+				seen[teamId] = true
 
 				t, err := ts.LoadTeam(teamId)
 				if err != nil {
@@ -193,20 +230,52 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 				}
 			}
 		}
+
+		// 2. Scan Dirty Cache
+		ts.dirtyMu.Lock()
+		dirtyIds := make([]string, 0, len(ts.dirty))
+		for id := range ts.dirty {
+			dirtyIds = append(dirtyIds, id)
+		}
+		ts.dirtyMu.Unlock()
+
+		for _, id := range dirtyIds {
+			if seen[id] {
+				continue
+			}
+
+			t, err := ts.LoadTeam(id)
+			if err != nil {
+				log.Printf("Error: Failed to load dirty team %s: %v", id, err)
+				continue
+			}
+
+			if !yield(TeamMetadata{
+				ID:        t.ID,
+				OwnerID:   t.OwnerID,
+				Roles:     t.Roles,
+				UpdatedAt: t.UpdatedAt,
+				Status:    t.Status,
+				DeletedAt: t.DeletedAt,
+			}, nil) {
+				return
+			}
+		}
 	}
 }
 
 // ListAllTeams returns an iterator over all teams found in the flat teams directory.
 func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 	return func(yield func(*Team, error) bool) {
+		// 1. Scan Disk
 		teamsDir := filepath.Join(ts.DataDir, "teams")
 		files, err := os.ReadDir(teamsDir)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				yield(nil, fmt.Errorf("could not read teams directory: %w", err))
-			}
+		if err != nil && !os.IsNotExist(err) {
+			yield(nil, fmt.Errorf("could not read teams directory: %w", err))
 			return
 		}
+
+		seen := make(map[string]bool)
 
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
@@ -215,6 +284,7 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 				if err != nil {
 					continue
 				}
+				seen[teamId] = true
 
 				t, err := ts.LoadTeam(teamId)
 				if err != nil {
@@ -227,7 +297,90 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 				}
 			}
 		}
+
+		// 2. Scan Dirty Cache
+		ts.dirtyMu.Lock()
+		dirtyIds := make([]string, 0, len(ts.dirty))
+		for id := range ts.dirty {
+			dirtyIds = append(dirtyIds, id)
+		}
+		ts.dirtyMu.Unlock()
+
+		for _, id := range dirtyIds {
+			if seen[id] {
+				continue
+			}
+			t, err := ts.LoadTeam(id)
+			if err != nil {
+				log.Printf("Error: Failed to load dirty team %s: %v", id, err)
+				continue
+			}
+			t.normalize()
+			if !yield(t, nil) {
+				return
+			}
+		}
 	}
+}
+
+// SaveTeamInMemory updates the in-memory cache and marks the team as dirty.
+func (ts *TeamStore) SaveTeamInMemory(team *Team, forceSync bool) error {
+	jsonBytes, err := json.Marshal(team)
+	if err != nil {
+		return err
+	}
+	ts.cache.Store(team.ID, jsonBytes)
+
+	if forceSync {
+		return ts.SaveTeam(team)
+	}
+
+	ts.dirtyMu.Lock()
+	ts.dirty[team.ID] = true
+	ts.dirtyMu.Unlock()
+	return nil
+}
+
+// Flush persists a specific team to disk if it is dirty.
+func (ts *TeamStore) Flush(teamId string) error {
+	ts.dirtyMu.Lock()
+	if !ts.dirty[teamId] {
+		ts.dirtyMu.Unlock()
+		return nil
+	}
+	ts.dirtyMu.Unlock()
+
+	val, ok := ts.cache.Load(teamId)
+	if !ok {
+		ts.dirtyMu.Lock()
+		delete(ts.dirty, teamId)
+		ts.dirtyMu.Unlock()
+		return fmt.Errorf("team %s marked dirty but not found in cache", teamId)
+	}
+
+	var t Team
+	if err := json.Unmarshal(val.([]byte), &t); err != nil {
+		return fmt.Errorf("failed to unmarshal team from cache for flush: %w", err)
+	}
+
+	return ts.SaveTeam(&t)
+}
+
+// FlushAll persists all dirty teams to disk.
+func (ts *TeamStore) FlushAll() error {
+	ts.dirtyMu.Lock()
+	dirtyIds := make([]string, 0, len(ts.dirty))
+	for id := range ts.dirty {
+		dirtyIds = append(dirtyIds, id)
+	}
+	ts.dirtyMu.Unlock()
+
+	for _, id := range dirtyIds {
+		if err := ts.Flush(id); err != nil {
+			return fmt.Errorf("failed to flush team %s: %w", id, err)
+		}
+	}
+	return nil
 }
 
 // DeleteTeam deletes a specific team by overwriting it with a tombstone.
@@ -242,8 +395,8 @@ func (ts *TeamStore) DeleteTeam(teamId string) error {
 	}
 
 	// Get or create a mutex for this specific team
-	m, _ := ts.mu.LoadOrStore(teamId, &sync.Mutex{})
-	mutex := m.(*sync.Mutex)
+	m, _ := ts.mu.LoadOrStore(teamId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
 
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -263,17 +416,32 @@ func (ts *TeamStore) DeleteTeam(teamId string) error {
 	if err := ts.storage.SaveDataFile(filename, tombstone); err != nil {
 		return fmt.Errorf("storage.SaveDataFile (tombstone): %w", err)
 	}
+
+	// Update cache with tombstone
+	if jsonBytes, err := json.Marshal(tombstone); err == nil {
+		ts.cache.Store(teamId, jsonBytes)
+	}
+
+	ts.dirtyMu.Lock()
+	delete(ts.dirty, teamId)
+	ts.dirtyMu.Unlock()
+
 	return nil
 }
 
 // PurgeTeam permanently deletes the team file.
 func (ts *TeamStore) PurgeTeam(teamId string) error {
 	// Get or create a mutex for this specific team
-	m, _ := ts.mu.LoadOrStore(teamId, &sync.Mutex{})
-	mutex := m.(*sync.Mutex)
+	m, _ := ts.mu.LoadOrStore(teamId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
 
 	mutex.Lock()
 	defer mutex.Unlock()
+
+	ts.cache.Delete(teamId)
+	ts.dirtyMu.Lock()
+	delete(ts.dirty, teamId)
+	ts.dirtyMu.Unlock()
 
 	encodedTeamId := url.PathEscape(teamId)
 	filename := filepath.Join("teams", fmt.Sprintf("%s.json", encodedTeamId))

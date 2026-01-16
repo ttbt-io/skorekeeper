@@ -96,6 +96,16 @@ The system uses a **Team-Centric Authorization** model defined in `docs/AUTH-SEC
     *   **Snapshot Security:** While snapshots are encrypted at rest on disk, they are automatically decrypted by the `EncryptedSnapshotStore` layer when being streamed to peers. Security during transit is provided by the cluster's mTLS transport.
 *   **Migration:** The system supports "Lazy Migration" for entity files. Legacy plaintext JSON files are read transparently and upgraded to encrypted format upon the next write. Raft logs are NOT backward compatible and must be cleared if enabling encryption on an existing node.
 
+## 7. Write-Optimized Persistence (Checkpointing)
+*   **Strategy:** The system employs a "Write-Behind" strategy for Game and Team updates to minimize I/O overhead.
+*   **In-Memory Authority:** The `GameStore` and `TeamStore` caches are the authoritative sources of truth for the FSM. Updates are applied to memory immediately and marked as "dirty".
+*   **Checkpointing:** Dirty state is flushed to disk only when:
+    *   A Raft Snapshot is requested (Mandatory).
+    *   The server is shutting down (Safety).
+    *   (Future) A background timer triggers.
+*   **Standalone Mode:** If Raft is disabled, the system defaults to "Write-Through" (immediate persistence) to ensure durability in the absence of a Raft log.
+*   **Consistency:** The `ListAllGames` and `ListAllTeams` APIs automatically merge disk-based and in-memory (dirty) items to ensure clients always see the latest state.
+
 ## Gemini Added Memories
 - For E2E tests involving multiple users (e.g., Owner and Viewer) sharing a single browser instance (cookies), use different hostnames (e.g., `devtest.local` vs `devtest` or `devtest.public`) to ensure session isolation. localhost doesn't work for cross-container communication.
 - Do NOT modify `getRunnersOnBase()` to include the current active batter. Doing so causes issues like duplicate runners on base or ghost runners. `getRunnersOnBase` should strictly return runners from *previous* slots in the inning. To handle runner actions for the current batter, check `activeData.outcome` or `paths` separately.

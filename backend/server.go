@@ -112,15 +112,25 @@ type Server struct {
 func (s *Server) Shutdown(ctx context.Context) error {
 	var errs []string
 
-	if s.raftMgr != nil {
-		if err := s.raftMgr.Shutdown(); err != nil {
-			errs = append(errs, fmt.Sprintf("raft: %v", err))
+	flush := func() {
+		if s.raftMgr != nil {
+			if err := s.raftMgr.Shutdown(); err != nil {
+				errs = append(errs, fmt.Sprintf("raft: %v", err))
+			}
+			// Ensure any dirty FSM state is flushed to disk on shutdown
+			if s.raftMgr.FSM != nil {
+				if err := s.raftMgr.FSM.FlushAll(); err != nil {
+					errs = append(errs, fmt.Sprintf("fsm flush: %v", err))
+				}
+			}
 		}
 	}
+	flush()
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		errs = append(errs, fmt.Sprintf("http: %v", err))
 	}
+	flush()
 
 	if len(errs) > 0 {
 		return fmt.Errorf("shutdown errors: %s", strings.Join(errs, ", "))
@@ -526,7 +536,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		}
 
 		var g Game
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1048576)).Decode(&g); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 20*1048576)).Decode(&g); err != nil {
 			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
 			return
 		}
