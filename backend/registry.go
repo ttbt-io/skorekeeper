@@ -656,6 +656,46 @@ func (r *Registry) IsTeamDeleted(teamId string) bool {
 	return ok
 }
 
+// HasGameAccess checks if the user has read access to the game.
+func (r *Registry) HasGameAccess(userId, gameId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if games, ok := r.userGames[userId]; ok && games[gameId] {
+		return true
+	}
+	// Also check public access
+	if games, ok := r.userGames[""]; ok {
+		return games[gameId]
+	}
+	return false
+}
+
+// HasTeamAccess checks if the user has read access to the team.
+func (r *Registry) HasTeamAccess(userId, teamId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if teams, ok := r.userTeams[userId]; ok {
+		return teams[teamId]
+	}
+	return false
+}
+
+// GameExists checks if a game ID is known to the registry.
+func (r *Registry) GameExists(gameId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.gameOwners[gameId]
+	return ok
+}
+
+// TeamExists checks if a team ID is known to the registry.
+func (r *Registry) TeamExists(teamId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.teamOwners[teamId]
+	return ok
+}
+
 // CountOwnedGames returns the number of games owned by the user.
 func (r *Registry) CountOwnedGames(userId string) int {
 	r.mu.RLock()

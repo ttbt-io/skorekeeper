@@ -50,9 +50,12 @@ export class DashboardController {
                 const deletedIds = await this.app.sync.checkGameDeletions(localIds);
                 if (deletedIds.length > 0) {
                     console.log('Dashboard: Deleting stale local games', deletedIds);
-                    await Promise.all(deletedIds.map(id => this.app.db.deleteGame(id)));
-                    // Refresh local list
-                    localGames = await this.app.db.getAllGames();
+                    const deletedSet = new Set(deletedIds);
+                    await Promise.all(deletedIds.map(id =>
+                        this.app.db.deleteGame(id).catch(err => console.warn(`Dashboard: Failed to delete stale game ${id}`, err)),
+                    ));
+                    // Filter in memory to avoid redundant DB reload
+                    localGames = localGames.filter(g => !deletedSet.has(g.id));
                 }
             }
         }
@@ -123,7 +126,7 @@ export class DashboardController {
 
     async autoFill() {
         const container = document.getElementById('game-list-container');
-        await this.loadNextBatch(true); // Initial load, skip individual render
+        await this.loadNextBatch(false); // Initial load, must render to get baseline height
 
         if (container && container.clientHeight > 0) {
             let safety = 0;
@@ -132,11 +135,10 @@ export class DashboardController {
                 this.merger.hasMore() &&
                 safety < 10
             ) {
-                await this.loadNextBatch(true); // Skip render in loop
+                await this.loadNextBatch(false); // Must render to update scrollHeight
                 safety++;
             }
         }
-        this.app.render(); // Final render after auto-fill
     }
 
     async loadNextBatch(skipRender = false) {
@@ -150,15 +152,15 @@ export class DashboardController {
             const processedBatch = this._processBatch(rawBatch);
 
             this.app.state.games.push(...processedBatch);
-            if (!skipRender) {
-                this.app.render();
-            }
 
             this.hasMore = this.merger.hasMore();
+
+            if (!skipRender) {
+                this.renderWithPagination();
+            }
         } finally {
             this.isLoading = false;
         }
-        this.renderWithPagination();
     }
 
     _processBatch(batch) {

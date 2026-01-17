@@ -40,7 +40,13 @@ export class StreamMerger {
         while (batch.length < batchSize) {
             // Ensure remote buffer has data if not exhausted
             if (this.remoteBuffer.length === 0 && !this.remoteExhausted) {
-                await this._fillRemoteBuffer();
+                await (this._fetching || this._fillRemoteBuffer());
+                // If still empty after fill, and exhausted, break early
+                if (this.remoteBuffer.length === 0 && this.remoteExhausted) {
+                    if (this.localPointer >= this.localStream.length) {
+                        break;
+                    }
+                }
             }
 
             const localItem = this.localPointer < this.localStream.length ? this.localStream[this.localPointer] : null;

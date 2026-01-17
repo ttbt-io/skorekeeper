@@ -1309,12 +1309,13 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		resp.DeletedTeamIDs = make([]string, 0)
 
 		for _, gid := range req.GameIDs {
-			if registry.IsGameDeleted(gid) {
+			// Report as deleted if explicitly tombstoned OR if it exists but is no longer accessible
+			if registry.IsGameDeleted(gid) || (registry.GameExists(gid) && !registry.HasGameAccess(userId, gid)) {
 				resp.DeletedGameIDs = append(resp.DeletedGameIDs, gid)
 			}
 		}
 		for _, tid := range req.TeamIDs {
-			if registry.IsTeamDeleted(tid) {
+			if registry.IsTeamDeleted(tid) || (registry.TeamExists(tid) && !registry.HasTeamAccess(userId, tid)) {
 				resp.DeletedTeamIDs = append(resp.DeletedTeamIDs, tid)
 			}
 		}

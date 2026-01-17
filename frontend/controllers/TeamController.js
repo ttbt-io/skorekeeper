@@ -54,8 +54,12 @@ export class TeamController {
             if (localIds.length > 0) {
                 const deletedIds = await this.app.teamSync.checkTeamDeletions(localIds);
                 if (deletedIds.length > 0) {
-                    await Promise.all(deletedIds.map(id => this.app.db.deleteTeam(id)));
-                    localTeamsRaw = await this.app.db.getAllTeams();
+                    const deletedSet = new Set(deletedIds);
+                    await Promise.all(deletedIds.map(id =>
+                        this.app.db.deleteTeam(id).catch(err => console.warn(`TeamController: Failed to delete stale team ${id}`, err)),
+                    ));
+                    // Filter in memory to avoid redundant DB reload
+                    localTeamsRaw = localTeamsRaw.filter(t => !deletedSet.has(t.id));
                 }
             }
         }
@@ -129,7 +133,7 @@ export class TeamController {
      */
     async autoFill() {
         const container = document.getElementById('teams-list-container');
-        await this.loadNextBatch(true); // Initial load, skip individual render
+        await this.loadNextBatch(false); // Initial load, must render to get baseline height
 
         if (container && container.clientHeight > 0) {
             let safety = 0;
@@ -138,11 +142,10 @@ export class TeamController {
                 this.merger.hasMore() &&
                 safety < 10
             ) {
-                await this.loadNextBatch(true); // Skip render in loop
+                await this.loadNextBatch(false); // Must render to update scrollHeight
                 safety++;
             }
         }
-        this.app.render(); // Final render after auto-fill
     }
 
     /**
@@ -160,17 +163,17 @@ export class TeamController {
             const processedBatch = await this._processBatch(rawBatch);
 
             this.app.state.teams.push(...processedBatch);
-            if (!skipRender) {
-                this.app.render();
-            }
 
             this.triggerVisibleAutoSync();
 
             this.hasMore = this.merger.hasMore();
+
+            if (!skipRender) {
+                this.renderWithPagination();
+            }
         } finally {
             this.isLoading = false;
         }
-        this.renderWithPagination();
     }
 
     /**
