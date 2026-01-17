@@ -1,74 +1,52 @@
 # Pagination Implementation Plan
 
 ## Overview
-This document outlines the plan to refactor the `list-games` and `list-teams` API endpoints to support pagination, sorting, and filtering. This change addresses performance issues caused by loading and returning the entire dataset for a user.
+This document outlines the design for "Auto-Scroll" pagination with a merged data stream. The goal is to provide an infinite scroll experience for Games and Teams that seamlessly interleaves data from the remote server (via API) and the local IndexedDB, respecting sort order (e.g., Date Descending) regardless of where the data originates.
 
-## Backend Changes
+## Backend Changes (Complete)
+- **`Registry`:** Updated to cache/index metadata for efficient sorting/filtering.
+- **API (`list-games`, `list-teams`):** Updated to accept `limit`, `offset`, `sortBy`, `order`, `q`.
 
-### 1. `backend/teamstore.go`
-- **Update `TeamMetadata` struct:** Add `Name` field.
-- **Update `ListAllTeamMetadata`:** Populate `Name` from the loaded `Team` object.
+## Frontend Architecture: Stream & Merge
 
-### 2. `backend/registry.go`
-- **Update `Registry` struct:**
-    - Add `gameMetadata map[string]GameMetadata` to cache sortable fields.
-    - Add `teamMetadata map[string]TeamMetadata` to cache sortable fields.
-- **Update `Rebuild`:** Populate these maps during initialization.
-- **Update `indexGameMetadata` / `indexTeamMetadata`:** Keep these maps in sync.
-- **Update `ListGames`:**
-    - Accept `sortBy` (default: "date"), `order` (default: "desc"), and `query` (filter).
-    - Implement filtering (case-insensitive contains on Event, Location, Away, Home).
-    - Implement sorting based on cached metadata.
-- **Update `ListTeams`:**
-    - Accept `sortBy` (default: "name"), `order` (default: "asc"), and `query` (filter).
-    - Implement filtering (case-insensitive contains on Name).
-    - Implement sorting.
+### 1. Merge Engine (Client-Side)
+Instead of simple page concatenation, the Controller will manage two "Streams" of data:
+1.  **Local Stream:** All items from IndexedDB, loaded into memory and sorted (e.g., by Date Desc).
+    - *Note:* IDB is fast enough for ~10k items to load/sort in memory.
+2.  **Remote Stream:** An async iterator/buffer that fetches pages from the API (e.g., page size 50) on demand.
 
-### 3. `backend/server.go`
-- **Update `parsePagination`:** Return `limit`, `offset`, `sortBy`, `order`, `query`.
-    - `limit`: default 50, max 100.
-    - `offset`: default 0.
-    - `sortBy`: default "" (handled by Registry defaults).
-    - `order`: default "desc" (or "asc" depending on context, passed as string).
-    - `query`: default "".
-- **Update `list-games` Handler:**
-    - Extract params.
-    - Call `registry.ListGames(userId, sortBy, order, query)`.
-    - Pagination (slicing) happens on the result *after* sorting/filtering (Registry returns full filtered sorted list? Or Registry handles pagination? The prompt said "Slice the ID list... before interacting with file system". So Registry should return the *full sorted list of IDs*, and the Handler slices it. This keeps Registry simple).
-- **Update `list-teams` Handler:**
-    - Extract params.
-    - Call `registry.ListTeams(userId, sortBy, order, query)`.
-    - Slice and load.
+**Logic:**
+- `fetchNextBatch(size)`:
+    - Compare the head of the Local Stream vs. the head of the Remote Stream.
+    - Pick the "winner" based on the current Sort Order (e.g., newer Game first).
+    - **Deduplicate:** If the winner's ID is in `seenIds`, discard it and pick again.
+    - Add to batch. Repeat until batch is full.
+    - Return batch.
 
-## Frontend Changes
+**Offline Fallback:**
+- If the Remote Stream encounters an error (network/auth), it "closes" gracefully.
+- The Merge Engine continues serving only from the Local Stream.
 
-### 1. Service Layer (`frontend/services/`)
-- **`SyncManager.js` (`fetchGameList`):**
-    - Accept `offset`, `limit`, `sortBy`, `order`, `query`.
-    - Return `{ data, meta }`.
-- **`TeamSyncManager.js` (`fetchTeamList`):**
-    - Accept `offset`, `limit`, `sortBy`, `order`, `query`.
-    - Return `{ data, meta }`.
+### 2. UI Behavior: Auto-Fill & Infinite Scroll
+- **Auto-Fill:** On load, the Controller fetches batches and renders them until the content height is ~2x the viewport height. This ensures the user has enough content to scroll immediately.
+- **Infinite Scroll:**
+    - A **Sentinel Element** (loading spinner/div) is appended to the bottom of the list.
+    - An `IntersectionObserver` (or scroll event listener) watches the sentinel.
+    - When the sentinel becomes visible (or scroll reaches bottom), `fetchNextBatch` is triggered, and results are appended.
 
-### 2. Controller Layer (`frontend/controllers/DashboardController.js`)
-- **`loadDashboard`:**
-    - Initial load: Fetch page 0.
-- **`loadMoreGames`:**
-    - Fetch next page.
-- **UI:**
-    - Add search bar.
-    - Add sort dropdowns (optional for now, can stick to defaults).
+### 3. Controller Updates
+- **`DashboardController.js` & `TeamController.js`:**
+    - Remove "Load More" button logic.
+    - Implement `MergeStream` class (or helper) to handle the two sources.
+    - Implement `handleScroll` logic.
+    - Update `search(query)` to reset both streams and `seenIds`.
 
 ## Test Plan
 
-### Backend Tests (`backend/pagination_test.go`)
-1.  **Pagination:** (Existing)
-2.  **Sorting:**
-    - Create games with different dates.
-    - Request sort by date asc/desc. Verify order.
-    - Create teams with different names.
-    - Request sort by name asc/desc. Verify order.
-3.  **Filtering:**
-    - Create games "Yankees vs Red Sox", "Mets vs Rays".
-    - Query "Yankees". Verify only 1 result.
-    - Query "vs". Verify 2 results.
+### E2E Tests (`tests/e2e/pagination_test.go`)
+- **Auto-Fill:** Verify that on load, multiple "pages" of data are fetched if the viewport is large or items are small.
+- **Scroll:** Simulate scrolling (or `scrollTo`) to trigger the observer and verify new items appear.
+- **Merge Logic:**
+    - Inject a "Local Only" game dated *between* two remote games.
+    - Verify it appears in the correct sorted position, not just at the top/bottom.
+- **Offline:** Verify that when network is blocked, the list continues to populate from local data seamlessly.

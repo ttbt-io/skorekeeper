@@ -23,6 +23,7 @@ module.exports = {
 
     // The test environment that will be used for testing
     testEnvironment: "jsdom",
+    setupFilesAfterEnv: ['<rootDir>/tests/unit/setup.js'],
   transform: {
     '^.+.[m|j]s$': 'babel-jest', // Apply babel-jest to all .js and .mjs files
   },
