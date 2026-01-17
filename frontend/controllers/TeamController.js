@@ -54,9 +54,7 @@ export class TeamController {
             if (localIds.length > 0) {
                 const deletedIds = await this.app.teamSync.checkTeamDeletions(localIds);
                 if (deletedIds.length > 0) {
-                    for (const id of deletedIds) {
-                        await this.app.db.deleteTeam(id);
-                    }
+                    await Promise.all(deletedIds.map(id => this.app.db.deleteTeam(id)));
                     localTeamsRaw = await this.app.db.getAllTeams();
                 }
             }
@@ -131,7 +129,7 @@ export class TeamController {
      */
     async autoFill() {
         const container = document.getElementById('teams-list-container');
-        await this.loadNextBatch();
+        await this.loadNextBatch(true); // Initial load, skip individual render
 
         if (container && container.clientHeight > 0) {
             let safety = 0;
@@ -140,16 +138,18 @@ export class TeamController {
                 this.merger.hasMore() &&
                 safety < 10
             ) {
-                await this.loadNextBatch();
+                await this.loadNextBatch(true); // Skip render in loop
                 safety++;
             }
         }
+        this.app.render(); // Final render after auto-fill
     }
 
     /**
      * Loads the next batch of teams from the stream merger.
+     * @param {boolean} [skipRender=false] - Whether to skip triggering a full app render.
      */
-    async loadNextBatch() {
+    async loadNextBatch(skipRender = false) {
         if (!this.merger) {
             return;
         }
@@ -160,7 +160,9 @@ export class TeamController {
             const processedBatch = await this._processBatch(rawBatch);
 
             this.app.state.teams.push(...processedBatch);
-            this.app.render();
+            if (!skipRender) {
+                this.app.render();
+            }
 
             this.triggerVisibleAutoSync();
 
@@ -306,7 +308,10 @@ export class TeamController {
         await this.loadNextBatch();
     }
 
-    // ... (Keep existing methods: syncTeam, openEditTeamModal, switchTeamModalTab, renderTeamMembers, addTeamMember, removeTeamMember, addTeamPlayerRow, closeTeamModal, saveTeam, deleteTeam) ...
+    /**
+     * Synchronizes a specific team with the server.
+     * @param {string} teamId
+     */
     async syncTeam(teamId) {
         const team = this.app.state.teams.find(t => t.id === teamId);
         if (!team || team.syncStatus === SyncStatusSyncing) {

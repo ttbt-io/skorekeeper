@@ -117,22 +117,32 @@ export class StreamMerger {
             return;
         }
 
-        try {
-            const res = await this.fetchRemotePageFn(this.remoteOffset);
-            const data = res.data || [];
-            const meta = res.meta || {};
-
-            if (data.length === 0) {
-                this.remoteExhausted = true;
-            } else {
-                this.remoteBuffer.push(...data);
-                this.remoteOffset += data.length;
-                this.remoteTotal = meta.total;
-            }
-        } catch (e) {
-            console.warn('StreamMerger: Remote fetch failed', e);
-            this.remoteExhausted = true;
+        if (this._fetching) {
+            return this._fetching;
         }
+
+        this._fetching = (async() => {
+            try {
+                const res = await this.fetchRemotePageFn(this.remoteOffset);
+                const data = res.data || [];
+                const meta = res.meta || {};
+
+                if (data.length === 0) {
+                    this.remoteExhausted = true;
+                } else {
+                    this.remoteBuffer.push(...data);
+                    this.remoteOffset += data.length;
+                    this.remoteTotal = meta.total;
+                }
+            } catch (e) {
+                console.warn('StreamMerger: Remote fetch failed', e);
+                this.remoteExhausted = true;
+            } finally {
+                this._fetching = null;
+            }
+        })();
+
+        return this._fetching;
     }
 
     hasMore() {

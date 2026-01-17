@@ -50,9 +50,7 @@ export class DashboardController {
                 const deletedIds = await this.app.sync.checkGameDeletions(localIds);
                 if (deletedIds.length > 0) {
                     console.log('Dashboard: Deleting stale local games', deletedIds);
-                    for (const id of deletedIds) {
-                        await this.app.db.deleteGame(id);
-                    }
+                    await Promise.all(deletedIds.map(id => this.app.db.deleteGame(id)));
                     // Refresh local list
                     localGames = await this.app.db.getAllGames();
                 }
@@ -125,7 +123,7 @@ export class DashboardController {
 
     async autoFill() {
         const container = document.getElementById('game-list-container');
-        await this.loadNextBatch();
+        await this.loadNextBatch(true); // Initial load, skip individual render
 
         if (container && container.clientHeight > 0) {
             let safety = 0;
@@ -134,13 +132,14 @@ export class DashboardController {
                 this.merger.hasMore() &&
                 safety < 10
             ) {
-                await this.loadNextBatch();
+                await this.loadNextBatch(true); // Skip render in loop
                 safety++;
             }
         }
+        this.app.render(); // Final render after auto-fill
     }
 
-    async loadNextBatch() {
+    async loadNextBatch(skipRender = false) {
         if (!this.merger) {
             return;
         }
@@ -151,7 +150,9 @@ export class DashboardController {
             const processedBatch = this._processBatch(rawBatch);
 
             this.app.state.games.push(...processedBatch);
-            this.app.render();
+            if (!skipRender) {
+                this.app.render();
+            }
 
             this.hasMore = this.merger.hasMore();
         } finally {
