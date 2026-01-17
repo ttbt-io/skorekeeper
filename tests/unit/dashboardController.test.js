@@ -80,6 +80,8 @@ describe('DashboardController', () => {
         });
 
         test('should handle offline mode (fetch failure)', async() => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
+            });
             mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
             mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
 
@@ -88,6 +90,7 @@ describe('DashboardController', () => {
             // Should fall back to local games
             expect(mockApp.state.games.length).toBe(1);
             expect(controller.hasMore).toBe(false);
+            warnSpy.mockRestore();
         });
 
         test('should filter and sort local games in offline mode', async() => {

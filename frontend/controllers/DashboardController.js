@@ -199,7 +199,7 @@ export class DashboardController {
     renderWithPagination() {
         this.app.render();
 
-        const main = document.querySelector('main');
+        const main = document.getElementById('game-list-container');
         if (!main || this.app.state.games.length === 0) {
             return;
         }

@@ -376,18 +376,19 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	lowerQuery := strings.ToLower(query)
 	var ids []string
 	for id := range r.userGames[userId] {
 		// Filter
-		if query != "" {
+		if lowerQuery != "" {
 			meta, ok := r.gameMetadata[id]
 			if !ok {
 				continue
 			}
-			match := containsCaseInsensitive(meta.Event, query) ||
-				containsCaseInsensitive(meta.Location, query) ||
-				containsCaseInsensitive(meta.Away, query) ||
-				containsCaseInsensitive(meta.Home, query)
+			match := containsCaseInsensitive(meta.Event, lowerQuery) ||
+				containsCaseInsensitive(meta.Location, lowerQuery) ||
+				containsCaseInsensitive(meta.Away, lowerQuery) ||
+				containsCaseInsensitive(meta.Home, lowerQuery)
 			if !match {
 				continue
 			}
@@ -414,7 +415,10 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 		m2, ok2 := r.gameMetadata[id2]
 
 		if !ok1 || !ok2 {
-			return id1 < id2 // Fallback to ID
+			if order == "desc" {
+				return id1 > id2
+			}
+			return id1 < id2
 		}
 
 		var less bool
@@ -426,15 +430,44 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 				less = id1 < id2
 			}
 		case "event":
-			less = m1.Event < m2.Event
+			if m1.Event != m2.Event {
+				less = m1.Event < m2.Event
+			} else {
+				less = id1 < id2
+			}
 		case "location":
-			less = m1.Location < m2.Location
+			if m1.Location != m2.Location {
+				less = m1.Location < m2.Location
+			} else {
+				less = id1 < id2
+			}
 		default:
 			less = id1 < id2
 		}
 
 		if order == "desc" {
-			return !less
+			// To maintain strict weak ordering for descending sort,
+			// we must check equality first or invert the specific comparison logic.
+			// Re-running comparison with inverted logic is safest for Go's sort.Slice.
+			switch sortBy {
+			case "date":
+				if m1.Date != m2.Date {
+					return m1.Date > m2.Date
+				}
+				return id1 > id2
+			case "event":
+				if m1.Event != m2.Event {
+					return m1.Event > m2.Event
+				}
+				return id1 > id2
+			case "location":
+				if m1.Location != m2.Location {
+					return m1.Location > m2.Location
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
 		}
 		return less
 	})
@@ -447,15 +480,16 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	lowerQuery := strings.ToLower(query)
 	var ids []string
 	for id := range r.userTeams[userId] {
 		// Filter
-		if query != "" {
+		if lowerQuery != "" {
 			meta, ok := r.teamMetadata[id]
 			if !ok {
 				continue
 			}
-			if !containsCaseInsensitive(meta.Name, query) {
+			if !containsCaseInsensitive(meta.Name, lowerQuery) {
 				continue
 			}
 		}
@@ -477,6 +511,9 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 		m2, ok2 := r.teamMetadata[id2]
 
 		if !ok1 || !ok2 {
+			if order == "desc" {
+				return id1 > id2
+			}
 			return id1 < id2
 		}
 
@@ -489,13 +526,30 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 				less = id1 < id2
 			}
 		case "updated":
-			less = m1.UpdatedAt < m2.UpdatedAt
+			if m1.UpdatedAt != m2.UpdatedAt {
+				less = m1.UpdatedAt < m2.UpdatedAt
+			} else {
+				less = id1 < id2
+			}
 		default:
 			less = id1 < id2
 		}
 
 		if order == "desc" {
-			return !less
+			switch sortBy {
+			case "name":
+				if m1.Name != m2.Name {
+					return m1.Name > m2.Name
+				}
+				return id1 > id2
+			case "updated":
+				if m1.UpdatedAt != m2.UpdatedAt {
+					return m1.UpdatedAt > m2.UpdatedAt
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
 		}
 		return less
 	})
