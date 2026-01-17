@@ -180,7 +180,7 @@ export class DashboardController {
         this.app.render();
 
         const main = document.querySelector('main');
-        if (!main) {
+        if (!main || this.app.state.games.length === 0) {
             return;
         }
 
@@ -189,7 +189,7 @@ export class DashboardController {
             sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
             sentinel.textContent = this.isLoading ? 'Loading more games...' : 'Scroll for more';
             main.appendChild(sentinel);
-        } else if (this.app.state.games.length > 0) {
+        } else {
             const endMsg = document.createElement('div');
             endMsg.className = 'py-8 text-center text-gray-400 text-xs italic';
             endMsg.textContent = 'All games loaded.';

@@ -175,5 +175,23 @@ describe('DashboardController', () => {
             }));
             expect(mockApp.render).toHaveBeenCalled();
         });
+
+        test('should not show sentinel if no results', async() => {
+            mockApp.db.getAllGames.mockResolvedValue([]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [],
+                meta: { total: 0 },
+            });
+            
+            // Set up DOM
+            const main = document.createElement('main');
+            main.id = 'game-list-container';
+            document.body.appendChild(main);
+            
+            await controller.search('nothing');
+            
+            expect(main.textContent).not.toContain('Scroll for more');
+            expect(main.textContent).not.toContain('All games loaded');
+        });
     });
 });

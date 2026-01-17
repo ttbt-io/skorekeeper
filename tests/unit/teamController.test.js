@@ -115,6 +115,28 @@ describe('TeamController', () => {
         });
     });
 
+    describe('search', () => {
+        test('should not show sentinel if no results', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [],
+                meta: { total: 0 },
+            });
+            
+            // Set up DOM
+            const view = document.createElement('div');
+            view.id = 'teams-view';
+            const main = document.createElement('main');
+            view.appendChild(main);
+            document.body.appendChild(view);
+            
+            await controller.search('nothing');
+            
+            expect(main.textContent).not.toContain('Scroll for more');
+            expect(main.textContent).not.toContain('All teams loaded');
+        });
+    });
+
     describe('syncTeam', () => {
         test('should sync team and update status', async() => {
             mockApp.state.teams = [{ id: 't1', syncStatus: 'local_only' }];
