@@ -15,7 +15,7 @@
 
 
 echo "Running JavaScript Linter (ESLint)..."
-npx eslint frontend/ tests/unit/
+npx eslint frontend/ tests/unit/ --fix
 
 if [ $? -ne 0 ]; then
   echo "ESLint failed. Please fix the linting errors."

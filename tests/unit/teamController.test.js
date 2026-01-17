@@ -99,24 +99,19 @@ describe('TeamController', () => {
 
     describe('loadMore', () => {
         test('should load next page', async() => {
-            controller.page = 0;
-            controller.limit = 10;
             controller.hasMore = true;
+            controller.merger = {
+                fetchNextBatch: jest.fn().mockResolvedValue([{ id: 't2', source: 'remote', name: 'T2' }]),
+                hasMore: jest.fn().mockReturnValue(true),
+            };
             mockApp.state.teams = [{ id: 't1' }];
-
-            mockApp.db.getAllTeams.mockResolvedValue([]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue({
-                data: [{ id: 't2' }],
-                meta: { total: 20 },
-            });
 
             await controller.loadMore();
 
-            expect(controller.page).toBe(1);
+            // expect(controller.page).toBe(1); // Page is not tracked on controller anymore
             expect(mockApp.state.teams.length).toBe(2);
-            expect(mockApp.teamSync.fetchTeamList).toHaveBeenCalledWith(expect.objectContaining({
-                offset: 10,
-            }));
+            expect(mockApp.state.teams[1].id).toBe('t2');
+            expect(controller.merger.fetchNextBatch).toHaveBeenCalled();
         });
     });
 

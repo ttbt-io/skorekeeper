@@ -46,59 +46,64 @@ func TestClientSidePaginationAndFiltering(t *testing.T) {
 
 	runStep(t, ctx, "Inject Data and Set Limit",
 		chromedp.Evaluate(`(async () => {
-            // 1. Inject 3 Games
-            const games = [
-                { id: 'g1', date: '2025-01-03T12:00:00Z', away: 'Cherry', home: 'Team C' },
-                { id: 'g2', date: '2025-01-02T12:00:00Z', away: 'Banana', home: 'Team B' },
-                { id: 'g3', date: '2025-01-01T12:00:00Z', away: 'Apple',  home: 'Team A' }
-            ];
-            for (const g of games) {
+            // 1. Inject 50 Games
+            // We create enough games to ensure they don't all fit in one batch/screen
+            for (let i = 1; i <= 50; i++) {
+                // Date logic: g1 is newest (Jan 1 + 50 days), g50 is oldest
+                const date = new Date('2025-01-01');
+                date.setDate(date.getDate() + (50 - i));
+                
                 await window.app.db.saveGame({
-                    id: g.id,
-                    date: g.date,
-                    away: g.away,
-                    home: g.home,
+                    id: 'g' + i,
+                    date: date.toISOString(),
+                    away: 'Away ' + i,
+                    home: 'Home ' + i,
                     actionLog: []
                 });
             }
             
-            // 2. Force Offline Mode (simulate failure) by mocking
+            // 2. Force Offline Mode (simulate failure) by mocking fetch
             window.app.sync.fetchGameList = async () => { throw new Error('Offline'); };
             
-            // 3. Set Low Limit
-            window.app.dashboardController.limit = 2;
+            // 3. Set Batch Size (optional, default is 20, we can force it smaller to be sure)
+            window.app.dashboardController.batchSize = 10;
             
             // 4. Reload Dashboard
             await window.app.dashboardController.loadDashboard();
 		})()`, nil),
 	)
 
-	runStep(t, ctx, "Verify Page 1",
-		chromedp.WaitVisible(`div[data-game-id="g1"]`),
-		chromedp.WaitVisible(`div[data-game-id="g2"]`),
+	runStep(t, ctx, "Verify Pagination (Initial Load)",
+		chromedp.WaitVisible(`div[data-game-id="g1"]`),  // Newest
+		chromedp.WaitVisible(`div[data-game-id="g10"]`), // 10th
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var exists bool
-			err := chromedp.Evaluate(`!!document.querySelector('div[data-game-id="g3"]')`, &exists).Do(ctx)
+			// g50 (oldest) should NOT be visible yet
+			err := chromedp.Evaluate(`!!document.querySelector('div[data-game-id="g50"]')`, &exists).Do(ctx)
 			if err != nil {
 				return err
 			}
 			if exists {
-				return fmt.Errorf("Game g3 should not be visible on page 1")
+				return fmt.Errorf("Game g50 should not be visible on initial load")
 			}
 			return nil
 		}),
 	)
 
-	runStep(t, ctx, "Load More",
-		// Click the button that contains text "Load More"
-		chromedp.Click(`//button[contains(text(), 'Load More')]`, chromedp.BySearch),
-		chromedp.WaitVisible(`div[data-game-id="g3"]`),
+	runStep(t, ctx, "Scroll to Load More",
+		chromedp.Evaluate(`
+            const container = document.getElementById('game-list-container');
+            container.scrollTo(0, container.scrollHeight);
+        `, nil),
+		// Wait for more games to appear. We check for g20 or just count increase.
+		// Let's wait for g15
+		chromedp.WaitVisible(`div[data-game-id="g15"]`),
 	)
 
 	runStep(t, ctx, "Search",
-		chromedp.SendKeys(`#dashboard-search`, "Apple"),
+		chromedp.SendKeys(`#dashboard-search`, "Home 50"),
 		chromedp.Sleep(1000*time.Millisecond), // Wait for debounce
-		chromedp.WaitVisible(`div[data-game-id="g3"]`),
+		chromedp.WaitVisible(`div[data-game-id="g50"]`),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var count int
 			// Count visible game cards

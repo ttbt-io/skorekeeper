@@ -18,210 +18,182 @@ import {
     SyncStatusRemoteOnly,
     SyncStatusLocalOnly,
 } from '../constants.js';
+import { StreamMerger } from '../services/streamMerger.js';
 
 export class DashboardController {
     constructor(app) {
         this.app = app;
-        this.page = 0;
-        this.limit = 50;
-        this.hasMore = false;
+        this.merger = null;
+        this.localMap = new Map();
+        this.localRevisions = new Map();
         this.isLoading = false;
         this.query = '';
+        this.scrollBound = false;
+        this.batchSize = 20;
     }
 
     /**
      * Loads the dashboard view.
      */
     async loadDashboard() {
-        this.page = 0;
-        this.hasMore = false;
         this.app.state.games = [];
         this.app.state.view = 'dashboard';
-
-        await this.loadGames();
-        this.renderWithPagination();
-    }
-
-    async loadGames() {
-        if (this.isLoading) {
-            return;
-        }
         this.isLoading = true;
 
+        // 1. Prepare Local Data
         const localGames = await this.app.db.getAllGames();
-        const localRevisions = await this.app.db.getLocalRevisions();
-        const localMap = new Map(localGames.map(g => [g.id, g]));
+        this.localRevisions = await this.app.db.getLocalRevisions();
+        this.localMap = new Map(localGames.map(g => [g.id, g]));
 
-        let remoteGames = [];
-        let total = 0;
-        let isOffline = false;
+        // Filter and Sort Local Data (Date Descending)
+        let filteredLocal = localGames;
+        if (this.query) {
+            const q = this.query.toLowerCase();
+            filteredLocal = localGames.filter(g =>
+                (g.event || '').toLowerCase().includes(q) ||
+                (g.location || '').toLowerCase().includes(q) ||
+                (g.away || '').toLowerCase().includes(q) ||
+                (g.home || '').toLowerCase().includes(q),
+            );
+        }
+        filteredLocal.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        if (this.app.auth.getUser()) {
-            try {
-                const result = await this.app.sync.fetchGameList({
-                    limit: this.limit,
-                    offset: this.page * this.limit,
+        // 2. Initialize StreamMerger
+        this.merger = new StreamMerger(
+            filteredLocal,
+            async(offset) => {
+                if (!this.app.auth.getUser()) {
+                    return { data: [], meta: { total: 0 } };
+                }
+                return this.app.sync.fetchGameList({
+                    limit: 50,
+                    offset: offset,
                     sortBy: 'date',
                     order: 'desc',
                     query: this.query,
                 });
-                remoteGames = result.data;
-                total = result.meta.total;
-            } catch (e) {
-                console.warn('Dashboard: Failed to fetch remote games', e);
-                if (e.message && e.message.includes('status: 403')) {
-                    this.app.modalConfirmFn(this.app.auth.accessDeniedMessage || 'Access Denied', { isError: true, autoClose: false });
-                    this.isLoading = false;
-                    return;
-                }
-                isOffline = true;
-            }
-        } else {
-            isOffline = true;
+            },
+            (a, b) => new Date(b.date) - new Date(a.date), // Comparator: Date Desc
+            'id',
+        );
+
+        // 3. Bind Scroll Event
+        this.bindScrollEvent();
+
+        // 4. Initial Auto-Fill
+        await this.autoFill();
+        this.isLoading = false;
+    }
+
+    bindScrollEvent() {
+        const container = document.getElementById('game-list-container');
+        if (container && !this.scrollBound) {
+            container.addEventListener('scroll', () => {
+                this.handleScroll(container);
+            });
+            this.scrollBound = true;
         }
+    }
 
-        if (isOffline) {
-            // Offline Mode: Filter, Sort, and Paginate local games
-            let filtered = localGames;
-            if (this.query) {
-                const q = this.query.toLowerCase();
-                filtered = localGames.filter(g =>
-                    (g.event || '').toLowerCase().includes(q) ||
-                    (g.location || '').toLowerCase().includes(q) ||
-                    (g.away || '').toLowerCase().includes(q) ||
-                    (g.home || '').toLowerCase().includes(q),
-                );
-            }
-
-            // Sort (Date Descending to match backend default)
-            filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-            // Paginate
-            const start = this.page * this.limit;
-            const end = start + this.limit;
-            const sliced = filtered.slice(start, end);
-
-            if (this.page === 0) {
-                this.app.state.games = sliced;
-            } else {
-                this.app.state.games.push(...sliced);
-            }
-
-            this.hasMore = end < filtered.length;
-            this.isLoading = false;
+    async handleScroll(container) {
+        if (this.isLoading || !this.merger || !this.merger.hasMore()) {
             return;
         }
 
-        // Online Mode: Merge Remote Page with Local Data
-        const processedRemote = remoteGames.map(g => {
-            const localG = localMap.get(g.id);
-            const localRev = localRevisions.get(g.id) || '';
-            const remoteRev = g.revision;
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        if (scrollTop + clientHeight >= scrollHeight - 200) {
+            await this.loadNextBatch();
+        }
+    }
+
+    async autoFill() {
+        const container = document.getElementById('game-list-container');
+        await this.loadNextBatch();
+
+        if (container && container.clientHeight > 0) {
+            let safety = 0;
+            while (
+                container.scrollHeight <= container.clientHeight * 2 &&
+                this.merger.hasMore() &&
+                safety < 10
+            ) {
+                await this.loadNextBatch();
+                safety++;
+            }
+        }
+    }
+
+    async loadNextBatch() {
+        if (!this.merger) {
+            return;
+        }
+        this.isLoading = true;
+
+        const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
+        const processedBatch = this._processBatch(rawBatch);
+
+        this.app.state.games.push(...processedBatch);
+        this.app.render();
+
+        this.hasMore = this.merger.hasMore();
+        this.renderWithPagination();
+
+        this.isLoading = false;
+    }
+
+    _processBatch(batch) {
+        return batch.map(item => {
+            const remoteItem = item._remote;
+            const localItem = (item.source === 'local') ? item : this.localMap.get(item.id);
+            const base = localItem || item;
 
             let status = SyncStatusSynced;
-            if (!localG) {
+            const localRev = localItem ? (this.localRevisions.get(localItem.id) || '') : '';
+            const remoteRev = remoteItem ? remoteItem.revision : (item.source === 'remote' ? item.revision : '');
+
+            if (!localItem) {
                 status = SyncStatusRemoteOnly;
+            } else if (!remoteItem && item.source === 'local') {
+                status = SyncStatusLocalOnly;
             } else if (localRev !== remoteRev) {
                 status = SyncStatusUnsynced;
             }
 
-            // Prefer local data if available (for unsynced changes), else remote data
-            const base = localG || g;
-
             return {
                 ...base,
-                source: localG ? 'local' : 'remote',
+                source: localItem ? 'local' : 'remote',
                 localRevision: localRev,
                 remoteRevision: remoteRev,
                 syncStatus: status,
             };
         });
-
-        if (this.page === 0) {
-            // MERGE Remote Page 0 with ALL Local Games (filtered) to ensure local-only games are visible
-            const remoteIds = new Set(processedRemote.map(g => g.id));
-
-            // Identify Local-Only (not in this remote page)
-            let localOnly = localGames.filter(g => !remoteIds.has(g.id));
-
-            // Filter Local by Query
-            if (this.query) {
-                const q = this.query.toLowerCase();
-                localOnly = localOnly.filter(g =>
-                    (g.event || '').toLowerCase().includes(q) ||
-                    (g.location || '').toLowerCase().includes(q) ||
-                    (g.away || '').toLowerCase().includes(q) ||
-                    (g.home || '').toLowerCase().includes(q),
-                );
-            }
-
-            const processedLocal = localOnly.map(g => ({
-                ...g,
-                source: 'local',
-                localRevision: localRevisions.get(g.id) || '',
-                remoteRevision: '',
-                syncStatus: SyncStatusLocalOnly,
-            }));
-
-            // Combine
-            const all = [...processedRemote, ...processedLocal];
-
-            // Sort
-            all.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-            this.app.state.games = all;
-        } else {
-            // Append Remote Page N
-            const existingIds = new Set(this.app.state.games.map(g => g.id));
-            const newUnique = processedRemote.filter(g => !existingIds.has(g.id));
-
-            this.app.state.games.push(...newUnique);
-            this.app.state.games.sort((a, b) => new Date(b.date) - new Date(a.date));
-        }
-
-        this.hasMore = (this.page + 1) * this.limit < total;
-        this.isLoading = false;
     }
 
-    async loadMore() {
-        if (!this.hasMore || this.isLoading) {
-            return;
-        }
-        this.page++;
-        await this.loadGames();
-        this.renderWithPagination();
-    }
-
-    /**
-     * Search for games by query string.
-     * @param {string} query
-     */
     async search(query) {
         this.query = query;
-        this.page = 0;
-        this.app.state.games = [];
-        this.hasMore = false;
-        await this.loadGames();
-        this.renderWithPagination();
+        await this.loadDashboard();
     }
 
     renderWithPagination() {
         this.app.render();
 
-        // Inject Load More Button
         if (this.hasMore) {
-            // Actually DashboardRenderer takes 'container' as option.
-            // We can find the container by checking app.router?
-            // Or simpler: The app.render() renders into main content.
-            // We can append to the bottom of the main content.
             const main = document.querySelector('main');
             if (main) {
-                const btn = document.createElement('button');
-                btn.className = 'w-full py-3 bg-gray-200 text-gray-700 font-bold rounded mt-4 hover:bg-gray-300';
-                btn.textContent = this.isLoading ? 'Loading...' : 'Load More';
-                btn.onclick = () => this.loadMore();
-                main.appendChild(btn);
+                const sentinel = document.createElement('div');
+                sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
+                sentinel.textContent = this.isLoading ? 'Loading more games...' : 'Scroll for more';
+                // Optional: sentinel.id = 'infinite-scroll-sentinel';
+                main.appendChild(sentinel);
             }
         }
+    }
+
+    // Legacy support for manual Load More click if needed
+    async loadMore() {
+        if (!this.hasMore || this.isLoading) {
+            return;
+        }
+        await this.loadNextBatch();
     }
 }

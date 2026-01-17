@@ -42,11 +42,23 @@ describe('DashboardController', () => {
             hasReadAccess: jest.fn(() => true),
         };
 
+        // Mock container to prevent autoFill loop
+        const container = document.createElement('div');
+        container.id = 'game-list-container';
+        Object.defineProperty(container, 'clientHeight', { value: 500 });
+        Object.defineProperty(container, 'scrollHeight', { value: 2000 });
+        document.body.appendChild(container);
+
         controller = new DashboardController(mockApp);
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
     });
 
     describe('loadDashboard', () => {
         test('should load page 0 and merge with local games', async() => {
+            controller.batchSize = 1; // Prevent exhausting stream with duplicates
             mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', name: 'Local Game', date: '2025-01-01' }]);
             mockApp.sync.fetchGameList.mockResolvedValue({
                 data: [{ id: 'g1', name: 'Remote Game', revision: 'rev1', date: '2025-01-01' }],
@@ -122,49 +134,41 @@ describe('DashboardController', () => {
 
     describe('loadMore', () => {
         test('should fetch next page and append', async() => {
-            // Setup initial state
-            controller.page = 0;
-            controller.limit = 10;
             controller.hasMore = true;
+            controller.merger = {
+                fetchNextBatch: jest.fn().mockResolvedValue([{ id: 'g2', source: 'remote' }]),
+                hasMore: jest.fn().mockReturnValue(true),
+            };
             mockApp.state.games = [{ id: 'g1' }];
-
-            mockApp.db.getAllGames.mockResolvedValue([]);
-            mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [{ id: 'g2' }],
-                meta: { total: 20 },
-            });
 
             await controller.loadMore();
 
-            expect(controller.page).toBe(1);
             expect(mockApp.state.games.length).toBe(2);
             expect(mockApp.state.games[1].id).toBe('g2');
-            expect(mockApp.sync.fetchGameList).toHaveBeenCalledWith(expect.objectContaining({
-                offset: 10,
-            }));
+            expect(controller.merger.fetchNextBatch).toHaveBeenCalled();
         });
 
         test('should do nothing if hasMore is false', async() => {
             controller.hasMore = false;
+            controller.merger = { fetchNextBatch: jest.fn() };
             await controller.loadMore();
-            expect(mockApp.sync.fetchGameList).not.toHaveBeenCalled();
+            expect(controller.merger.fetchNextBatch).not.toHaveBeenCalled();
         });
     });
 
     describe('search', () => {
         test('should reset page and fetch with query', async() => {
-            controller.page = 5;
-            controller.hasMore = false;
             mockApp.db.getAllGames.mockResolvedValue([]);
             mockApp.sync.fetchGameList.mockResolvedValue({
                 data: [{ id: 'g1' }],
                 meta: { total: 1 },
             });
+            mockApp.db.getLocalRevisions.mockResolvedValue(new Map());
 
             await controller.search('yankees');
 
-            expect(controller.page).toBe(0);
             expect(controller.query).toBe('yankees');
+            // Check that fetchGameList was called with query
             expect(mockApp.sync.fetchGameList).toHaveBeenCalledWith(expect.objectContaining({
                 query: 'yankees',
                 offset: 0,
