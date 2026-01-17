@@ -41,7 +41,24 @@ export class DashboardController {
         this.isLoading = true;
 
         // 1. Prepare Local Data
-        const localGames = await this.app.db.getAllGames();
+        let localGames = await this.app.db.getAllGames();
+
+        // Check for deletions if online
+        if (this.app.auth.getUser()) {
+            const localIds = localGames.map(g => g.id);
+            if (localIds.length > 0) {
+                const deletedIds = await this.app.sync.checkGameDeletions(localIds);
+                if (deletedIds.length > 0) {
+                    console.log('Dashboard: Deleting stale local games', deletedIds);
+                    for (const id of deletedIds) {
+                        await this.app.db.deleteGame(id);
+                    }
+                    // Refresh local list
+                    localGames = await this.app.db.getAllGames();
+                }
+            }
+        }
+
         this.localRevisions = await this.app.db.getLocalRevisions();
         this.localMap = new Map(localGames.map(g => [g.id, g]));
 

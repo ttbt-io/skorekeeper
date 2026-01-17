@@ -148,6 +148,29 @@ export class SyncManager {
     }
 
     /**
+     * Checks if any of the provided game IDs have been deleted on the server.
+     * @param {Array<string>} gameIds
+     * @returns {Promise<Array<string>>} The list of deleted game IDs.
+     */
+    async checkGameDeletions(gameIds) {
+        try {
+            const response = await fetch('/api/check-deletions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gameIds: gameIds }),
+            });
+            if (!response.ok) {
+                return [];
+            }
+            const result = await response.json();
+            return result.deletedGameIds || [];
+        } catch (error) {
+            console.warn('SyncManager: Error checking game deletions:', error);
+            return [];
+        }
+    }
+
+    /**
      * Connects to the WebSocket for a specific game.
      * @param {string} gameId
      * @param {string} initialRevision - The ID of the last action in the local log.

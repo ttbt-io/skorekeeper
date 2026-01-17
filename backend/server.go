@@ -1275,6 +1275,54 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		fmt.Fprintf(w, "Game %s deleted successfully", gameId)
 	})
 
+	mux.HandleFunc("/api/check-deletions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		userId := getUserID(r)
+		if userId == "" || !isValidEmail(userId) {
+			http.Error(w, "Forbidden: Invalid User ID", http.StatusForbidden)
+			return
+		}
+
+		if allowed, msg := accessControl.IsAllowed(userId); !allowed {
+			http.Error(w, "Forbidden: "+msg, http.StatusForbidden)
+			return
+		}
+
+		var req struct {
+			GameIDs []string `json:"gameIds"`
+			TeamIDs []string `json:"teamIds"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1048576)).Decode(&req); err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		var resp struct {
+			DeletedGameIDs []string `json:"deletedGameIds"`
+			DeletedTeamIDs []string `json:"deletedTeamIds"`
+		}
+		resp.DeletedGameIDs = make([]string, 0)
+		resp.DeletedTeamIDs = make([]string, 0)
+
+		for _, gid := range req.GameIDs {
+			if registry.IsGameDeleted(gid) {
+				resp.DeletedGameIDs = append(resp.DeletedGameIDs, gid)
+			}
+		}
+		for _, tid := range req.TeamIDs {
+			if registry.IsTeamDeleted(tid) {
+				resp.DeletedTeamIDs = append(resp.DeletedTeamIDs, tid)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
 	mux.HandleFunc("/api/ws", func(w http.ResponseWriter, r *http.Request) {
 		userId := getUserID(r)
 		if userId != "" {

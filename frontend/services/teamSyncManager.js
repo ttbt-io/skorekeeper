@@ -66,6 +66,29 @@ export class TeamSyncManager {
     }
 
     /**
+     * Checks if any of the provided team IDs have been deleted on the server.
+     * @param {Array<string>} teamIds
+     * @returns {Promise<Array<string>>} The list of deleted team IDs.
+     */
+    async checkTeamDeletions(teamIds) {
+        try {
+            const response = await fetch('/api/check-deletions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ teamIds: teamIds }),
+            });
+            if (!response.ok) {
+                return [];
+            }
+            const result = await response.json();
+            return result.deletedTeamIds || [];
+        } catch (error) {
+            console.warn('TeamSyncManager: Error checking team deletions:', error);
+            return [];
+        }
+    }
+
+    /**
      * Saves a team to the remote server.
      * @param {object} team
      * @returns {Promise<boolean>} True if successful, false otherwise.

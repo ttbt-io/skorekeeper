@@ -32,6 +32,7 @@ describe('DashboardController', () => {
             },
             sync: {
                 fetchGameList: jest.fn().mockResolvedValue([]),
+                checkGameDeletions: jest.fn().mockResolvedValue([]),
             },
             state: {
                 games: [],
@@ -182,14 +183,14 @@ describe('DashboardController', () => {
                 data: [],
                 meta: { total: 0 },
             });
-            
+
             // Set up DOM
             const main = document.createElement('main');
             main.id = 'game-list-container';
             document.body.appendChild(main);
-            
+
             await controller.search('nothing');
-            
+
             expect(main.textContent).not.toContain('Scroll for more');
             expect(main.textContent).not.toContain('All games loaded');
         });

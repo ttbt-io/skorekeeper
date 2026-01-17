@@ -46,7 +46,22 @@ export class TeamController {
         this.isLoading = true;
 
         // 1. Prepare Local Data
-        const localTeamsRaw = await this.app.db.getAllTeams();
+        let localTeamsRaw = await this.app.db.getAllTeams();
+
+        // Check for deletions if online
+        if (this.app.auth.getUser()) {
+            const localIds = localTeamsRaw.map(t => t.id);
+            if (localIds.length > 0) {
+                const deletedIds = await this.app.teamSync.checkTeamDeletions(localIds);
+                if (deletedIds.length > 0) {
+                    for (const id of deletedIds) {
+                        await this.app.db.deleteTeam(id);
+                    }
+                    localTeamsRaw = await this.app.db.getAllTeams();
+                }
+            }
+        }
+
         const localTeams = localTeamsRaw.filter(t => this.app.hasTeamReadAccess(t));
         this.localMap = new Map(localTeams.map(t => [t.id, t]));
 
@@ -83,6 +98,9 @@ export class TeamController {
         this.triggerVisibleAutoSync();
     }
 
+    /**
+     * Binds the scroll event listener to the teams list container for infinite scrolling.
+     */
     bindScrollEvent() {
         const container = document.getElementById('teams-list-container');
         if (container && !this.scrollBound) {
@@ -93,6 +111,10 @@ export class TeamController {
         }
     }
 
+    /**
+     * Handles the scroll event to trigger loading the next batch when near the bottom.
+     * @param {HTMLElement} container - The scrollable container.
+     */
     async handleScroll(container) {
         if (this.isLoading || !this.merger || !this.merger.hasMore()) {
             return;
@@ -104,6 +126,9 @@ export class TeamController {
         }
     }
 
+    /**
+     * Automatically fills the viewport with teams on initial load.
+     */
     async autoFill() {
         const container = document.getElementById('teams-list-container');
         await this.loadNextBatch();
@@ -121,6 +146,9 @@ export class TeamController {
         }
     }
 
+    /**
+     * Loads the next batch of teams from the stream merger.
+     */
     async loadNextBatch() {
         if (!this.merger) {
             return;
@@ -143,6 +171,12 @@ export class TeamController {
         this.renderWithPagination();
     }
 
+    /**
+     * Processes a batch of raw team items, handling persistence and sync status.
+     * @param {Array<object>} batch - The raw batch from StreamMerger.
+     * @returns {Promise<Array<object>>} The processed items.
+     * @private
+     */
     async _processBatch(batch) {
         const results = [];
         const dbOperations = [];
@@ -185,6 +219,9 @@ export class TeamController {
         return results;
     }
 
+    /**
+     * Triggers auto-sync for any visible local-only teams.
+     */
     triggerVisibleAutoSync() {
         if (this.app.auth.getUser()) {
             this.app.state.teams.forEach((t) => {
@@ -195,6 +232,10 @@ export class TeamController {
         }
     }
 
+    /**
+     * Searches for teams by query string.
+     * @param {string} query
+     */
     async search(query) {
         this.query = query;
         this.app.state.teams = [];
@@ -231,6 +272,9 @@ export class TeamController {
         this.isLoading = false;
     }
 
+    /**
+     * Renders the teams view with infinite scroll pagination.
+     */
     renderWithPagination() {
         this.app.render();
 
@@ -252,6 +296,9 @@ export class TeamController {
         }
     }
 
+    /**
+     * Loads more teams (manual fallback for loadNextBatch).
+     */
     async loadMore() {
         if (!this.hasMore || this.isLoading) {
             return;
@@ -494,6 +541,9 @@ export class TeamController {
         }
     }
 
+    /**
+     * Saves the currently editing team to DB and Server.
+     */
     async saveTeam() {
         const id = document.getElementById('team-id').value || generateUUID();
         const name = document.getElementById('team-name').value;
@@ -555,6 +605,10 @@ export class TeamController {
         await this.loadTeamsView();
     }
 
+    /**
+     * Deletes a team locally and from the server.
+     * @param {string} teamId
+     */
     async deleteTeam(teamId) {
         if (await this.app.modalConfirmFn('Are you sure you want to delete this team?')) {
             this.app.pendingSaves++;

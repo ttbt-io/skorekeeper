@@ -32,6 +32,7 @@ describe('TeamController', () => {
             },
             teamSync: {
                 fetchTeamList: jest.fn().mockResolvedValue([]),
+                checkTeamDeletions: jest.fn().mockResolvedValue([]),
                 saveTeam: jest.fn().mockResolvedValue(true),
                 deleteTeam: jest.fn(),
             },
@@ -122,16 +123,16 @@ describe('TeamController', () => {
                 data: [],
                 meta: { total: 0 },
             });
-            
+
             // Set up DOM
             const view = document.createElement('div');
             view.id = 'teams-view';
             const main = document.createElement('main');
             view.appendChild(main);
             document.body.appendChild(view);
-            
+
             await controller.search('nothing');
-            
+
             expect(main.textContent).not.toContain('Scroll for more');
             expect(main.textContent).not.toContain('All teams loaded');
         });

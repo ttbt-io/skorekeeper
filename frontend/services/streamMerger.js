@@ -97,83 +97,10 @@ export class StreamMerger {
             }
 
             if (this.seenIds.has(winner[this.idKey])) {
-                // If we've seen this ID already, it means we processed the "other" version earlier.
-                // Since we are sorted, we should merge them or ignore.
-                // But typically, if we see duplicates, it means the item exists in both.
-                // If local wins, we emit local. If remote appears later (duplicate ID), we ignore it?
-                // Or we should merge them?
-                // The Controllers handle merging via `_processBatch` mapping.
-                // StreamMerger just needs to ensure we don't emit the same ID twice as a *primary* item.
-                // But wait, if we have local version and remote version, we want to emit ONE item.
-                // The `winner` logic picks the one that appears *first* in sort order.
-                // If they sort equally (same date), we picked local.
-                // The remote item will appear next (cmp > 0 is false).
-                // We consume it.
                 continue;
             }
 
             this.seenIds.add(winner[this.idKey]);
-
-            // Attach raw remote object if available in buffer (for merging later)
-            // Actually, if we picked local, the remote item might be next in stream.
-            // But we don't look ahead.
-            // The Controller expects `item.source` and `item._remote`?
-            // My previous implementation of `DashboardController` used `item._remote`.
-
-            // Simplified approach: Emit the winner. Controller looks up localMap.
-            // If winner is remote, we attach it.
-
-            // Wait, if I have local and remote for same ID:
-            // They might have different Sort Keys (e.g. Date).
-            // If Local Date > Remote Date (Desc Sort), Local comes first.
-            // We emit Local.
-            // Later we encounter Remote (older date).
-            // We see ID is seen. We skip Remote.
-            // This is correct: We show the most up-to-date position (Local).
-
-            // What if Remote Date > Local Date?
-            // Remote comes first. We emit Remote.
-            // Later Local. We skip Local.
-            // This is also correct (Remote update moved it up).
-
-            // So skipping seen IDs is correct for list position.
-
-            // But for Data Merging (sync status):
-            // If we emit Local, we need to know if there IS a remote version to show sync status.
-            // But we might not have seen the remote version yet!
-            // This is a limitation of stream merging sorted lists with mutable sort keys.
-            // However, `DashboardController` `_processBatch` does:
-            // `const localItem = (item.source === 'local') ? item : this.localMap.get(item.id);`
-            // It looks up local version from `this.localMap`.
-            // So if we emit Remote, we find Local immediately.
-            // If we emit Local, we don't have Remote immediately unless it was fetched.
-            // But `SyncManager` fetches by Page.
-
-            // If we emit Local, and Remote is pages away (or not fetched yet), we treat as "Local Only" or "Synced" (if rev matches?).
-            // If we haven't fetched remote yet, we can't know sync status for sure.
-            // But `fetchGameList` returns `revision`.
-
-            // If we assume strict sort order, we will eventually see the remote item if it exists.
-            // But if we skipped it, we lose the info?
-            // No, because `StreamMerger` is purely for *Ordering*.
-            // The Controller handles *Merging* data.
-            // But if we skip the remote item, the Controller never sees it to merge?
-            // TRUE.
-
-            // Fix: If we skip an item because ID is seen, we should check if we can enhance the *already emitted* item?
-            // No, that item is already rendered/processed.
-
-            // If we emitted Local (newer), and now we see Remote (older).
-            // We skip Remote.
-            // But the Local item rendered earlier might have said "Local Only" because we hadn't seen Remote yet.
-            // This is an eventual consistency issue in the UI list.
-            // It's acceptable for Infinite Scroll.
-            // Ideally, we'd update the previous item, but that's hard.
-            // Actually, `DashboardController` uses `localMap` which has the local data.
-            // If we emit Remote, we merge with Local.
-            // If we emit Local, we don't have Remote.
-
-            // This is fine.
 
             batch.push({
                 ...winner,
