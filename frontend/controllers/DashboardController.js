@@ -129,16 +129,18 @@ export class DashboardController {
         }
         this.isLoading = true;
 
-        const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
-        const processedBatch = this._processBatch(rawBatch);
+        try {
+            const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
+            const processedBatch = this._processBatch(rawBatch);
 
-        this.app.state.games.push(...processedBatch);
-        this.app.render();
+            this.app.state.games.push(...processedBatch);
+            this.app.render();
 
-        this.hasMore = this.merger.hasMore();
+            this.hasMore = this.merger.hasMore();
+        } finally {
+            this.isLoading = false;
+        }
         this.renderWithPagination();
-
-        this.isLoading = false;
     }
 
     _processBatch(batch) {
@@ -177,15 +179,21 @@ export class DashboardController {
     renderWithPagination() {
         this.app.render();
 
-        if (this.hasMore) {
-            const main = document.querySelector('main');
-            if (main) {
-                const sentinel = document.createElement('div');
-                sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
-                sentinel.textContent = this.isLoading ? 'Loading more games...' : 'Scroll for more';
-                // Optional: sentinel.id = 'infinite-scroll-sentinel';
-                main.appendChild(sentinel);
-            }
+        const main = document.querySelector('main');
+        if (!main) {
+            return;
+        }
+
+        if (this.hasMore || this.isLoading) {
+            const sentinel = document.createElement('div');
+            sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
+            sentinel.textContent = this.isLoading ? 'Loading more games...' : 'Scroll for more';
+            main.appendChild(sentinel);
+        } else if (this.app.state.games.length > 0) {
+            const endMsg = document.createElement('div');
+            endMsg.className = 'py-8 text-center text-gray-400 text-xs italic';
+            endMsg.textContent = 'All games loaded.';
+            main.appendChild(endMsg);
         }
     }
 

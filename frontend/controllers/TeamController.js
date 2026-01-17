@@ -127,18 +127,20 @@ export class TeamController {
         }
         this.isLoading = true;
 
-        const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
-        const processedBatch = await this._processBatch(rawBatch);
+        try {
+            const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
+            const processedBatch = await this._processBatch(rawBatch);
 
-        this.app.state.teams.push(...processedBatch);
-        this.app.render();
+            this.app.state.teams.push(...processedBatch);
+            this.app.render();
 
-        this.triggerVisibleAutoSync();
+            this.triggerVisibleAutoSync();
 
-        this.hasMore = this.merger.hasMore();
+            this.hasMore = this.merger.hasMore();
+        } finally {
+            this.isLoading = false;
+        }
         this.renderWithPagination();
-
-        this.isLoading = false;
     }
 
     async _processBatch(batch) {
@@ -231,14 +233,22 @@ export class TeamController {
 
     renderWithPagination() {
         this.app.render();
-        if (this.hasMore) {
-            const main = document.querySelector('#teams-view main');
-            if (main) {
-                const sentinel = document.createElement('div');
-                sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
-                sentinel.textContent = this.isLoading ? 'Loading more teams...' : 'Scroll for more';
-                main.appendChild(sentinel);
-            }
+
+        const main = document.querySelector('#teams-view main');
+        if (!main) {
+            return;
+        }
+
+        if (this.hasMore || this.isLoading) {
+            const sentinel = document.createElement('div');
+            sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
+            sentinel.textContent = this.isLoading ? 'Loading more teams...' : 'Scroll for more';
+            main.appendChild(sentinel);
+        } else if (this.app.state.teams.length > 0) {
+            const endMsg = document.createElement('div');
+            endMsg.className = 'py-8 text-center text-gray-400 text-xs italic';
+            endMsg.textContent = 'All teams loaded.';
+            main.appendChild(endMsg);
         }
     }
 
