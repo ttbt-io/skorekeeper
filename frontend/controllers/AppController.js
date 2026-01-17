@@ -1779,6 +1779,18 @@ export class AppController {
         click('sidebar-btn-clear-cache', () => this.handleClearCache());
         click('btn-manual-back', () => this.closeManual());
 
+        // Dashboard Search
+        const dashboardSearch = byId('dashboard-search');
+        if (dashboardSearch) {
+            let debounceTimer;
+            dashboardSearch.oninput = () => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.dashboardController.search(dashboardSearch.value);
+                }, 300);
+            };
+        }
+
         // Stats View Events
         const statsFilterChange = () => {
             this.loadStatisticsView();

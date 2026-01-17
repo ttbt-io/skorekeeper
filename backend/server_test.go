@@ -190,7 +190,7 @@ func TestHTTPHandlers(t *testing.T) {
 			t.Errorf("Game not saved to store: %v", err)
 		}
 
-		games := reg.ListGames(userId)
+		games := reg.ListGames(userId, "", "", "")
 		found := false
 		for _, id := range games {
 			if id == validGameId {
@@ -251,13 +251,25 @@ func TestHTTPHandlers(t *testing.T) {
 			t.Errorf("GamesHandler failed: %d", w.Code)
 		}
 
-		var games []GameSummary
-		json.Unmarshal(w.Body.Bytes(), &games)
+		var resp struct {
+			Data []GameSummary `json:"data"`
+			Meta struct {
+				Total  int `json:"total"`
+				Offset int `json:"offset"`
+				Limit  int `json:"limit"`
+			} `json:"meta"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		games := resp.Data
+
 		if len(games) != 1 || games[0].ID != validGameId {
 			t.Errorf("Games list incorrect: %v", games)
 		}
 		if games[0].Location != "Test Field" || games[0].Event != "Test Event" {
 			t.Errorf("Game summary missing location/event: location=%q, event=%q", games[0].Location, games[0].Event)
+		}
+		if resp.Meta.Total != 1 {
+			t.Errorf("Expected Total 1, got %d", resp.Meta.Total)
 		}
 	})
 
@@ -289,10 +301,20 @@ func TestHTTPHandlers(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Errorf("ListTeams failed: %d", w.Code)
 		}
-		var teams []json.RawMessage
-		json.Unmarshal(w.Body.Bytes(), &teams)
+		var resp struct {
+			Data []json.RawMessage `json:"data"`
+			Meta struct {
+				Total int `json:"total"`
+			} `json:"meta"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		teams := resp.Data
+
 		if len(teams) != 1 {
 			t.Errorf("Expected 1 team in list, got %d", len(teams))
+		}
+		if resp.Meta.Total != 1 {
+			t.Errorf("Expected Total 1, got %d", resp.Meta.Total)
 		}
 
 		// 4. Delete Team

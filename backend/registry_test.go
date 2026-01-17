@@ -47,12 +47,12 @@ func TestRegistry(t *testing.T) {
 		}
 		reg.UpdateTeam(team)
 
-		teams := reg.ListTeams(userId)
+		teams := reg.ListTeams(userId, "", "", "")
 		if len(teams) != 1 || teams[0] != teamId {
 			t.Errorf("Expected team %s in list for owner, got %v", teamId, teams)
 		}
 
-		skTeams := reg.ListTeams("sk@example.com")
+		skTeams := reg.ListTeams("sk@example.com", "", "", "")
 		if len(skTeams) != 1 || skTeams[0] != teamId {
 			t.Errorf("Expected team %s in list for scorekeeper, got %v", teamId, skTeams)
 		}
@@ -85,7 +85,7 @@ func TestRegistry(t *testing.T) {
 		reg.UpdateGame(game)
 
 		// User should see game
-		games := reg.ListGames(uId)
+		games := reg.ListGames(uId, "", "", "")
 		found := false
 		for _, id := range games {
 			if id == gId {
@@ -131,13 +131,13 @@ func TestRegistry(t *testing.T) {
 		}
 
 		// Verify gone from lists
-		games := reg.ListGames(userId)
+		games := reg.ListGames(userId, "", "", "")
 		for _, id := range games {
 			if id == gId {
 				t.Error("Deleted game found in list")
 			}
 		}
-		teams := reg.ListTeams(userId)
+		teams := reg.ListTeams(userId, "", "", "")
 		for _, id := range teams {
 			if id == tId {
 				t.Error("Deleted team found in list")
@@ -157,7 +157,7 @@ func TestRegistry(t *testing.T) {
 		reg.Rebuild()
 
 		// Verify indexed
-		games := reg.ListGames(userId)
+		games := reg.ListGames(userId, "", "", "")
 		foundG := false
 		for _, id := range games {
 			if id == gId {
@@ -169,7 +169,7 @@ func TestRegistry(t *testing.T) {
 			t.Error("Rebuild failed to find game")
 		}
 
-		teams := reg.ListTeams(userId)
+		teams := reg.ListTeams(userId, "", "", "")
 		foundT := false
 		for _, id := range teams {
 			if id == tId {

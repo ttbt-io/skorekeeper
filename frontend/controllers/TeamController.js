@@ -25,56 +25,22 @@ export class TeamController {
     constructor(app) {
         this.app = app;
         this.teamState = null;
+        this.page = 0;
+        this.limit = 50;
+        this.hasMore = false;
+        this.isLoading = false;
+        this.query = '';
     }
 
     /**
      * Loads the teams view by fetching all saved teams.
      */
     async loadTeamsView() {
-        const localTeamsRaw = await this.app.db.getAllTeams();
-        const localTeams = localTeamsRaw.filter(t => this.app.hasTeamReadAccess(t));
-        let remoteTeams = [];
-
-        if (this.app.auth.getUser()) {
-            const localIds = localTeams.map(t => t.id);
-            remoteTeams = await this.app.teamSync.fetchTeamList(localIds);
-        }
-
-        const teamMap = new Map();
-
-        // Handle deletions and index remote teams
-        for (const t of remoteTeams) {
-            if (t.status === 'deleted') {
-                console.log(`[Teams] Remote deletion detected for ${t.id}. Deleting local copy.`);
-                await this.app.db.deleteTeam(t.id);
-                // Also remove from localTeams list in memory so we don't re-add it below
-                const idx = localTeams.findIndex(lt => lt.id === t.id);
-                if (idx !== -1) {
-                    localTeams.splice(idx, 1);
-                }
-                continue;
-            }
-
-            teamMap.set(t.id, {
-                ...t,
-                syncStatus: SyncStatusSynced,
-            });
-            this.app.db.saveTeam(t); // Persist remote teams locally
-        }
-
-        localTeams.forEach(t => {
-            if (!teamMap.has(t.id)) {
-                teamMap.set(t.id, {
-                    ...t,
-                    syncStatus: SyncStatusLocalOnly,
-                });
-            } else {
-                // For now, remote wins if already on server.
-                // In future, could compare updatedAt.
-            }
-        });
-
-        this.app.state.teams = Array.from(teamMap.values());
+        this.page = 0;
+        this.hasMore = false;
+        this.app.state.teams = [];
+        this.query = ''; // Reset query when navigating to teams via menu
+        await this.loadTeams();
 
         // Trigger auto-sync for local-only teams
         if (this.app.auth.getUser()) {
@@ -87,7 +53,135 @@ export class TeamController {
 
         this.app.state.view = 'teams';
         window.location.hash = 'teams';
+        this.renderWithPagination();
+    }
+
+    async loadTeams() {
+        if (this.isLoading) {
+            return;
+        }
+        this.isLoading = true;
+
+        const localTeamsRaw = await this.app.db.getAllTeams();
+        const localTeams = localTeamsRaw.filter(t => this.app.hasTeamReadAccess(t));
+        const localMap = new Map(localTeams.map(t => [t.id, t]));
+
+        let remoteTeams = [];
+        let total = 0;
+        let isOffline = false;
+
+        if (this.app.auth.getUser()) {
+            try {
+                const result = await this.app.teamSync.fetchTeamList({
+                    limit: this.limit,
+                    offset: this.page * this.limit,
+                    sortBy: 'name',
+                    order: 'asc',
+                    query: this.query,
+                });
+                remoteTeams = result.data;
+                total = result.meta.total;
+            } catch (e) {
+                console.warn('TeamController: Failed to fetch remote teams', e);
+                isOffline = true;
+            }
+        } else {
+            isOffline = true;
+        }
+
+        if (isOffline) {
+            // Offline Mode: Filter, Sort, Paginate local teams
+            let filtered = localTeams;
+            if (this.query) {
+                const q = this.query.toLowerCase();
+                filtered = localTeams.filter(t => (t.name || '').toLowerCase().includes(q));
+            }
+            filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+            const start = this.page * this.limit;
+            const end = start + this.limit;
+            const sliced = filtered.slice(start, end);
+
+            if (this.page === 0) {
+                this.app.state.teams = sliced;
+            } else {
+                this.app.state.teams.push(...sliced);
+            }
+            this.hasMore = end < filtered.length;
+            this.isLoading = false;
+            return;
+        }
+
+        // Online Mode: Merge
+        // Handle deletions first
+        for (const t of remoteTeams) {
+            if (t.status === 'deleted') {
+                await this.app.db.deleteTeam(t.id);
+                // Remove from local list to prevent re-adding
+                const idx = localTeams.findIndex(lt => lt.id === t.id);
+                if (idx !== -1) {
+                    localTeams.splice(idx, 1);
+                }
+            }
+        }
+
+        const activeRemote = remoteTeams.filter(t => t.status !== 'deleted');
+        const processedRemote = activeRemote.map(t => {
+            const localT = localMap.get(t.id);
+            return {
+                ...(localT || t),
+                syncStatus: SyncStatusSynced,
+            };
+        });
+
+        if (this.page === 0) {
+            const remoteIds = new Set(processedRemote.map(t => t.id));
+            const localOnly = localTeams.filter(t => !remoteIds.has(t.id));
+            const processedLocal = localOnly.map(t => ({
+                ...t,
+                syncStatus: SyncStatusLocalOnly,
+            }));
+
+            const all = [...processedRemote, ...processedLocal];
+            all.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            this.app.state.teams = all;
+        } else {
+            const existingIds = new Set(this.app.state.teams.map(t => t.id));
+            const newUnique = processedRemote.filter(t => !existingIds.has(t.id));
+            this.app.state.teams.push(...newUnique);
+            this.app.state.teams.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+
+        this.hasMore = (this.page + 1) * this.limit < total;
+        this.isLoading = false;
+
+        // Persist non-deleted remote teams locally
+        for (const t of activeRemote) {
+            await this.app.db.saveTeam(t);
+        }
+    }
+
+    async loadMore() {
+        if (!this.hasMore || this.isLoading) {
+            return;
+        }
+        this.page++;
+        await this.loadTeams();
+        this.renderWithPagination();
+    }
+
+    renderWithPagination() {
         this.app.render();
+        if (this.hasMore) {
+            const main = document.querySelector('#teams-view main');
+            if (main) {
+                const btn = document.createElement('button');
+                btn.className = 'w-full py-3 bg-gray-200 text-gray-700 font-bold rounded mt-4 hover:bg-gray-300';
+                btn.textContent = this.isLoading ? 'Loading...' : 'Load More Teams';
+                btn.onclick = () => this.loadMore();
+                main.appendChild(btn);
+            }
+        }
     }
 
     /**

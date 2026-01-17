@@ -15,103 +15,213 @@
 import {
     SyncStatusSynced,
     SyncStatusUnsynced,
-    SyncStatusLocalOnly,
     SyncStatusRemoteOnly,
+    SyncStatusLocalOnly,
 } from '../constants.js';
 
 export class DashboardController {
     constructor(app) {
         this.app = app;
+        this.page = 0;
+        this.limit = 50;
+        this.hasMore = false;
+        this.isLoading = false;
+        this.query = '';
     }
 
     /**
-     * Loads the dashboard view by fetching and merging local and remote games.
+     * Loads the dashboard view.
      */
     async loadDashboard() {
-        const localGames = await this.app.db.getAllGames();
-        let remoteGames = [];
-        const localRevisions = await this.app.db.getLocalRevisions();
+        this.page = 0;
+        this.hasMore = false;
+        this.app.state.games = [];
+        this.app.state.view = 'dashboard';
 
-        // Attempt to fetch remote games if user seems authenticated
+        await this.loadGames();
+        this.renderWithPagination();
+    }
+
+    async loadGames() {
+        if (this.isLoading) {
+            return;
+        }
+        this.isLoading = true;
+
+        const localGames = await this.app.db.getAllGames();
+        const localRevisions = await this.app.db.getLocalRevisions();
+        const localMap = new Map(localGames.map(g => [g.id, g]));
+
+        let remoteGames = [];
+        let total = 0;
+        let isOffline = false;
+
         if (this.app.auth.getUser()) {
             try {
-                const localIds = localGames.map(g => g.id);
-                remoteGames = await this.app.sync.fetchGameList(localIds);
+                const result = await this.app.sync.fetchGameList({
+                    limit: this.limit,
+                    offset: this.page * this.limit,
+                    sortBy: 'date',
+                    order: 'desc',
+                    query: this.query,
+                });
+                remoteGames = result.data;
+                total = result.meta.total;
             } catch (e) {
                 console.warn('Dashboard: Failed to fetch remote games', e);
                 if (e.message && e.message.includes('status: 403')) {
                     this.app.modalConfirmFn(this.app.auth.accessDeniedMessage || 'Access Denied', { isError: true, autoClose: false });
-                    return; // Stop loading dashboard
+                    this.isLoading = false;
+                    return;
                 }
+                isOffline = true;
             }
+        } else {
+            isOffline = true;
         }
 
-        // Merge lists: Map by ID to deduplicate.
-        const gameMap = new Map();
-
-        // 1. Process remote games (including deletions)
-        for (const g of remoteGames) {
-            if (g.status === 'deleted') {
-                console.log(`[Dashboard] Remote deletion detected for game ${g.id}. Deleting local copy.`);
-                await this.app.db.deleteGame(g.id);
-                // Also remove from localGames list so we don't re-add it below
-                const idx = localGames.findIndex(lg => lg.id === g.id);
-                if (idx !== -1) {
-                    localGames.splice(idx, 1);
-                }
-                continue;
+        if (isOffline) {
+            // Offline Mode: Filter, Sort, and Paginate local games
+            let filtered = localGames;
+            if (this.query) {
+                const q = this.query.toLowerCase();
+                filtered = localGames.filter(g =>
+                    (g.event || '').toLowerCase().includes(q) ||
+                    (g.location || '').toLowerCase().includes(q) ||
+                    (g.away || '').toLowerCase().includes(q) ||
+                    (g.home || '').toLowerCase().includes(q),
+                );
             }
 
-            gameMap.set(g.id, {
-                ...g,
-                source: 'remote',
-                remoteRevision: g.revision,
-                localRevision: '',
-                syncStatus: SyncStatusRemoteOnly,
-            });
+            // Sort (Date Descending to match backend default)
+            filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            // Paginate
+            const start = this.page * this.limit;
+            const end = start + this.limit;
+            const sliced = filtered.slice(start, end);
+
+            if (this.page === 0) {
+                this.app.state.games = sliced;
+            } else {
+                this.app.state.games.push(...sliced);
+            }
+
+            this.hasMore = end < filtered.length;
+            this.isLoading = false;
+            return;
         }
 
-        // 2. Overwrite/Add local games
-        localGames.forEach(g => {
-            const remoteG = gameMap.get(g.id);
+        // Online Mode: Merge Remote Page with Local Data
+        const processedRemote = remoteGames.map(g => {
+            const localG = localMap.get(g.id);
             const localRev = localRevisions.get(g.id) || '';
-            const remoteRev = remoteG ? remoteG.remoteRevision : '';
+            const remoteRev = g.revision;
 
             let status = SyncStatusSynced;
-            if (!remoteG) {
-                status = SyncStatusLocalOnly;
-            } else if (localRev === remoteRev) {
-                status = SyncStatusSynced;
-            } else {
+            if (!localG) {
+                status = SyncStatusRemoteOnly;
+            } else if (localRev !== remoteRev) {
                 status = SyncStatusUnsynced;
             }
 
-            gameMap.set(g.id, {
-                ...g,
-                source: 'local',
+            // Prefer local data if available (for unsynced changes), else remote data
+            const base = localG || g;
+
+            return {
+                ...base,
+                source: localG ? 'local' : 'remote',
                 localRevision: localRev,
                 remoteRevision: remoteRev,
                 syncStatus: status,
-            });
+            };
         });
 
-        // Filter out inaccessible games
-        const allTeams = await this.app.db.getAllTeams();
-        const allGames = Array.from(gameMap.values());
-        const accessibleGames = allGames.filter(g => this.app.hasReadAccess(g, allTeams));
+        if (this.page === 0) {
+            // MERGE Remote Page 0 with ALL Local Games (filtered) to ensure local-only games are visible
+            const remoteIds = new Set(processedRemote.map(g => g.id));
 
-        this.app.state.games = accessibleGames;
-        this.app.state.view = 'dashboard';
+            // Identify Local-Only (not in this remote page)
+            let localOnly = localGames.filter(g => !remoteIds.has(g.id));
+
+            // Filter Local by Query
+            if (this.query) {
+                const q = this.query.toLowerCase();
+                localOnly = localOnly.filter(g =>
+                    (g.event || '').toLowerCase().includes(q) ||
+                    (g.location || '').toLowerCase().includes(q) ||
+                    (g.away || '').toLowerCase().includes(q) ||
+                    (g.home || '').toLowerCase().includes(q),
+                );
+            }
+
+            const processedLocal = localOnly.map(g => ({
+                ...g,
+                source: 'local',
+                localRevision: localRevisions.get(g.id) || '',
+                remoteRevision: '',
+                syncStatus: SyncStatusLocalOnly,
+            }));
+
+            // Combine
+            const all = [...processedRemote, ...processedLocal];
+
+            // Sort
+            all.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            this.app.state.games = all;
+        } else {
+            // Append Remote Page N
+            const existingIds = new Set(this.app.state.games.map(g => g.id));
+            const newUnique = processedRemote.filter(g => !existingIds.has(g.id));
+
+            this.app.state.games.push(...newUnique);
+            this.app.state.games.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        this.hasMore = (this.page + 1) * this.limit < total;
+        this.isLoading = false;
+    }
+
+    async loadMore() {
+        if (!this.hasMore || this.isLoading) {
+            return;
+        }
+        this.page++;
+        await this.loadGames();
+        this.renderWithPagination();
+    }
+
+    /**
+     * Search for games by query string.
+     * @param {string} query
+     */
+    async search(query) {
+        this.query = query;
+        this.page = 0;
+        this.app.state.games = [];
+        this.hasMore = false;
+        await this.loadGames();
+        this.renderWithPagination();
+    }
+
+    renderWithPagination() {
         this.app.render();
 
-        // Trigger auto-sync for divergent games
-        // We only auto-sync if we have a valid auth token
-        if (this.app.auth.getUser()) {
-            this.app.state.games.forEach(g => {
-                if (g.syncStatus === SyncStatusUnsynced || g.syncStatus === SyncStatusLocalOnly) {
-                    // this.app.syncGame(g.id); // Uncomment to enable true auto-sync
-                }
-            });
+        // Inject Load More Button
+        if (this.hasMore) {
+            // Actually DashboardRenderer takes 'container' as option.
+            // We can find the container by checking app.router?
+            // Or simpler: The app.render() renders into main content.
+            // We can append to the bottom of the main content.
+            const main = document.querySelector('main');
+            if (main) {
+                const btn = document.createElement('button');
+                btn.className = 'w-full py-3 bg-gray-200 text-gray-700 font-bold rounded mt-4 hover:bg-gray-300';
+                btn.textContent = this.isLoading ? 'Loading...' : 'Load More';
+                btn.onclick = () => this.loadMore();
+                main.appendChild(btn);
+            }
         }
     }
 }

@@ -58,7 +58,10 @@ describe('TeamController', () => {
     describe('loadTeamsView', () => {
         test('should load local and remote teams', async() => {
             mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local Team' }]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue([{ id: 't1', name: 'Remote Team' }]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [{ id: 't1', name: 'Remote Team' }],
+                meta: { total: 1 },
+            });
 
             await controller.loadTeamsView();
 
@@ -72,12 +75,48 @@ describe('TeamController', () => {
 
         test('should handle deleted remote teams', async() => {
             mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1' }]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue([{ id: 't1', status: 'deleted' }]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [{ id: 't1', status: 'deleted' }],
+                meta: { total: 1 },
+            });
 
             await controller.loadTeamsView();
 
             expect(mockApp.db.deleteTeam).toHaveBeenCalledWith('t1');
             expect(mockApp.state.teams.length).toBe(0);
+        });
+
+        test('should handle offline mode', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local' }]);
+            mockApp.teamSync.fetchTeamList.mockRejectedValue(new Error('Offline'));
+
+            await controller.loadTeamsView();
+
+            expect(mockApp.state.teams.length).toBe(1);
+            expect(controller.hasMore).toBe(false);
+        });
+    });
+
+    describe('loadMore', () => {
+        test('should load next page', async() => {
+            controller.page = 0;
+            controller.limit = 10;
+            controller.hasMore = true;
+            mockApp.state.teams = [{ id: 't1' }];
+
+            mockApp.db.getAllTeams.mockResolvedValue([]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [{ id: 't2' }],
+                meta: { total: 20 },
+            });
+
+            await controller.loadMore();
+
+            expect(controller.page).toBe(1);
+            expect(mockApp.state.teams.length).toBe(2);
+            expect(mockApp.teamSync.fetchTeamList).toHaveBeenCalledWith(expect.objectContaining({
+                offset: 10,
+            }));
         });
     });
 

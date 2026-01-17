@@ -46,9 +46,12 @@ describe('DashboardController', () => {
     });
 
     describe('loadDashboard', () => {
-        test('should load local and remote games', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', name: 'Local Game' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue([{ id: 'g1', name: 'Remote Game', revision: 'rev1' }]);
+        test('should load page 0 and merge with local games', async() => {
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', name: 'Local Game', date: '2025-01-01' }]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g1', name: 'Remote Game', revision: 'rev1', date: '2025-01-01' }],
+                meta: { total: 100 },
+            });
             mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
 
             await controller.loadDashboard();
@@ -59,22 +62,44 @@ describe('DashboardController', () => {
                 syncStatus: 'synced',
                 source: 'local',
             });
+            expect(controller.hasMore).toBe(true);
             expect(mockApp.render).toHaveBeenCalled();
         });
 
-        test('should handle deleted remote games', async() => {
+        test('should handle offline mode (fetch failure)', async() => {
             mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue([{ id: 'g1', status: 'deleted' }]);
+            mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
 
             await controller.loadDashboard();
 
-            expect(mockApp.db.deleteGame).toHaveBeenCalledWith('g1');
-            expect(mockApp.state.games.length).toBe(0);
+            // Should fall back to local games
+            expect(mockApp.state.games.length).toBe(1);
+            expect(controller.hasMore).toBe(false);
         });
 
-        test('should handle unsynced games', async() => {
+        test('should filter and sort local games in offline mode', async() => {
+            mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
+            mockApp.db.getAllGames.mockResolvedValue([
+                { id: 'g1', event: 'Match A', date: '2025-01-01' },
+                { id: 'g2', event: 'Match B', date: '2025-01-02' },
+                { id: 'g3', event: 'Other', date: '2025-01-03' },
+            ]);
+
+            controller.query = 'match';
+            await controller.loadDashboard();
+
+            // Should return g2 (newest match) then g1. g3 filtered out.
+            expect(mockApp.state.games.length).toBe(2);
+            expect(mockApp.state.games[0].id).toBe('g2');
+            expect(mockApp.state.games[1].id).toBe('g1');
+        });
+
+        test('should handle unsynced games in list', async() => {
             mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue([{ id: 'g1', revision: 'rev2' }]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g1', revision: 'rev2' }],
+                meta: { total: 1 },
+            });
             mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
 
             await controller.loadDashboard();
@@ -82,32 +107,69 @@ describe('DashboardController', () => {
             expect(mockApp.state.games[0].syncStatus).toBe('unsynced');
         });
 
-        test('should handle local only games', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue([]);
-
-            await controller.loadDashboard();
-
-            expect(mockApp.state.games[0].syncStatus).toBe('local_only');
-        });
-
-        test('should handle remote only games', async() => {
+        test('should handle remote only games in list', async() => {
             mockApp.db.getAllGames.mockResolvedValue([]);
-            mockApp.sync.fetchGameList.mockResolvedValue([{ id: 'g1', revision: 'rev1' }]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g1', revision: 'rev1' }],
+                meta: { total: 1 },
+            });
 
             await controller.loadDashboard();
 
             expect(mockApp.state.games[0].syncStatus).toBe('remote_only');
         });
+    });
 
-        test('should filter inaccessible games', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }, { id: 'g2' }]);
-            mockApp.hasReadAccess.mockImplementation((game) => game.id === 'g1');
+    describe('loadMore', () => {
+        test('should fetch next page and append', async() => {
+            // Setup initial state
+            controller.page = 0;
+            controller.limit = 10;
+            controller.hasMore = true;
+            mockApp.state.games = [{ id: 'g1' }];
 
-            await controller.loadDashboard();
+            mockApp.db.getAllGames.mockResolvedValue([]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g2' }],
+                meta: { total: 20 },
+            });
 
-            expect(mockApp.state.games.length).toBe(1);
-            expect(mockApp.state.games[0].id).toBe('g1');
+            await controller.loadMore();
+
+            expect(controller.page).toBe(1);
+            expect(mockApp.state.games.length).toBe(2);
+            expect(mockApp.state.games[1].id).toBe('g2');
+            expect(mockApp.sync.fetchGameList).toHaveBeenCalledWith(expect.objectContaining({
+                offset: 10,
+            }));
+        });
+
+        test('should do nothing if hasMore is false', async() => {
+            controller.hasMore = false;
+            await controller.loadMore();
+            expect(mockApp.sync.fetchGameList).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('search', () => {
+        test('should reset page and fetch with query', async() => {
+            controller.page = 5;
+            controller.hasMore = false;
+            mockApp.db.getAllGames.mockResolvedValue([]);
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g1' }],
+                meta: { total: 1 },
+            });
+
+            await controller.search('yankees');
+
+            expect(controller.page).toBe(0);
+            expect(controller.query).toBe('yankees');
+            expect(mockApp.sync.fetchGameList).toHaveBeenCalledWith(expect.objectContaining({
+                query: 'yankees',
+                offset: 0,
+            }));
+            expect(mockApp.render).toHaveBeenCalled();
         });
     });
 });

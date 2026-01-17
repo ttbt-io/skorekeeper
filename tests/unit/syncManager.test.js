@@ -211,6 +211,42 @@ describe('SyncManager Rate Limiting & Batching', () => {
         expect(syncManager.pendingActionIds.has('rev-B')).toBe(true);
     });
 
+    describe('fetchGameList', () => {
+        test('should fetch games with pagination parameters', async() => {
+            const mockResponse = { data: [{ id: 'g1' }], meta: { total: 1 } };
+            window.fetch.mockResolvedValue({
+                ok: true,
+                json: async() => mockResponse,
+            });
+
+            const result = await syncManager.fetchGameList({ limit: 10, offset: 20 });
+
+            expect(window.fetch).toHaveBeenCalledWith(
+                expect.stringMatching(/\/api\/list-games\?.*limit=10.*offset=20/),
+                expect.objectContaining({ method: 'GET' }),
+            );
+            expect(result).toEqual(mockResponse);
+        });
+
+        test('should handle legacy array response', async() => {
+            const mockArray = [{ id: 'g1' }];
+            window.fetch.mockResolvedValue({
+                ok: true,
+                json: async() => mockArray,
+            });
+
+            const result = await syncManager.fetchGameList();
+
+            expect(result).toEqual({ data: mockArray, meta: { total: 1 } });
+        });
+
+        test('should handle errors', async() => {
+            window.fetch.mockRejectedValue(new Error('Network'));
+            const result = await syncManager.fetchGameList();
+            expect(result).toEqual({ data: [], meta: { total: 0 } });
+        });
+    });
+
     describe('WebSocket & Connection', () => {
         let MockWebSocket;
 
