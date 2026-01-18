@@ -1836,6 +1836,85 @@ export class AppController {
         return buildQuery({ filters, tokens: [] });
     }
 
+    syncStatsAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        const eventInput = document.getElementById('stats-adv-search-event');
+        const teamSelect = document.getElementById('stats-adv-search-team');
+        const dateStart = document.getElementById('stats-adv-search-date-start');
+        const dateEnd = document.getElementById('stats-adv-search-date-end');
+
+        if (eventInput) {
+            eventInput.value = '';
+        }
+        if (teamSelect) {
+            teamSelect.value = '';
+        }
+        if (dateStart) {
+            dateStart.value = '';
+        }
+        if (dateEnd) {
+            dateEnd.value = '';
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'event') {
+                if (eventInput) {
+                    eventInput.value = f.value;
+                }
+            }
+            if (f.key === 'team') {
+                if (teamSelect) {
+                    teamSelect.value = f.value;
+                }
+            }
+            if (f.key === 'date') {
+                if (f.operator === '>=') {
+                    if (dateStart) {
+                        dateStart.value = f.value;
+                    }
+                }
+                if (f.operator === '<=') {
+                    if (dateEnd) {
+                        dateEnd.value = f.value;
+                    }
+                }
+                if (f.operator === '..') {
+                    if (dateStart) {
+                        dateStart.value = f.value;
+                    }
+                    if (dateEnd) {
+                        dateEnd.value = f.maxValue;
+                    }
+                }
+            }
+        }
+    }
+
+    buildStatsAdvancedQuery() {
+        const event = document.getElementById('stats-adv-search-event').value.trim();
+        const team = document.getElementById('stats-adv-search-team').value;
+        const dateStart = document.getElementById('stats-adv-search-date-start').value;
+        const dateEnd = document.getElementById('stats-adv-search-date-end').value;
+
+        const filters = [];
+        if (event) {
+            filters.push({ key: 'event', value: event, operator: '=' });
+        }
+        if (team) {
+            filters.push({ key: 'team', value: team, operator: '=' });
+        }
+        if (dateStart && dateEnd) {
+            filters.push({ key: 'date', value: dateStart, operator: '..', maxValue: dateEnd });
+        } else if (dateStart) {
+            filters.push({ key: 'date', value: dateStart, operator: '>=' });
+        } else if (dateEnd) {
+            filters.push({ key: 'date', value: dateEnd, operator: '<=' });
+        }
+
+        return buildQuery({ filters, tokens: [] });
+    }
+
 
     bindEvents() {
         /**
@@ -2046,29 +2125,62 @@ export class AppController {
             this.dashboardController.search('');
         });
 
-        // Stats View Events
-        const statsFilterChange = () => {
-            this.loadStatisticsView();
-        };
-        const filterTeamEl = byId('filter-team');
-        if (filterTeamEl) {
-            filterTeamEl.onchange = statsFilterChange;
+        // Stats Search
+        const statsSearch = byId('stats-search');
+        if (statsSearch) {
+            let debounceTimer;
+            statsSearch.oninput = () => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.loadStatisticsView();
+                }, 300);
+            };
         }
-        ['filter-date-start', 'filter-date-end'].forEach(id => {
-            const el = byId(id);
-            if (el) {
-                el.onchange = statsFilterChange;
+
+        click('btn-toggle-stats-advanced-search', () => {
+            const panel = byId('stats-advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncStatsAdvancedPanelFromQuery(statsSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
             }
         });
 
-        const filterEvent = byId('filter-event');
-        if (filterEvent) {
-            let debounceTimer;
-            filterEvent.oninput = () => {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(statsFilterChange, 300);
-            };
-        }
+        click('btn-stats-adv-apply', () => {
+            const query = this.buildStatsAdvancedQuery();
+            if (statsSearch) {
+                statsSearch.value = query;
+            }
+            this.loadStatisticsView();
+        });
+
+        click('btn-stats-adv-clear', () => {
+            const eventInput = byId('stats-adv-search-event');
+            if (eventInput) {
+                eventInput.value = '';
+            }
+            const teamSelect = byId('stats-adv-search-team');
+            if (teamSelect) {
+                teamSelect.value = '';
+            }
+            const dateStart = byId('stats-adv-search-date-start');
+            if (dateStart) {
+                dateStart.value = '';
+            }
+            const dateEnd = byId('stats-adv-search-date-end');
+            if (dateEnd) {
+                dateEnd.value = '';
+            }
+
+            if (statsSearch) {
+                statsSearch.value = '';
+            }
+            this.loadStatisticsView();
+        });
 
         click('btn-stats-columns', () => this.statsRenderer.renderColumnSelector());
         click('btn-cancel-stats-cols', () => byId('stats-columns-modal').classList.add('hidden'));
@@ -5219,8 +5331,8 @@ export class AppController {
             const accessibleGames = games.filter(g => this.hasReadAccess(g, this.state.teams));
             this.state.allGames = accessibleGames;
 
-            // 2. Populate Team Filter
-            const teamFilter = document.getElementById('filter-team');
+            // 2. Populate Team Filter (in Advanced Panel)
+            const teamFilter = document.getElementById('stats-adv-search-team');
             if (teamFilter) {
                 const currentVal = teamFilter.value;
                 teamFilter.innerHTML = '<option value="">All Teams</option>';
@@ -5277,33 +5389,108 @@ export class AppController {
                 }
             }
 
-            // 6. Apply Filters
-            const filterTeam = document.getElementById('filter-team')?.value;
-            const filterEvent = document.getElementById('filter-event')?.value?.toLowerCase();
-            const filterStart = document.getElementById('filter-date-start')?.value;
-            const filterEnd = document.getElementById('filter-date-end')?.value;
+            // 6. Apply Filters via Search Box
+            const searchInput = document.getElementById('stats-search');
+            const query = searchInput ? searchInput.value : '';
+            const parsedQ = parseQuery(query);
 
-            const filteredGames = accessibleGames.filter(g => {
-                if (filterTeam && g.away !== filterTeam && g.home !== filterTeam) {
-                    return false;
+            // DashboardController._matchesGame handles event, location, away, home, date.
+            // Stats view specifically cares about "Participating Team" (Away OR Home).
+            // Dashboard's _matchesGame checks:
+            // if (f.key === 'away' && !away.includes(val)) return false;
+            // The Stats UI has a "Teams" dropdown which implies "Is this team playing?".
+            // If I map the dropdown to "team:Name", my parser might need to handle it.
+            // My parser maps keys to specific filters.
+            // If I use "team:Name", DashboardController._matchesGame doesn't check "team". It checks "away" and "home".
+            // I should implement a specific matcher for stats or reuse Dashboard's if I map "team" to "away" OR "home".
+            // But parsedQ is ANDed.
+            // If I want to match "Yankees" (either away or home), I can use Free Text.
+            // If I use `team:Yankees` in the query, _matchesGame won't find `f.key === 'team'`.
+            // So I should implement a local matcher here.
+
+            const matchesStats = (g, q) => {
+                // 1. Free Text
+                for (const token of q.tokens) {
+                    const t = token.toLowerCase();
+                    const match = (g.event || '').toLowerCase().includes(t) ||
+                                  (g.location || '').toLowerCase().includes(t) ||
+                                  (g.away || '').toLowerCase().includes(t) ||
+                                  (g.home || '').toLowerCase().includes(t);
+                    if (!match) {
+                        return false;
+                    }
                 }
-                if (filterEvent && !((g.event || '').toLowerCase().includes(filterEvent))) {
-                    return false;
-                }
-                if (filterStart && g.date < filterStart) {
-                    return false;
-                }
-                if (filterEnd && g.date > (filterEnd + 'T23:59:59')) {
-                    return false;
+                // 2. Filters
+                for (const f of q.filters) {
+                    const val = f.value.toLowerCase();
+                    if (f.key === 'event' && !(g.event || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    if (f.key === 'location' && !(g.location || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    // "team" key matches either
+                    if (f.key === 'team' && !((g.away || '').toLowerCase().includes(val) || (g.home || '').toLowerCase().includes(val))) {
+                        return false;
+                    }
+
+                    if (f.key === 'away' && !(g.away || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    if (f.key === 'home' && !(g.home || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+
+                    if (f.key === 'date') {
+                        const d = g.date || '';
+                        if (f.operator === '=') {
+                            if (!d.startsWith(f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '>=') {
+                            if (!(d >= f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '<=') {
+                            if (!(d <= f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '>') {
+                            if (!(d > f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '<') {
+                            if (!(d < f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '..') {
+                            const maxVal = f.maxValue + '~';
+                            if (!(d >= f.value && d <= maxVal)) {
+                                return false;
+                            }
+                        }
+                    }
                 }
                 return true;
-            });
+            };
 
-            const filteredIds = new Set(filteredGames.map(g => g.id));
+            const finalFiltered = accessibleGames.filter(g => matchesStats(g, parsedQ));
+
+            const filteredIds = new Set(finalFiltered.map(g => g.id));
             const statsList = Array.from(statsMap.values()).filter(s => filteredIds.has(s.id));
 
+            // Extract team filter for aggregation (if specific team selected)
+            // We look for 'team' filter in parsedQ
+            const teamFilterF = parsedQ.filters.find(f => f.key === 'team');
+            const teamFilterVal = teamFilterF ? teamFilterF.value : '';
+
             // 7. Aggregate
-            this.state.aggregatedStats = StatsEngine.aggregatePrecalculatedStats(statsList, accessibleGames, filterTeam);
+            this.state.aggregatedStats = StatsEngine.aggregatePrecalculatedStats(statsList, accessibleGames, teamFilterVal);
             this.render();
         } catch (e) {
             console.error('Failed to load statistics:', e);
