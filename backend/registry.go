@@ -368,18 +368,19 @@ func (r *Registry) addTeamGamesToIndex(teamId, gameId string) {
 	}
 }
 
-// containsCaseInsensitive checks if s contains substr, case-insensitive.
-func containsCaseInsensitive(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+// containsLower checks if s (case-insensitive) contains substrLower (already lowercased).
+func containsLower(s, substrLower string) bool {
+	return strings.Contains(strings.ToLower(s), substrLower)
 }
 
 func matchesGame(m GameMetadata, q search.Query) bool {
 	// 1. Free Text (Must match ANY field)
+	// Assumes q.FreeText tokens are already lowercased
 	for _, token := range q.FreeText {
-		match := containsCaseInsensitive(m.Event, token) ||
-			containsCaseInsensitive(m.Location, token) ||
-			containsCaseInsensitive(m.Away, token) ||
-			containsCaseInsensitive(m.Home, token)
+		match := containsLower(m.Event, token) ||
+			containsLower(m.Location, token) ||
+			containsLower(m.Away, token) ||
+			containsLower(m.Home, token)
 		if !match {
 			return false
 		}
@@ -387,21 +388,22 @@ func matchesGame(m GameMetadata, q search.Query) bool {
 
 	// 2. Structured Filters (Must match ALL)
 	for _, f := range q.Filters {
+		// Assumes f.Value is already lowercased for string fields
 		switch f.Key {
 		case "event":
-			if !containsCaseInsensitive(m.Event, f.Value) {
+			if !containsLower(m.Event, f.Value) {
 				return false
 			}
 		case "location":
-			if !containsCaseInsensitive(m.Location, f.Value) {
+			if !containsLower(m.Location, f.Value) {
 				return false
 			}
 		case "away":
-			if !containsCaseInsensitive(m.Away, f.Value) {
+			if !containsLower(m.Away, f.Value) {
 				return false
 			}
 		case "home":
-			if !containsCaseInsensitive(m.Home, f.Value) {
+			if !containsLower(m.Home, f.Value) {
 				return false
 			}
 		case "date":
@@ -417,7 +419,7 @@ func matchesGame(m GameMetadata, q search.Query) bool {
 func matchesTeam(m TeamMetadata, q search.Query) bool {
 	// 1. Free Text
 	for _, token := range q.FreeText {
-		if !containsCaseInsensitive(m.Name, token) {
+		if !containsLower(m.Name, token) {
 			return false
 		}
 	}
@@ -425,7 +427,7 @@ func matchesTeam(m TeamMetadata, q search.Query) bool {
 	for _, f := range q.Filters {
 		switch f.Key {
 		case "name":
-			if !containsCaseInsensitive(m.Name, f.Value) {
+			if !containsLower(m.Name, f.Value) {
 				return false
 			}
 		}
@@ -446,7 +448,10 @@ func checkDateFilter(dateVal string, f search.Filter) bool {
 	case search.OpLessOrEqual:
 		return dateVal <= f.Value
 	case search.OpRange:
-		return dateVal >= f.Value && dateVal <= f.MaxValue
+		// Inclusive Range: "2025-01" -> "2025-01~" (ASCII ~ is > digits)
+		// This ensures 2025-01-31 <= 2025-01~ is true
+		maxVal := f.MaxValue + "~"
+		return dateVal >= f.Value && dateVal <= maxVal
 	}
 	return true
 }
@@ -457,6 +462,16 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 	defer r.mu.RUnlock()
 
 	q := search.Parse(query)
+	// Optimization: Pre-lowercase tokens
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		if f.Key != "date" { // Date is case-sensitive/numeric
+			q.Filters[i].Value = strings.ToLower(f.Value)
+		}
+	}
+
 	var ids []string
 	for id := range r.userGames[userId] {
 		meta, ok := r.gameMetadata[id]
@@ -554,6 +569,14 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 	defer r.mu.RUnlock()
 
 	q := search.Parse(query)
+	// Optimization: Pre-lowercase tokens
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		q.Filters[i].Value = strings.ToLower(f.Value)
+	}
+
 	var ids []string
 	for id := range r.userTeams[userId] {
 		meta, ok := r.teamMetadata[id]

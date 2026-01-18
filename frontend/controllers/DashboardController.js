@@ -62,14 +62,14 @@ export class DashboardController {
         this.bindScrollEvent();
 
         // Start independent async streams
-        this.loadAllLocalGames();
+        const localLoadPromise = this.loadAllLocalGames();
 
         // Only fetch remote if logged in and not filtering for local-only
         const parsedQ = parseQuery(this.query);
         const isLocalOnly = parsedQ.filters.some(f => f.key === 'is' && f.value === 'local');
         if (this.app.auth.getUser() && !isLocalOnly) {
             this.fetchNextRemoteBatch();
-            this.checkDeletions();
+            localLoadPromise.then(() => this.checkDeletions());
         }
     }
 
@@ -122,8 +122,6 @@ export class DashboardController {
 
             // Populate local map for merging logic
             this.localMap = new Map(this.localBuffer.map(g => [g.id, g]));
-
-            this.mergeAndRender();
         } finally {
             this.isLoading = false;
             this.mergeAndRender(); // Ensure loading indicator is cleared
@@ -361,7 +359,9 @@ export class DashboardController {
                     }
                 }
                 else if (f.operator === '..') {
-                    if (!(d >= f.value && d <= f.maxValue)) {
+                    // Inclusive range: use ~ to make upper bound cover suffixes
+                    const maxVal = f.maxValue + '~';
+                    if (!(d >= f.value && d <= maxVal)) {
                         return false;
                     }
                 }

@@ -67,12 +67,12 @@ export class TeamController {
         this.bindScrollEvent();
 
         // Start independent async streams
-        this.loadAllLocalTeams();
+        const localLoadPromise = this.loadAllLocalTeams();
 
         // Only fetch remote if logged in
         if (this.app.auth.getUser()) {
             this.fetchNextRemoteBatch();
-            this.checkDeletions();
+            localLoadPromise.then(() => this.checkDeletions());
         }
     }
 
@@ -121,12 +121,10 @@ export class TeamController {
 
             // Populate local map for merging logic
             this.localMap = new Map(this.localBuffer.map(t => [t.id, t]));
-
-            this.mergeAndRender();
-            this.triggerVisibleAutoSync();
         } finally {
             this.isLoading = false;
             this.mergeAndRender();
+            this.triggerVisibleAutoSync();
         }
     }
 
