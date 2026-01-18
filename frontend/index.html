@@ -101,6 +101,41 @@ limitations under the License.
                 + New Team
             </button>
         </header>
+        <div class="bg-white border-b border-gray-200 p-4 sticky top-[60px] z-10 shadow-sm">
+            <div class="max-w-3xl mx-auto flex flex-col gap-3">
+                <div class="flex gap-2">
+                    <input type="text" id="teams-search" placeholder="Search teams..." class="flex-1 border p-3 rounded shadow-sm text-sm">
+                    <button id="btn-toggle-teams-advanced-search" class="bg-gray-200 hover:bg-gray-300 px-3 rounded text-gray-600 font-bold text-xs" title="Advanced Search">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    </button>
+                </div>
+                <!-- Advanced Search Panel -->
+                <div id="teams-advanced-search-panel" class="hidden bg-gray-50 border border-gray-200 rounded p-3 text-sm">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">Team Name</label>
+                            <input type="text" id="teams-adv-search-name" class="w-full border p-2 rounded" placeholder="e.g. Atoms">
+                        </div>
+                        <div class="flex flex-col justify-end">
+                            <div class="flex gap-4 h-full items-center">
+                                <label class="flex items-center gap-1 cursor-pointer">
+                                    <input type="checkbox" id="teams-adv-search-local" class="w-4 h-4">
+                                    <span class="text-xs">Local Only</span>
+                                </label>
+                                <label class="flex items-center gap-1 cursor-pointer">
+                                    <input type="checkbox" id="teams-adv-search-remote" class="w-4 h-4">
+                                    <span class="text-xs">Remote Only</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="btn-teams-adv-clear" class="text-gray-500 hover:text-gray-700 font-bold px-3 py-1">Clear</button>
+                        <button id="btn-teams-adv-apply" class="bg-blue-600 text-white font-bold px-4 py-1 rounded shadow hover:bg-blue-500">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <main class="flex-1 overflow-y-auto p-4" id="teams-list-container">
             <div class="max-w-3xl mx-auto space-y-4" id="teams-list">
                 <!-- Team cards injected here -->

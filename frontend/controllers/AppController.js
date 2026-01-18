@@ -1160,6 +1160,10 @@ export class AppController {
      */
     async loadTeamsView() {
         this.teamController.query = '';
+        const searchInput = document.getElementById('teams-search');
+        if (searchInput) {
+            searchInput.value = '';
+        }
         await this.teamController.loadTeamsView();
     }
 
@@ -1734,6 +1738,45 @@ export class AppController {
         }
     }
 
+    syncTeamsAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        const nameInput = document.getElementById('teams-adv-search-name');
+        if (nameInput) {
+            nameInput.value = '';
+        }
+        const cbLocal = document.getElementById('teams-adv-search-local');
+        const cbRemote = document.getElementById('teams-adv-search-remote');
+        if (cbLocal) {
+            cbLocal.checked = false;
+        }
+        if (cbRemote) {
+            cbRemote.checked = false;
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'name') {
+                if (nameInput) {
+                    nameInput.value = f.value;
+                }
+            }
+            if (f.key === 'is') {
+                if (f.value === 'local') {
+                    cbLocal.checked = true;
+                }
+                if (f.value === 'remote') {
+                    cbRemote.checked = true;
+                }
+            }
+        }
+        // Also map free text to name for UI convenience if filter not set?
+        // Current parser treats free text separate from filters.
+        // TeamController _matchesTeam checks FreeText against name.
+        // So we can put free text into name input?
+        // But buildTeamsAdvancedQuery creates name:filter.
+        // Let's stick to explicit filters for the panel.
+    }
+
     buildAdvancedQuery() {
         const event = document.getElementById('adv-search-event').value.trim();
         const location = document.getElementById('adv-search-location').value.trim();
@@ -1772,6 +1815,25 @@ export class AppController {
         }
 
         return buildQuery({ filters, tokens });
+    }
+
+    buildTeamsAdvancedQuery() {
+        const name = document.getElementById('teams-adv-search-name').value.trim();
+        const isLocal = document.getElementById('teams-adv-search-local').checked;
+        const isRemote = document.getElementById('teams-adv-search-remote').checked;
+
+        const filters = [];
+        // Use name filter instead of free text for precision in panel
+        if (name) {
+            filters.push({ key: 'name', value: name, operator: '=' });
+        }
+        if (isLocal) {
+            filters.push({ key: 'is', value: 'local', operator: '=' });
+        }
+        if (isRemote) {
+            filters.push({ key: 'is', value: 'remote', operator: '=' });
+        }
+        return buildQuery({ filters, tokens: [] });
     }
 
 
@@ -1886,6 +1948,59 @@ export class AppController {
                 }, 300);
             };
         }
+
+        // Teams Search
+        const teamsSearch = byId('teams-search');
+        if (teamsSearch) {
+            let debounceTimer;
+            teamsSearch.oninput = () => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.teamController.search(teamsSearch.value);
+                }, 300);
+            };
+        }
+
+        click('btn-toggle-teams-advanced-search', () => {
+            const panel = byId('teams-advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncTeamsAdvancedPanelFromQuery(teamsSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
+            }
+        });
+
+        click('btn-teams-adv-apply', () => {
+            const query = this.buildTeamsAdvancedQuery();
+            if (teamsSearch) {
+                teamsSearch.value = query;
+            }
+            this.teamController.search(query);
+        });
+
+        click('btn-teams-adv-clear', () => {
+            const nameInput = byId('teams-adv-search-name');
+            if (nameInput) {
+                nameInput.value = '';
+            }
+            const cbLocal = byId('teams-adv-search-local');
+            if (cbLocal) {
+                cbLocal.checked = false;
+            }
+            const cbRemote = byId('teams-adv-search-remote');
+            if (cbRemote) {
+                cbRemote.checked = false;
+            }
+
+            if (teamsSearch) {
+                teamsSearch.value = '';
+            }
+            this.teamController.search('');
+        });
 
         // Advanced Search
         click('btn-toggle-advanced-search', () => {
