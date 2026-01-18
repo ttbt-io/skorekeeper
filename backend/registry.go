@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ttbt-io/skorekeeper/backend/search"
 )
 
 const tombstoneTTL = 30 * 24 * time.Hour
@@ -371,27 +373,98 @@ func containsCaseInsensitive(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
+func matchesGame(m GameMetadata, q search.Query) bool {
+	// 1. Free Text (Must match ANY field)
+	for _, token := range q.FreeText {
+		match := containsCaseInsensitive(m.Event, token) ||
+			containsCaseInsensitive(m.Location, token) ||
+			containsCaseInsensitive(m.Away, token) ||
+			containsCaseInsensitive(m.Home, token)
+		if !match {
+			return false
+		}
+	}
+
+	// 2. Structured Filters (Must match ALL)
+	for _, f := range q.Filters {
+		switch f.Key {
+		case "event":
+			if !containsCaseInsensitive(m.Event, f.Value) {
+				return false
+			}
+		case "location":
+			if !containsCaseInsensitive(m.Location, f.Value) {
+				return false
+			}
+		case "away":
+			if !containsCaseInsensitive(m.Away, f.Value) {
+				return false
+			}
+		case "home":
+			if !containsCaseInsensitive(m.Home, f.Value) {
+				return false
+			}
+		case "date":
+			if !checkDateFilter(m.Date, f) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func matchesTeam(m TeamMetadata, q search.Query) bool {
+	// 1. Free Text
+	for _, token := range q.FreeText {
+		if !containsCaseInsensitive(m.Name, token) {
+			return false
+		}
+	}
+	// 2. Filters
+	for _, f := range q.Filters {
+		switch f.Key {
+		case "name":
+			if !containsCaseInsensitive(m.Name, f.Value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func checkDateFilter(dateVal string, f search.Filter) bool {
+	switch f.Operator {
+	case search.OpEqual:
+		return strings.HasPrefix(dateVal, f.Value)
+	case search.OpGreater:
+		return dateVal > f.Value
+	case search.OpGreaterOrEqual:
+		return dateVal >= f.Value
+	case search.OpLess:
+		return dateVal < f.Value
+	case search.OpLessOrEqual:
+		return dateVal <= f.Value
+	case search.OpRange:
+		return dateVal >= f.Value && dateVal <= f.MaxValue
+	}
+	return true
+}
+
 // ListGames returns the IDs of all games accessible by the user, sorted and filtered.
 func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	lowerQuery := strings.ToLower(query)
+	q := search.Parse(query)
 	var ids []string
 	for id := range r.userGames[userId] {
-		// Filter
-		if lowerQuery != "" {
-			meta, ok := r.gameMetadata[id]
-			if !ok {
-				continue
-			}
-			match := containsCaseInsensitive(meta.Event, lowerQuery) ||
-				containsCaseInsensitive(meta.Location, lowerQuery) ||
-				containsCaseInsensitive(meta.Away, lowerQuery) ||
-				containsCaseInsensitive(meta.Home, lowerQuery)
-			if !match {
-				continue
-			}
+		meta, ok := r.gameMetadata[id]
+		if !ok {
+			continue
+		}
+		if !matchesGame(meta, q) {
+			continue
 		}
 		ids = append(ids, id)
 	}
@@ -480,18 +553,15 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	lowerQuery := strings.ToLower(query)
+	q := search.Parse(query)
 	var ids []string
 	for id := range r.userTeams[userId] {
-		// Filter
-		if lowerQuery != "" {
-			meta, ok := r.teamMetadata[id]
-			if !ok {
-				continue
-			}
-			if !containsCaseInsensitive(meta.Name, lowerQuery) {
-				continue
-			}
+		meta, ok := r.teamMetadata[id]
+		if !ok {
+			continue
+		}
+		if !matchesTeam(meta, q) {
+			continue
 		}
 		ids = append(ids, id)
 	}

@@ -62,6 +62,7 @@ import { DataService } from '../services/DataService.js';
 import { TeamController } from './TeamController.js';
 import { DashboardController } from './DashboardController.js';
 import { ActiveGameController } from './ActiveGameController.js';
+import { parseQuery, buildQuery } from '../utils/searchParser.js';
 
 /**
  * The main application controller for the Skorekeeper PWA.
@@ -728,6 +729,7 @@ export class AppController {
      * @param {boolean} show - Whether to show or hide the sidebar.
      */
     toggleSidebar(show) {
+        console.log('App: toggleSidebar', show);
         const sidebar = document.getElementById('app-sidebar');
         const backdrop = document.getElementById('sidebar-backdrop');
         if (show) {
@@ -1158,6 +1160,7 @@ export class AppController {
      * Loads the teams view by fetching all saved teams.
      */
     async loadTeamsView() {
+        this.teamController.query = '';
         await this.teamController.loadTeamsView();
     }
 
@@ -1677,6 +1680,120 @@ export class AppController {
             this.state.activeCtx,
         );
     }
+    syncAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        // Reset
+        ['adv-search-event', 'adv-search-location', 'adv-search-team', 'adv-search-date-start', 'adv-search-date-end'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = '';
+            }
+        });
+        const cbLocal = document.getElementById('adv-search-local');
+        const cbRemote = document.getElementById('adv-search-remote');
+        if (cbLocal) {
+            cbLocal.checked = false;
+        }
+        if (cbRemote) {
+            cbRemote.checked = false;
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'event') {
+                document.getElementById('adv-search-event').value = f.value;
+            }
+            if (f.key === 'location') {
+                document.getElementById('adv-search-location').value = f.value;
+            }
+            if (f.key === 'away' || f.key === 'home') {
+                document.getElementById('adv-search-team').value = f.value;
+            } // Simplified binding
+
+            if (f.key === 'date') {
+                if (f.operator === '>=') {
+                    document.getElementById('adv-search-date-start').value = f.value;
+                }
+                if (f.operator === '<=') {
+                    document.getElementById('adv-search-date-end').value = f.value;
+                }
+                // Range
+                if (f.operator === '..') {
+                    document.getElementById('adv-search-date-start').value = f.value;
+                    document.getElementById('adv-search-date-end').value = f.maxValue;
+                }
+            }
+
+            if (f.key === 'is') {
+                if (f.value === 'local') {
+                    cbLocal.checked = true;
+                }
+                if (f.value === 'remote') {
+                    cbRemote.checked = true;
+                }
+            }
+        }
+    }
+
+    buildAdvancedQuery() {
+        const event = document.getElementById('adv-search-event').value.trim();
+        const location = document.getElementById('adv-search-location').value.trim();
+        const team = document.getElementById('adv-search-team').value.trim();
+        const dateStart = document.getElementById('adv-search-date-start').value;
+        const dateEnd = document.getElementById('adv-search-date-end').value;
+        const isLocal = document.getElementById('adv-search-local').checked;
+        const isRemote = document.getElementById('adv-search-remote').checked;
+
+        const filters = [];
+        if (event) {
+            filters.push({ key: 'event', value: event, operator: '=' });
+        }
+        if (location) {
+            filters.push({ key: 'location', value: location, operator: '=' });
+        }
+
+        // Team: apply to both away/home? Or just pick one?
+        // Backend search supports specific keys.
+        // We will make "Teams" input search freely or use "away" key as a proxy?
+        // Actually, Advanced Panel "Teams" input implies participation.
+        // If I put "Yankees", I want games where Away=Yankees OR Home=Yankees.
+        // My parser syntax `away:Yankees` only matches away.
+        // To match either, I need OR logic, which my simple parser doesn't support (it's AND).
+        // Solution: Treat "Teams" input as Free Text tokens? No, that matches event too.
+        // Current Backend matchesGame implementation for FreeText checks ALL fields.
+        // So putting "Yankees" in FreeText works for Teams field (and others).
+        // But if I want to restrict to Teams field only... I can't with current backend logic.
+        // I will use FreeText for Team input for now, or just map it to `away` filter as a known limitation, or ignore it if complex.
+        // Let's treat it as FreeText token for now to be safe.
+        // Actually, I'll map it to nothing here and rely on user typing manually if they want strict field?
+        // No, UI must work.
+        // If I use `away:Yankees`, it misses Home games.
+        // I'll add `freeText` tokens for team input.
+
+        const tokens = [];
+        if (team) {
+            tokens.push(team);
+        }
+
+        if (dateStart && dateEnd) {
+            filters.push({ key: 'date', value: dateStart, operator: '..', maxValue: dateEnd });
+        } else if (dateStart) {
+            filters.push({ key: 'date', value: dateStart, operator: '>=' });
+        } else if (dateEnd) {
+            filters.push({ key: 'date', value: dateEnd, operator: '<=' });
+        }
+
+        if (isLocal) {
+            filters.push({ key: 'is', value: 'local', operator: '=' });
+        }
+        if (isRemote) {
+            filters.push({ key: 'is', value: 'remote', operator: '=' });
+        }
+
+        return buildQuery({ filters, tokens });
+    }
+
+
     bindEvents() {
         /**
          * Helper to get an element by its ID.
@@ -1706,9 +1823,7 @@ export class AppController {
                     }
                 }
             }
-            else {
-                console.warn(`App: Element '${id}' not found in DOM`);
-            }
+            // else { console.warn... } // Optional: suppress warning for optional elements
         };
 
         // Synchronize scoreboard scrolling
@@ -1790,6 +1905,50 @@ export class AppController {
                 }, 300);
             };
         }
+
+        // Advanced Search
+        click('btn-toggle-advanced-search', () => {
+            const panel = byId('advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncAdvancedPanelFromQuery(dashboardSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
+            }
+        });
+
+        click('btn-adv-apply', () => {
+            const query = this.buildAdvancedQuery();
+            if (dashboardSearch) {
+                dashboardSearch.value = query;
+            }
+            this.dashboardController.search(query);
+        });
+
+        click('btn-adv-clear', () => {
+            ['adv-search-event', 'adv-search-location', 'adv-search-team', 'adv-search-date-start', 'adv-search-date-end'].forEach(id => {
+                const el = byId(id);
+                if (el) {
+                    el.value = '';
+                }
+            });
+            const cbLocal = byId('adv-search-local');
+            const cbRemote = byId('adv-search-remote');
+            if (cbLocal) {
+                cbLocal.checked = false;
+            }
+            if (cbRemote) {
+                cbRemote.checked = false;
+            }
+
+            if (dashboardSearch) {
+                dashboardSearch.value = '';
+            }
+            this.dashboardController.search('');
+        });
 
         // Stats View Events
         const statsFilterChange = () => {

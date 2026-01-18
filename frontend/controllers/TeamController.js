@@ -19,90 +19,63 @@ import {
     SyncStatusLocalOnly,
     SyncStatusSyncing,
     SyncStatusError,
+    SyncStatusRemoteOnly,
 } from '../constants.js';
-import { StreamMerger } from '../services/streamMerger.js';
+import { parseQuery } from '../utils/searchParser.js';
 
 export class TeamController {
     constructor(app) {
         this.app = app;
         this.teamState = null;
-        this.merger = null;
+
+        this.localBuffer = [];
+        this.remoteBuffer = [];
         this.localMap = new Map();
-        this.isLoading = false;
+        this.syncStatuses = new Map();
+
+        this.isLoading = false;        this.isFetchingRemote = false;
+
         this.query = '';
         this.scrollBound = false;
-        this.batchSize = 20;
-        this.hasMore = false;
+
+        // Pagination state
+        this.displayLimit = 50;
+        this.remoteOffset = 0;
+        this.remoteHasMore = true;
     }
 
     /**
-     * Loads the teams view by fetching all saved teams.
+     * Loads the teams view.
+     * Starts async loading of local and remote data.
+     * Returns immediately after initial setup.
      */
     async loadTeamsView() {
         this.app.state.teams = [];
-        this.query = '';
         this.app.state.view = 'teams';
         window.location.hash = 'teams';
-        this.isLoading = true;
 
-        // 1. Prepare Local Data
-        let localTeamsRaw = await this.app.db.getAllTeams();
+        // Reset state
+        this.localBuffer = [];
+        this.remoteBuffer = [];
+        this.localMap = new Map();
+        this.syncStatuses = new Map();
+        this.displayLimit = 50;
+        this.remoteOffset = 0;
+        this.remoteHasMore = true;
 
-        // Check for deletions if online
-        if (this.app.auth.getUser()) {
-            const localIds = localTeamsRaw.map(t => t.id);
-            if (localIds.length > 0) {
-                const deletedIds = await this.app.teamSync.checkTeamDeletions(localIds);
-                if (deletedIds.length > 0) {
-                    const deletedSet = new Set(deletedIds);
-                    await Promise.all(deletedIds.map(id =>
-                        this.app.db.deleteTeam(id).catch(err => console.warn(`TeamController: Failed to delete stale team ${id}`, err)),
-                    ));
-                    // Filter in memory to avoid redundant DB reload
-                    localTeamsRaw = localTeamsRaw.filter(t => !deletedSet.has(t.id));
-                }
-            }
-        }
-
-        const localTeams = localTeamsRaw.filter(t => this.app.hasTeamReadAccess(t));
-        this.localMap = new Map(localTeams.map(t => [t.id, t]));
-
-        // Filter and Sort Local Data (Name Ascending)
-        let filteredLocal = localTeams;
-        filteredLocal.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-        // 2. Initialize StreamMerger
-        this.merger = new StreamMerger(
-            filteredLocal,
-            async(offset) => {
-                if (!this.app.auth.getUser()) {
-                    return { data: [], meta: { total: 0 } };
-                }
-                return this.app.teamSync.fetchTeamList({
-                    limit: 50,
-                    offset: offset,
-                    sortBy: 'name',
-                    order: 'asc',
-                    query: this.query,
-                });
-            },
-            (a, b) => (a.name || '').localeCompare(b.name || ''), // Comparator: Name Asc
-            'id',
-        );
-
-        // 3. Bind Scroll
+        this.app.render(); // Render empty state immediately
         this.bindScrollEvent();
 
-        // 4. Initial Auto-Fill
-        await this.autoFill();
-        this.isLoading = false;
+        // Start independent async streams
+        this.loadAllLocalTeams();
 
-        this.triggerVisibleAutoSync();
+        // Only fetch remote if logged in
+        if (this.app.auth.getUser()) {
+            this.fetchNextRemoteBatch();
+            this.checkDeletions();
+        }
     }
 
-    /**
-     * Binds the scroll event listener to the teams list container for infinite scrolling.
-     */
     bindScrollEvent() {
         const container = document.getElementById('teams-list-container');
         if (container && !this.scrollBound) {
@@ -113,115 +86,218 @@ export class TeamController {
         }
     }
 
-    /**
-     * Handles the scroll event to trigger loading the next batch when near the bottom.
-     * @param {HTMLElement} container - The scrollable container.
-     */
-    async handleScroll(container) {
-        if (this.isLoading || !this.merger || !this.merger.hasMore()) {
-            return;
-        }
-
+    handleScroll(container) {
         const { scrollTop, scrollHeight, clientHeight } = container;
+        // Trigger when within 200px of bottom
         if (scrollTop + clientHeight >= scrollHeight - 200) {
-            await this.loadNextBatch();
-        }
-    }
+            this.displayLimit += 20; // Show more
 
-    /**
-     * Automatically fills the viewport with teams on initial load.
-     */
-    async autoFill() {
-        const container = document.getElementById('teams-list-container');
-        await this.loadNextBatch(false); // Initial load, must render to get baseline height
-
-        if (container && container.clientHeight > 0) {
-            let safety = 0;
-            while (
-                container.scrollHeight <= container.clientHeight * 2 &&
-                this.merger.hasMore() &&
-                safety < 10
-            ) {
-                await this.loadNextBatch(false); // Must render to update scrollHeight
-                safety++;
+            const totalLoaded = this.localBuffer.length + this.remoteBuffer.length;
+            if (this.remoteHasMore && !this.isFetchingRemote && this.displayLimit > totalLoaded - 20) {
+                this.fetchNextRemoteBatch();
+            } else {
+                this.mergeAndRender();
             }
         }
     }
 
-    /**
-     * Loads the next batch of teams from the stream merger.
-     * @param {boolean} [skipRender=false] - Whether to skip triggering a full app render.
-     */
-    async loadNextBatch(skipRender = false) {
-        if (!this.merger) {
-            return;
-        }
+    async loadAllLocalTeams() {
         this.isLoading = true;
-
         try {
-            const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
-            const processedBatch = await this._processBatch(rawBatch);
+            let localTeamsRaw = await this.app.db.getAllTeams();
+            const localTeams = localTeamsRaw.filter(t => this.app.hasTeamReadAccess(t));
 
-            this.app.state.teams.push(...processedBatch);
+            // Pre-process local teams for search filtering
+            const parsedQ = parseQuery(this.query);
+            const isRemoteOnly = parsedQ.filters.some(f => f.key === 'is' && f.value === 'remote');
 
-            this.triggerVisibleAutoSync();
-
-            this.hasMore = this.merger.hasMore();
-
-            if (!skipRender) {
-                this.renderWithPagination();
+            if (isRemoteOnly) {
+                this.localBuffer = [];
+            } else if (this.query) {
+                this.localBuffer = localTeams.filter(t => this._matchesTeam(t, parsedQ));
+            } else {
+                this.localBuffer = localTeams;
             }
+
+            // Populate local map for merging logic
+            this.localMap = new Map(this.localBuffer.map(t => [t.id, t]));
+
+            this.mergeAndRender();
+            this.triggerVisibleAutoSync();
         } finally {
             this.isLoading = false;
+            this.mergeAndRender();
         }
     }
 
-    /**
-     * Processes a batch of raw team items, handling persistence and sync status.
-     * @param {Array<object>} batch - The raw batch from StreamMerger.
-     * @returns {Promise<Array<object>>} The processed items.
-     * @private
-     */
-    async _processBatch(batch) {
-        const results = [];
-        const dbOperations = [];
+    async fetchNextRemoteBatch() {
+        if (this.isFetchingRemote || !this.remoteHasMore) {
+            return;
+        }
+        this.isFetchingRemote = true;
+        this.mergeAndRender();
 
-        for (const item of batch) {
-            const remoteItem = item._remote;
-            const localItem = (item.source === 'local') ? item : this.localMap.get(item.id);
-
-            // Handle Persistence of Remote Data
-            if (remoteItem) {
-                if (remoteItem.status === 'deleted') {
-                    dbOperations.push(this.app.db.deleteTeam(remoteItem.id));
-                    continue;
-                } else {
-                    dbOperations.push(this.app.db.saveTeam(remoteItem));
-                }
-            } else if (item.source === 'remote' && item.status !== 'deleted') {
-                dbOperations.push(this.app.db.saveTeam(item));
-            }
-
-            // Sync Status Logic
-            let status = SyncStatusSynced;
-            if (!remoteItem && item.source === 'local') {
-                status = SyncStatusLocalOnly;
-            }
-
-            const base = remoteItem || localItem || item;
-
-            results.push({
-                ...base,
-                syncStatus: status,
+        try {
+            // Note: parseQuery logic is duplicated here for the API call params if needed,
+            // but currently TeamController.js passes query directly?
+            // The original code passed `this.query` to `fetchTeamList`.
+            const result = await this.app.teamSync.fetchTeamList({
+                limit: 50,
+                offset: this.remoteOffset,
+                sortBy: 'name',
+                order: 'asc',
+                query: this.query,
             });
+
+            if (result && result.data) {
+                this.remoteBuffer.push(...result.data);
+                this.remoteOffset += result.data.length;
+                if (result.data.length < 50) {
+                    this.remoteHasMore = false;
+                }
+            } else {
+                this.remoteHasMore = false;
+            }
+            this.mergeAndRender();
+        } catch (e) {
+            console.error('Failed to fetch remote teams', e);
+            this.remoteHasMore = false;
+        } finally {
+            this.isFetchingRemote = false;
+            this.mergeAndRender();
+        }
+    }
+
+    async checkDeletions() {
+        try {
+            const allLocal = await this.app.db.getAllTeams();
+            const localIds = allLocal.map(t => t.id);
+            if (localIds.length === 0) {
+                return;
+            }
+
+            const deletedIds = await this.app.teamSync.checkTeamDeletions(localIds);
+            if (deletedIds.length > 0) {
+                console.log('TeamController: Deleting stale local teams', deletedIds);
+                const deletedSet = new Set(deletedIds);
+
+                // 1. Delete from DB
+                await Promise.all(deletedIds.map(id =>
+                    this.app.db.deleteTeam(id).catch(err => console.warn(`TeamController: Failed to delete stale team ${id}`, err)),
+                ));
+
+                // 2. Remove from Local Buffer
+                this.localBuffer = this.localBuffer.filter(t => !deletedSet.has(t.id));
+                this.localMap = new Map(this.localBuffer.map(t => [t.id, t]));
+
+                // 3. Remove from Remote Buffer
+                this.remoteBuffer = this.remoteBuffer.filter(t => !deletedSet.has(t.id));
+
+                this.mergeAndRender();
+            }
+        } catch (e) {
+            console.warn('TeamController: Check deletions failed', e);
+        }
+    }
+
+    mergeAndRender() {
+        const merged = new Map();
+
+        // Add Local First
+        this.localBuffer.forEach(t => {
+            merged.set(t.id, { ...t, _source: 'local' });
+        });
+
+        // Add/Update Remote
+        this.remoteBuffer.forEach(t => {
+            const existing = merged.get(t.id);
+            if (existing) {
+                merged.set(t.id, { ...t, _source: 'both', _localTeam: existing });
+            } else {
+                merged.set(t.id, { ...t, _source: 'remote' });
+            }
+        });
+
+        const processed = Array.from(merged.values()).map(item => {
+            let status = SyncStatusSynced;
+            const localItem = item._source === 'local' ? item : item._localTeam;
+            const remoteItem = item._source === 'remote' || item._source === 'both' ? item : null;
+
+            // Simplified sync status logic compared to Dashboard (no revisions for Teams usually?)
+            // If local and remote exist, assume synced unless we track dirty state elsewhere.
+            // But if item source is 'local' and not in remote buffer...
+            // Wait, remoteBuffer only contains what we fetched.
+            // If we haven't fetched it yet, we don't know if it's remote only or synced.
+            // However, `fetchTeamList` returns synced teams.
+
+            if (item._source === 'remote') {
+                status = SyncStatusRemoteOnly;
+            } else if (item._source === 'local') {
+                status = SyncStatusLocalOnly;
+            } else if (localItem && remoteItem) {
+                // Check if local is newer? Team updates set `updatedAt`.
+                // For now, assume synced if both present, unless local has explicit syncStatus
+                if (localItem.syncStatus === SyncStatusError) {
+                    status = SyncStatusError;
+                } else if (localItem.syncStatus === SyncStatusSyncing) {
+                    status = SyncStatusSyncing;
+                } else {
+                    status = SyncStatusSynced;
+                }
+            }
+
+            // Apply transient status from sync operations
+            if (this.syncStatuses.has(item.id)) {
+                status = this.syncStatuses.get(item.id);
+            }
+
+            // Prefer local for editing, remote for latest data?
+            // Usually local is the source of truth for offline edits.
+            const base = localItem || remoteItem;
+            return {
+                ...base,
+                source: localItem ? 'local' : 'remote',
+                syncStatus: status,
+            };
+        });
+
+        // Sort by Name Ascending
+        processed.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        this.app.state.teams = processed.slice(0, this.displayLimit);
+        this.renderWithPagination();
+    }
+
+    renderWithPagination() {
+        this.app.render();
+
+        const main = document.querySelector('#teams-view main');
+        if (!main) {
+            return;
         }
 
-        // Parallel await for performance
-        if (dbOperations.length > 0) {
-            await Promise.all(dbOperations);
+        // Clean up existing sentinels
+        const existing = main.querySelectorAll('.pagination-sentinel');
+        existing.forEach(el => el.remove());
+
+        const totalAvailable = this.localBuffer.length + this.remoteBuffer.length;
+        const showingAll = this.app.state.teams.length >= totalAvailable && !this.remoteHasMore;
+
+        let sentinelText = '';
+        if (this.isLoading || this.isFetchingRemote) {
+            sentinelText = 'Loading more teams...';
+        } else if (!showingAll) {
+            sentinelText = 'Scroll for more';
+        } else if (this.app.state.teams.length > 0) {
+            sentinelText = 'All teams loaded.';
         }
 
-        return results;
+        if (sentinelText) {
+            const sentinel = document.createElement('div');
+            sentinel.className = 'pagination-sentinel py-4 text-center text-gray-500 text-sm font-medium';
+            sentinel.textContent = sentinelText;
+            main.appendChild(sentinel);
+        }
     }
 
     /**
@@ -237,79 +313,38 @@ export class TeamController {
         }
     }
 
-    /**
-     * Searches for teams by query string.
-     * @param {string} query
-     */
     async search(query) {
         this.query = query;
-        this.app.state.teams = [];
-        this.isLoading = true;
-        this.app.render();
-
-        const localTeamsRaw = Array.from(this.localMap.values());
-        let filteredLocal = localTeamsRaw;
-        if (this.query) {
-            const q = this.query.toLowerCase();
-            filteredLocal = localTeamsRaw.filter(t => (t.name || '').toLowerCase().includes(q));
-        }
-        filteredLocal.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-        this.merger = new StreamMerger(
-            filteredLocal,
-            async(offset) => {
-                if (!this.app.auth.getUser()) {
-                    return { data: [], meta: { total: 0 } };
-                }
-                return this.app.teamSync.fetchTeamList({
-                    limit: 50,
-                    offset: offset,
-                    sortBy: 'name',
-                    order: 'asc',
-                    query: this.query,
-                });
-            },
-            (a, b) => (a.name || '').localeCompare(b.name || ''),
-            'id',
-        );
-
-        await this.autoFill();
-        this.isLoading = false;
+        await this.loadTeamsView(); // Reloads with query
     }
 
-    /**
-     * Renders the teams view with infinite scroll pagination.
-     */
-    renderWithPagination() {
-        this.app.render();
-
-        const main = document.querySelector('#teams-view main');
-        if (!main || this.app.state.teams.length === 0) {
-            return;
+    _matchesTeam(t, parsedQ) {
+        // 1. Free Text (AND)
+        for (const token of parsedQ.tokens) {
+            if (!(t.name || '').toLowerCase().includes(token.toLowerCase())) {
+                return false;
+            }
         }
-
-        if (this.hasMore || this.isLoading) {
-            const sentinel = document.createElement('div');
-            sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
-            sentinel.textContent = this.isLoading ? 'Loading more teams...' : 'Scroll for more';
-            main.appendChild(sentinel);
-        } else {
-            const endMsg = document.createElement('div');
-            endMsg.className = 'py-8 text-center text-gray-400 text-xs italic';
-            endMsg.textContent = 'All teams loaded.';
-            main.appendChild(endMsg);
+        // 2. Filters
+        for (const f of parsedQ.filters) {
+            if (f.key === 'is') {
+                continue;
+            }
+            if (f.key === 'name' && !(t.name || '').toLowerCase().includes(f.value.toLowerCase())) {
+                return false;
+            }
         }
+        return true;
     }
 
-    /**
-     * Loads more teams (manual fallback for loadNextBatch).
-     */
     async loadMore() {
-        if (!this.hasMore || this.isLoading) {
-            return;
+        const container = document.getElementById('teams-list-container');
+        if (container) {
+            this.handleScroll(container);
         }
-        await this.loadNextBatch();
     }
+
+    // ... (Keep existing methods: syncTeam, openEditTeamModal, switchTeamModalTab, renderTeamMembers, addTeamMember, removeTeamMember, addTeamPlayerRow, closeTeamModal, saveTeam, deleteTeam) ...
 
     /**
      * Synchronizes a specific team with the server.
@@ -327,24 +362,24 @@ export class TeamController {
             return;
         }
 
-        team.syncStatus = SyncStatusSyncing;
-        this.app.render();
+        this.syncStatuses.set(teamId, SyncStatusSyncing);
+        this.mergeAndRender();
 
         try {
             const success = await this.app.teamSync.saveTeam(team);
             if (success) {
-                team.syncStatus = SyncStatusSynced;
+                this.syncStatuses.set(teamId, SyncStatusSynced);
             } else {
-                team.syncStatus = SyncStatusError;
+                this.syncStatuses.set(teamId, SyncStatusError);
                 if (this.app.auth.isStale) {
                     console.warn('App: Team sync failed due to stale session.');
                 }
             }
         } catch (e) {
             console.error('App: Team sync error', e);
-            team.syncStatus = SyncStatusError;
+            this.syncStatuses.set(teamId, SyncStatusError);
         }
-        this.app.render();
+        this.mergeAndRender();
     }
 
     async openEditTeamModal(teamOrId = null) {

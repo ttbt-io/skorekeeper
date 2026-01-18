@@ -180,7 +180,7 @@ func TestPaginationAndSorting(t *testing.T) {
 
 	// --- Filtering Tests ---
 	t.Run("FilterGames", func(t *testing.T) {
-		w := makeRequest("/api/list-games?q=Stadium+A")
+		w := makeRequest("/api/list-games?q=%22Stadium+A%22")
 		var resp struct {
 			Data []GameSummary `json:"data"`
 			Meta struct {

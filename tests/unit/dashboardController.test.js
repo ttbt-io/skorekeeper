@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { DashboardController } from '../../frontend/controllers/DashboardController.js';
+import { SyncStatusSynced, SyncStatusUnsynced } from '../../frontend/constants.js';
 
 describe('DashboardController', () => {
     let controller;
@@ -23,7 +24,7 @@ describe('DashboardController', () => {
             db: {
                 getAllGames: jest.fn().mockResolvedValue([]),
                 getLocalRevisions: jest.fn().mockResolvedValue(new Map()),
-                deleteGame: jest.fn(),
+                deleteGame: jest.fn().mockResolvedValue(true),
                 getAllTeams: jest.fn().mockResolvedValue([]),
             },
             auth: {
@@ -31,7 +32,7 @@ describe('DashboardController', () => {
                 accessDeniedMessage: 'Denied',
             },
             sync: {
-                fetchGameList: jest.fn().mockResolvedValue([]),
+                fetchGameList: jest.fn().mockResolvedValue({ data: [] }),
                 checkGameDeletions: jest.fn().mockResolvedValue([]),
             },
             state: {
@@ -43,11 +44,12 @@ describe('DashboardController', () => {
             hasReadAccess: jest.fn(() => true),
         };
 
-        // Mock container to prevent autoFill loop
+        // Mock DOM elements
         const container = document.createElement('div');
         container.id = 'game-list-container';
-        Object.defineProperty(container, 'clientHeight', { value: 500 });
-        Object.defineProperty(container, 'scrollHeight', { value: 2000 });
+        Object.defineProperty(container, 'clientHeight', { value: 500, writable: true });
+        Object.defineProperty(container, 'scrollHeight', { value: 500, writable: true });
+        Object.defineProperty(container, 'scrollTop', { value: 0, writable: true });
         document.body.appendChild(container);
 
         controller = new DashboardController(mockApp);
@@ -55,147 +57,175 @@ describe('DashboardController', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+        jest.clearAllMocks();
     });
 
+    /**
+     * Helper to flush pending promises since loadDashboard is non-blocking.
+     */
+    const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
+
     describe('loadDashboard', () => {
-        test('should load page 0 and merge with local games', async() => {
-            controller.batchSize = 1; // Prevent exhausting stream with duplicates
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', name: 'Local Game', date: '2025-01-01' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [{ id: 'g1', name: 'Remote Game', revision: 'rev1', date: '2025-01-01' }],
-                meta: { total: 100 },
-            });
+        test('should render immediately and then update with local games', async() => {
+            mockApp.db.getAllGames.mockResolvedValue([
+                { id: 'g1', event: 'Local Game', date: '2025-01-01' },
+            ]);
             mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
 
+            // Act
             await controller.loadDashboard();
 
+            // Initial render (empty)
+            expect(mockApp.render).toHaveBeenCalled();
+
+            // Wait for local load
+            await flushPromises();
+
+            // Verify Local Load
+            expect(mockApp.db.getAllGames).toHaveBeenCalled();
             expect(mockApp.state.games.length).toBe(1);
             expect(mockApp.state.games[0]).toMatchObject({
                 id: 'g1',
-                syncStatus: 'synced',
                 source: 'local',
             });
-            expect(controller.hasMore).toBe(true);
-            expect(mockApp.render).toHaveBeenCalled();
         });
 
-        test('should handle offline mode (fetch failure)', async() => {
-            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
-            });
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
-            mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
-
-            await controller.loadDashboard();
-
-            // Should fall back to local games
-            expect(mockApp.state.games.length).toBe(1);
-            expect(controller.hasMore).toBe(false);
-            warnSpy.mockRestore();
-        });
-
-        test('should filter and sort local games in offline mode', async() => {
-            mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
+        test('should fetch remote games in background and merge', async() => {
+            // Setup Local
             mockApp.db.getAllGames.mockResolvedValue([
-                { id: 'g1', event: 'Match A', date: '2025-01-01' },
-                { id: 'g2', event: 'Match B', date: '2025-01-02' },
-                { id: 'g3', event: 'Other', date: '2025-01-03' },
+                { id: 'g1', event: 'Local Game', date: '2025-01-01' },
             ]);
-
-            controller.query = 'match';
-            await controller.loadDashboard();
-
-            // Should return g2 (newest match) then g1. g3 filtered out.
-            expect(mockApp.state.games.length).toBe(2);
-            expect(mockApp.state.games[0].id).toBe('g2');
-            expect(mockApp.state.games[1].id).toBe('g1');
-        });
-
-        test('should handle unsynced games in list', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1' }]);
-            mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [{ id: 'g1', revision: 'rev2' }],
-                meta: { total: 1 },
-            });
             mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
 
-            await controller.loadDashboard();
-
-            expect(mockApp.state.games[0].syncStatus).toBe('unsynced');
-        });
-
-        test('should handle remote only games in list', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([]);
+            // Setup Remote (g1 updated, g2 new)
             mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [{ id: 'g1', revision: 'rev1' }],
-                meta: { total: 1 },
+                data: [
+                    { id: 'g1', event: 'Remote Update', date: '2025-01-01', revision: 'rev1' },
+                    { id: 'g2', event: 'Remote New', date: '2025-01-02', revision: 'rev1' },
+                ],
             });
 
             await controller.loadDashboard();
+            await flushPromises();
 
-            expect(mockApp.state.games[0].syncStatus).toBe('remote_only');
+            // Should have merged
+            expect(mockApp.state.games.length).toBe(2);
+
+            // Sort order: Date Descending -> g2 (Jan 2), g1 (Jan 1)
+            expect(mockApp.state.games[0].id).toBe('g2');
+            expect(mockApp.state.games[0].source).toBe('remote'); // g2 is remote only
+
+            expect(mockApp.state.games[1].id).toBe('g1');
+            expect(mockApp.state.games[1].event).toBe('Remote Update'); // Merged remote data
+            expect(mockApp.state.games[1].syncStatus).toBe(SyncStatusSynced);
+        });
+
+        test('should handle offline mode gracefully', async() => {
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01' }]);
+            mockApp.sync.fetchGameList.mockRejectedValue(new Error('Offline'));
+
+            await controller.loadDashboard();
+            await flushPromises();
+
+            expect(mockApp.state.games.length).toBe(1);
+            expect(mockApp.state.games[0].id).toBe('g1');
+            // Should stay 'local' source if remote fetch fails
+            expect(mockApp.state.games[0].source).toBe('local');
+        });
+
+        test('should detect unsynced state', async() => {
+            // Local has rev1, Remote has rev2
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01' }]);
+            mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
+
+            mockApp.sync.fetchGameList.mockResolvedValue({
+                data: [{ id: 'g1', date: '2025-01-01', revision: 'rev2' }],
+            });
+
+            await controller.loadDashboard();
+            await flushPromises();
+
+            const game = mockApp.state.games.find(g => g.id === 'g1');
+            expect(game.syncStatus).toBe(SyncStatusUnsynced);
+        });
+
+        test('should handle remote deletion via checkDeletions', async() => {
+            // Local has g1, but server says it's deleted
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01' }]);
+            mockApp.sync.checkGameDeletions.mockResolvedValue(['g1']);
+
+            await controller.loadDashboard();
+            await flushPromises();
+
+            expect(mockApp.db.deleteGame).toHaveBeenCalledWith('g1');
+            expect(mockApp.state.games.length).toBe(0);
         });
     });
 
-    describe('loadMore', () => {
-        test('should fetch next page and append', async() => {
-            controller.hasMore = true;
-            controller.merger = {
-                fetchNextBatch: jest.fn().mockResolvedValue([{ id: 'g2', source: 'remote' }]),
-                hasMore: jest.fn().mockReturnValue(true),
-            };
-            mockApp.state.games = [{ id: 'g1' }];
+    describe('handleScroll', () => {
+        test('should increase displayLimit and render', async() => {
+            // Setup buffer with 100 items
+            const manyGames = Array.from({ length: 100 }, (_, i) => ({
+                id: `g${i}`,
+                date: '2025-01-01',
+            }));
+            mockApp.db.getAllGames.mockResolvedValue(manyGames);
 
-            await controller.loadMore();
+            await controller.loadDashboard();
+            await flushPromises();
 
-            expect(mockApp.state.games.length).toBe(2);
-            expect(mockApp.state.games[1].id).toBe('g2');
-            expect(controller.merger.fetchNextBatch).toHaveBeenCalled();
+            // Initial Limit is 50
+            expect(mockApp.state.games.length).toBe(50);
+
+            // Mock Scroll to bottom
+            const container = document.getElementById('game-list-container');
+            // scrollTop + clientHeight >= scrollHeight - 200
+            // 0 + 500 >= 500 - 200 (True, 500 >= 300)
+            // But let's make it explicit
+            Object.defineProperty(container, 'scrollTop', { value: 1000 });
+            Object.defineProperty(container, 'scrollHeight', { value: 1500 });
+            Object.defineProperty(container, 'clientHeight', { value: 500 }); // 1500 >= 1300
+
+            controller.handleScroll(container);
+
+            // Should show 20 more
+            expect(mockApp.state.games.length).toBe(70);
         });
 
-        test('should do nothing if hasMore is false', async() => {
-            controller.hasMore = false;
-            controller.merger = { fetchNextBatch: jest.fn() };
-            await controller.loadMore();
-            expect(controller.merger.fetchNextBatch).not.toHaveBeenCalled();
+        test('should trigger remote fetch if running low', async() => {
+            // Setup buffer with 60 items
+            const games = Array.from({ length: 60 }, (_, i) => ({
+                id: `g${i}`, date: '2025-01-01',
+            }));
+            mockApp.db.getAllGames.mockResolvedValue(games);
+
+            await controller.loadDashboard();
+            await flushPromises();
+
+            // Initial state
+            controller.displayLimit = 50;
+            controller.remoteHasMore = true;
+            controller.isFetchingRemote = false;
+
+            // Scroll
+            const container = document.getElementById('game-list-container');
+            Object.defineProperty(container, 'scrollTop', { value: 1000 });
+            Object.defineProperty(container, 'scrollHeight', { value: 1500 });
+            Object.defineProperty(container, 'clientHeight', { value: 500 });
+
+            controller.handleScroll(container);
+
+            // Limit becomes 70. Total loaded 60. 70 > 60-20 (40). Should fetch.
+            expect(mockApp.sync.fetchGameList).toHaveBeenCalled();
         });
     });
 
     describe('search', () => {
-        test('should reset page and fetch with query', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([]);
-            mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [{ id: 'g1' }],
-                meta: { total: 1 },
-            });
-            mockApp.db.getLocalRevisions.mockResolvedValue(new Map());
-
-            await controller.search('yankees');
-
-            expect(controller.query).toBe('yankees');
-            // Check that fetchGameList was called with query
-            expect(mockApp.sync.fetchGameList).toHaveBeenCalledWith(expect.objectContaining({
-                query: 'yankees',
-                offset: 0,
-            }));
-            expect(mockApp.render).toHaveBeenCalled();
-        });
-
-        test('should not show sentinel if no results', async() => {
-            mockApp.db.getAllGames.mockResolvedValue([]);
-            mockApp.sync.fetchGameList.mockResolvedValue({
-                data: [],
-                meta: { total: 0 },
-            });
-
-            // Set up DOM
-            const main = document.createElement('main');
-            main.id = 'game-list-container';
-            document.body.appendChild(main);
-
-            await controller.search('nothing');
-
-            expect(main.textContent).not.toContain('Scroll for more');
-            expect(main.textContent).not.toContain('All games loaded');
+        test('should reset state and reload', async() => {
+            const spy = jest.spyOn(controller, 'loadDashboard');
+            await controller.search('query');
+            expect(controller.query).toBe('query');
+            expect(spy).toHaveBeenCalled();
         });
     });
 });
