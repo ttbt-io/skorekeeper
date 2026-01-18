@@ -53,6 +53,13 @@ func Parse(input string) Query {
 			key := strings.ToLower(strings.TrimSpace(parts[0]))
 			val := strings.TrimSpace(parts[1])
 
+			// If value contains unquoted colon, treat as free text to avoid ambiguity (e.g. broken:range:..)
+			// Exception: if starts with quote
+			if strings.Contains(val, ":") && !strings.HasPrefix(val, "\"") && !strings.HasPrefix(val, "'") {
+				q.FreeText = append(q.FreeText, token)
+				continue
+			}
+
 			if key == "" || val == "" {
 				// Treat as free text if key or value is empty (e.g. "foo:")
 				q.FreeText = append(q.FreeText, token)
@@ -112,12 +119,6 @@ func Parse(input string) Query {
 				})
 			}
 		} else {
-			// No colon, free text
-			// Remove quotes if the whole token is quoted?
-			// Generally tokens are already processed for spaces, but quotes might remain if part of the string?
-			// Our tokenizer handles quotes around the whole token or key/value parts.
-			// Ideally tokenize returns unquoted strings if they were quoted.
-			// Let's refine tokenize to handle quotes properly first.
 			q.FreeText = append(q.FreeText, removeQuotes(token))
 		}
 	}
@@ -137,11 +138,6 @@ func tokenize(input string) []string {
 		case inQuote:
 			if r == quoteChar {
 				inQuote = false
-				// keep the quote in the token so we can distinguish key:"val" vs key:val later?
-				// Or parse it out here?
-				// If we have key:"val", the colon is inside? No, key:"val" -> 'key:"val"' is one token?
-				// Actually, standard google search style: key:"value with space" is one token.
-				// "free text" is one token.
 				currentToken.WriteRune(r)
 			} else {
 				currentToken.WriteRune(r)

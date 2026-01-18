@@ -75,10 +75,24 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			input: "broken:range:..", // Removed space to make it one token
+			input: "broken:range:..",
+			expected: Query{
+				Filters:  []Filter{},
+				FreeText: []string{"broken:range:.."},
+			},
+		},
+		{
+			input: "time:12:00", // Unquoted colon -> FreeText
+			expected: Query{
+				Filters:  []Filter{},
+				FreeText: []string{"time:12:00"},
+			},
+		},
+		{
+			input: "time:\"12:00\"", // Quoted colon -> Filter
 			expected: Query{
 				Filters: []Filter{
-					{Key: "broken", Value: "range:", MaxValue: "", Operator: OpRange},
+					{Key: "time", Value: "12:00", Operator: OpEqual},
 				},
 				FreeText: []string{},
 			},

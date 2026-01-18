@@ -729,7 +729,6 @@ export class AppController {
      * @param {boolean} show - Whether to show or hide the sidebar.
      */
     toggleSidebar(show) {
-        console.log('App: toggleSidebar', show);
         const sidebar = document.getElementById('app-sidebar');
         const backdrop = document.getElementById('sidebar-backdrop');
         if (show) {
@@ -1751,24 +1750,6 @@ export class AppController {
         if (location) {
             filters.push({ key: 'location', value: location, operator: '=' });
         }
-
-        // Team: apply to both away/home? Or just pick one?
-        // Backend search supports specific keys.
-        // We will make "Teams" input search freely or use "away" key as a proxy?
-        // Actually, Advanced Panel "Teams" input implies participation.
-        // If I put "Yankees", I want games where Away=Yankees OR Home=Yankees.
-        // My parser syntax `away:Yankees` only matches away.
-        // To match either, I need OR logic, which my simple parser doesn't support (it's AND).
-        // Solution: Treat "Teams" input as Free Text tokens? No, that matches event too.
-        // Current Backend matchesGame implementation for FreeText checks ALL fields.
-        // So putting "Yankees" in FreeText works for Teams field (and others).
-        // But if I want to restrict to Teams field only... I can't with current backend logic.
-        // I will use FreeText for Team input for now, or just map it to `away` filter as a known limitation, or ignore it if complex.
-        // Let's treat it as FreeText token for now to be safe.
-        // Actually, I'll map it to nothing here and rely on user typing manually if they want strict field?
-        // No, UI must work.
-        // If I use `away:Yankees`, it misses Home games.
-        // I'll add `freeText` tokens for team input.
 
         const tokens = [];
         if (team) {
