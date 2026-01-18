@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,37 @@ func generateETag(data []byte) string {
 func hubBusyResponse(w http.ResponseWriter, retryAfter string) {
 	w.Header().Set("Retry-After", retryAfter)
 	http.Error(w, "Too Many Requests: Server is busy", http.StatusTooManyRequests)
+}
+
+func parsePagination(r *http.Request) (int, int, string, string, string) {
+	limit := 50
+	offset := 0
+	sortBy := r.URL.Query().Get("sortBy")
+	order := r.URL.Query().Get("order")
+	query := r.URL.Query().Get("q")
+
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil {
+			limit = val
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if val, err := strconv.Atoi(o); err == nil {
+			offset = val
+		}
+	}
+
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return limit, offset, sortBy, order, query
 }
 
 // Options represent server options.
@@ -719,10 +751,23 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			return
 		}
 
-		accessibleIds := registry.ListGames(userId)
+		limit, offset, sortBy, order, query := parsePagination(r)
+		accessibleIds := registry.ListGames(userId, sortBy, order, query)
+		total := len(accessibleIds)
+
+		// Pagination Logic
+		var pageIds []string
+		if offset < total {
+			end := offset + limit
+			if end > total {
+				end = total
+			}
+			pageIds = accessibleIds[offset:end]
+		}
+
 		games := make([]GameSummary, 0)
 
-		for _, gid := range accessibleIds {
+		for _, gid := range pageIds {
 			gf, err := store.LoadGame(gid)
 			if err != nil {
 				continue
@@ -762,7 +807,21 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			}
 		}
 
-		response, err := json.Marshal(games)
+		respData := struct {
+			Data []GameSummary `json:"data"`
+			Meta struct {
+				Total  int `json:"total"`
+				Offset int `json:"offset"`
+				Limit  int `json:"limit"`
+			} `json:"meta"`
+		}{
+			Data: games,
+		}
+		respData.Meta.Total = total
+		respData.Meta.Offset = offset
+		respData.Meta.Limit = limit
+
+		response, err := json.Marshal(respData)
 		if err != nil {
 			log.Printf("Internal Server Error during JSON Marshal: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -899,10 +958,23 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			return
 		}
 
-		accessibleIds := registry.ListTeams(userId)
+		limit, offset, sortBy, order, query := parsePagination(r)
+		accessibleIds := registry.ListTeams(userId, sortBy, order, query)
+		total := len(accessibleIds)
+
+		// Pagination Logic
+		var pageIds []string
+		if offset < total {
+			end := offset + limit
+			if end > total {
+				end = total
+			}
+			pageIds = accessibleIds[offset:end]
+		}
+
 		teams := make([]json.RawMessage, 0)
 
-		for _, tid := range accessibleIds {
+		for _, tid := range pageIds {
 			t, err := tStore.LoadTeam(tid)
 			if err != nil {
 				continue
@@ -925,7 +997,21 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			}
 		}
 
-		response, err := json.Marshal(teams)
+		respData := struct {
+			Data []json.RawMessage `json:"data"`
+			Meta struct {
+				Total  int `json:"total"`
+				Offset int `json:"offset"`
+				Limit  int `json:"limit"`
+			} `json:"meta"`
+		}{
+			Data: teams,
+		}
+		respData.Meta.Total = total
+		respData.Meta.Offset = offset
+		respData.Meta.Limit = limit
+
+		response, err := json.Marshal(respData)
 		if err != nil {
 			log.Printf("Internal Server Error during JSON Marshal: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -1187,6 +1273,55 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Game %s deleted successfully", gameId)
+	})
+
+	mux.HandleFunc("/api/check-deletions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		userId := getUserID(r)
+		if userId == "" || !isValidEmail(userId) {
+			http.Error(w, "Forbidden: Invalid User ID", http.StatusForbidden)
+			return
+		}
+
+		if allowed, msg := accessControl.IsAllowed(userId); !allowed {
+			http.Error(w, "Forbidden: "+msg, http.StatusForbidden)
+			return
+		}
+
+		var req struct {
+			GameIDs []string `json:"gameIds"`
+			TeamIDs []string `json:"teamIds"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1048576)).Decode(&req); err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		var resp struct {
+			DeletedGameIDs []string `json:"deletedGameIds"`
+			DeletedTeamIDs []string `json:"deletedTeamIds"`
+		}
+		resp.DeletedGameIDs = make([]string, 0)
+		resp.DeletedTeamIDs = make([]string, 0)
+
+		for _, gid := range req.GameIDs {
+			// Report as deleted if explicitly tombstoned OR if it exists but is no longer accessible
+			if registry.IsGameDeleted(gid) || (registry.GameExists(gid) && !registry.HasGameAccess(userId, gid)) {
+				resp.DeletedGameIDs = append(resp.DeletedGameIDs, gid)
+			}
+		}
+		for _, tid := range req.TeamIDs {
+			if registry.IsTeamDeleted(tid) || (registry.TeamExists(tid) && !registry.HasTeamAccess(userId, tid)) {
+				resp.DeletedTeamIDs = append(resp.DeletedTeamIDs, tid)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/ws", func(w http.ResponseWriter, r *http.Request) {

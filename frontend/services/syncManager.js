@@ -96,33 +96,34 @@ export class SyncManager {
 
     /**
      * Fetches the list of games from the remote server.
-     * @param {Array<string>} [knownIds=null] - Optional list of local game IDs to check for deletions.
-     * @returns {Promise<Array<object>>} A promise that resolves to an array of game summary objects.
+     * @param {object} options - Pagination and filter options.
+     * @param {number} [options.limit=50]
+     * @param {number} [options.offset=0]
+     * @param {string} [options.sortBy='date']
+     * @param {string} [options.order='desc']
+     * @param {string} [options.query='']
+     * @returns {Promise<object>} A promise that resolves to { data: [], meta: {} }.
      */
-    async fetchGameList(knownIds = null) {
+    async fetchGameList({ limit = 50, offset = 0, sortBy = 'date', order = 'desc', query = '' } = {}) {
         if (!this.authCallback) {
-            // No auth callback available to check login status (or we assume logged in if calling this)
-            // But actually, fetch includes cookies by default for same-origin or credentials: 'include'
+            // No auth callback available to check login status
         }
 
         try {
-            let response;
-            if (knownIds && knownIds.length > 0) {
-                response = await fetch('/api/list-games', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ knownIds }),
-                });
-            } else {
-                response = await fetch('/api/list-games', {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                });
-            }
+            const params = new URLSearchParams({
+                limit,
+                offset,
+                sortBy,
+                order,
+                q: query,
+            });
+
+            const response = await fetch(`/api/list-games?${params.toString()}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
 
             if (!response.ok) {
                 if (response.status === 403 || response.status === 401) {
@@ -134,11 +135,37 @@ export class SyncManager {
                 throw new Error(`Server returned ${response.status}`);
             }
 
-            const games = await response.json();
-            return games || [];
+            const result = await response.json();
+            // Fallback for old API (array)
+            if (Array.isArray(result)) {
+                return { data: result, meta: { total: result.length } };
+            }
+            return result;
         } catch (error) {
             console.warn('SyncManager: Error fetching remote game list:', error);
-            // Return empty list on error to allow app to continue with local data
+            return { data: [], meta: { total: 0 } };
+        }
+    }
+
+    /**
+     * Checks if any of the provided game IDs have been deleted on the server.
+     * @param {Array<string>} gameIds
+     * @returns {Promise<Array<string>>} The list of deleted game IDs.
+     */
+    async checkGameDeletions(gameIds) {
+        try {
+            const response = await fetch('/api/check-deletions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gameIds: gameIds }),
+            });
+            if (!response.ok) {
+                return [];
+            }
+            const result = await response.json();
+            return result.deletedGameIds || [];
+        } catch (error) {
+            console.warn('SyncManager: Error checking game deletions:', error);
             return [];
         }
     }

@@ -32,6 +32,7 @@ describe('TeamController', () => {
             },
             teamSync: {
                 fetchTeamList: jest.fn().mockResolvedValue([]),
+                checkTeamDeletions: jest.fn().mockResolvedValue([]),
                 saveTeam: jest.fn().mockResolvedValue(true),
                 deleteTeam: jest.fn(),
             },
@@ -58,7 +59,10 @@ describe('TeamController', () => {
     describe('loadTeamsView', () => {
         test('should load local and remote teams', async() => {
             mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local Team' }]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue([{ id: 't1', name: 'Remote Team' }]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [{ id: 't1', name: 'Remote Team' }],
+                meta: { total: 1 },
+            });
 
             await controller.loadTeamsView();
 
@@ -72,12 +76,65 @@ describe('TeamController', () => {
 
         test('should handle deleted remote teams', async() => {
             mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1' }]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue([{ id: 't1', status: 'deleted' }]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [{ id: 't1', status: 'deleted' }],
+                meta: { total: 1 },
+            });
 
             await controller.loadTeamsView();
 
             expect(mockApp.db.deleteTeam).toHaveBeenCalledWith('t1');
             expect(mockApp.state.teams.length).toBe(0);
+        });
+
+        test('should handle offline mode', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local' }]);
+            mockApp.teamSync.fetchTeamList.mockRejectedValue(new Error('Offline'));
+
+            await controller.loadTeamsView();
+
+            expect(mockApp.state.teams.length).toBe(1);
+            expect(controller.hasMore).toBe(false);
+        });
+    });
+
+    describe('loadMore', () => {
+        test('should load next page', async() => {
+            controller.hasMore = true;
+            controller.merger = {
+                fetchNextBatch: jest.fn().mockResolvedValue([{ id: 't2', source: 'remote', name: 'T2' }]),
+                hasMore: jest.fn().mockReturnValue(true),
+            };
+            mockApp.state.teams = [{ id: 't1' }];
+
+            await controller.loadMore();
+
+            // expect(controller.page).toBe(1); // Page is not tracked on controller anymore
+            expect(mockApp.state.teams.length).toBe(2);
+            expect(mockApp.state.teams[1].id).toBe('t2');
+            expect(controller.merger.fetchNextBatch).toHaveBeenCalled();
+        });
+    });
+
+    describe('search', () => {
+        test('should not show sentinel if no results', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([]);
+            mockApp.teamSync.fetchTeamList.mockResolvedValue({
+                data: [],
+                meta: { total: 0 },
+            });
+
+            // Set up DOM
+            const view = document.createElement('div');
+            view.id = 'teams-view';
+            const main = document.createElement('main');
+            view.appendChild(main);
+            document.body.appendChild(view);
+
+            await controller.search('nothing');
+
+            expect(main.textContent).not.toContain('Scroll for more');
+            expect(main.textContent).not.toContain('All teams loaded');
         });
     });
 

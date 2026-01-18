@@ -17,6 +17,7 @@ package backend
 import (
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,6 +45,10 @@ type Registry struct {
 	// TeamID -> Set of Game IDs referencing it
 	teamGames map[string]map[string]bool
 
+	// Metadata Cache for Sorting/Filtering
+	gameMetadata map[string]GameMetadata
+	teamMetadata map[string]TeamMetadata
+
 	// Deleted Tombstones
 	deletedGames map[string]int64
 	deletedTeams map[string]int64
@@ -63,6 +68,8 @@ func NewRegistry(gs *GameStore, ts *TeamStore) *Registry {
 		teamOwners:   make(map[string]string),
 		teamMembers:  make(map[string]map[string]bool),
 		teamGames:    make(map[string]map[string]bool),
+		gameMetadata: make(map[string]GameMetadata),
+		teamMetadata: make(map[string]TeamMetadata),
 		deletedGames: make(map[string]int64),
 		deletedTeams: make(map[string]int64),
 	}
@@ -96,6 +103,8 @@ func (r *Registry) Rebuild() {
 	teamOwners := make(map[string]string)
 	teamMembers := make(map[string]map[string]bool)
 	teamGames := make(map[string]map[string]bool)
+	gameMetadata := make(map[string]GameMetadata)
+	teamMetadata := make(map[string]TeamMetadata)
 	deletedGames := make(map[string]int64)
 	deletedTeams := make(map[string]int64)
 
@@ -152,6 +161,9 @@ func (r *Registry) Rebuild() {
 			continue
 		}
 
+		// Cache Metadata
+		teamMetadata[t.ID] = t
+
 		// Inlined indexTeamMetadata logic
 		teamOwners[t.ID] = t.OwnerID
 		addUserTeam(t.OwnerID, t.ID)
@@ -194,6 +206,9 @@ func (r *Registry) Rebuild() {
 			continue
 		}
 
+		// Cache Metadata
+		gameMetadata[g.ID] = g
+
 		// Inlined indexGameMetadata logic
 		gameOwners[g.ID] = g.OwnerID
 		addUserGame(g.OwnerID, g.ID)
@@ -218,6 +233,8 @@ func (r *Registry) Rebuild() {
 	r.teamOwners = teamOwners
 	r.teamMembers = teamMembers
 	r.teamGames = teamGames
+	r.gameMetadata = gameMetadata
+	r.teamMetadata = teamMetadata
 	r.deletedGames = deletedGames
 	r.deletedTeams = deletedTeams
 	r.mu.Unlock()
@@ -230,10 +247,12 @@ func (r *Registry) Rebuild() {
 func (r *Registry) indexTeamMetadata(t TeamMetadata) {
 	if t.Status == "deleted" {
 		r.deletedTeams[t.ID] = t.DeletedAt
+		delete(r.teamMetadata, t.ID)
 		return
 	}
 	// Ensure removed from deleted set if it was there (undelete?)
 	delete(r.deletedTeams, t.ID)
+	r.teamMetadata[t.ID] = t
 
 	r.teamOwners[t.ID] = t.OwnerID
 	r.addUserTeam(t.OwnerID, t.ID)
@@ -260,9 +279,11 @@ func (r *Registry) indexTeamMetadata(t TeamMetadata) {
 func (r *Registry) indexGameMetadata(g GameMetadata) {
 	if g.Status == "deleted" {
 		r.deletedGames[g.ID] = g.DeletedAt
+		delete(r.gameMetadata, g.ID)
 		return
 	}
 	delete(r.deletedGames, g.ID)
+	r.gameMetadata[g.ID] = g
 
 	r.gameOwners[g.ID] = g.OwnerID
 	r.addUserGame(g.OwnerID, g.ID)
@@ -287,6 +308,7 @@ func (r *Registry) indexGameMetadata(g GameMetadata) {
 func (r *Registry) indexTeam(t Team) {
 	r.indexTeamMetadata(TeamMetadata{
 		ID:        t.ID,
+		Name:      t.Name,
 		OwnerID:   t.OwnerID,
 		Roles:     t.Roles,
 		UpdatedAt: t.UpdatedAt,
@@ -299,13 +321,19 @@ func (r *Registry) indexTeam(t Team) {
 // Must be called with r.mu locked.
 func (r *Registry) indexGame(g Game) {
 	r.indexGameMetadata(GameMetadata{
-		ID:          g.ID,
-		OwnerID:     g.OwnerID,
-		Permissions: g.Permissions,
-		AwayTeamID:  g.AwayTeamID,
-		HomeTeamID:  g.HomeTeamID,
-		Status:      g.Status,
-		DeletedAt:   g.DeletedAt,
+		ID:            g.ID,
+		SchemaVersion: g.SchemaVersion,
+		Date:          g.Date,
+		Location:      g.Location,
+		Event:         g.Event,
+		Away:          g.Away,
+		Home:          g.Home,
+		OwnerID:       g.OwnerID,
+		Permissions:   g.Permissions,
+		AwayTeamID:    g.AwayTeamID,
+		HomeTeamID:    g.HomeTeamID,
+		Status:        g.Status,
+		DeletedAt:     g.DeletedAt,
 	})
 }
 
@@ -338,29 +366,194 @@ func (r *Registry) addTeamGamesToIndex(teamId, gameId string) {
 	}
 }
 
-// ListGames returns the IDs of all games accessible by the user.
-func (r *Registry) ListGames(userId string) []string {
+// containsCaseInsensitive checks if s contains substr, case-insensitive.
+func containsCaseInsensitive(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// ListGames returns the IDs of all games accessible by the user, sorted and filtered.
+func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	lowerQuery := strings.ToLower(query)
 	var ids []string
 	for id := range r.userGames[userId] {
+		// Filter
+		if lowerQuery != "" {
+			meta, ok := r.gameMetadata[id]
+			if !ok {
+				continue
+			}
+			match := containsCaseInsensitive(meta.Event, lowerQuery) ||
+				containsCaseInsensitive(meta.Location, lowerQuery) ||
+				containsCaseInsensitive(meta.Away, lowerQuery) ||
+				containsCaseInsensitive(meta.Home, lowerQuery)
+			if !match {
+				continue
+			}
+		}
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+
+	// Sort
+	// Default: Date Desc
+	if sortBy == "" {
+		sortBy = "date"
+	}
+	if order == "" {
+		if sortBy == "date" {
+			order = "desc"
+		} else {
+			order = "asc"
+		}
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		id1, id2 := ids[i], ids[j]
+		m1, ok1 := r.gameMetadata[id1]
+		m2, ok2 := r.gameMetadata[id2]
+
+		if !ok1 || !ok2 {
+			if order == "desc" {
+				return id1 > id2
+			}
+			return id1 < id2
+		}
+
+		var less bool
+		switch sortBy {
+		case "date":
+			if m1.Date != m2.Date {
+				less = m1.Date < m2.Date
+			} else {
+				less = id1 < id2
+			}
+		case "event":
+			if m1.Event != m2.Event {
+				less = m1.Event < m2.Event
+			} else {
+				less = id1 < id2
+			}
+		case "location":
+			if m1.Location != m2.Location {
+				less = m1.Location < m2.Location
+			} else {
+				less = id1 < id2
+			}
+		default:
+			less = id1 < id2
+		}
+
+		if order == "desc" {
+			// To maintain strict weak ordering for descending sort,
+			// we must check equality first or invert the specific comparison logic.
+			// Re-running comparison with inverted logic is safest for Go's sort.Slice.
+			switch sortBy {
+			case "date":
+				if m1.Date != m2.Date {
+					return m1.Date > m2.Date
+				}
+				return id1 > id2
+			case "event":
+				if m1.Event != m2.Event {
+					return m1.Event > m2.Event
+				}
+				return id1 > id2
+			case "location":
+				if m1.Location != m2.Location {
+					return m1.Location > m2.Location
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
+		}
+		return less
+	})
+
 	return ids
 }
 
-// ListTeams returns the IDs of all teams accessible by the user.
-func (r *Registry) ListTeams(userId string) []string {
+// ListTeams returns the IDs of all teams accessible by the user, sorted and filtered.
+func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	lowerQuery := strings.ToLower(query)
 	var ids []string
 	for id := range r.userTeams[userId] {
+		// Filter
+		if lowerQuery != "" {
+			meta, ok := r.teamMetadata[id]
+			if !ok {
+				continue
+			}
+			if !containsCaseInsensitive(meta.Name, lowerQuery) {
+				continue
+			}
+		}
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+
+	// Sort
+	// Default: Name Asc
+	if sortBy == "" {
+		sortBy = "name"
+	}
+	if order == "" {
+		order = "asc"
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		id1, id2 := ids[i], ids[j]
+		m1, ok1 := r.teamMetadata[id1]
+		m2, ok2 := r.teamMetadata[id2]
+
+		if !ok1 || !ok2 {
+			if order == "desc" {
+				return id1 > id2
+			}
+			return id1 < id2
+		}
+
+		var less bool
+		switch sortBy {
+		case "name":
+			if m1.Name != m2.Name {
+				less = m1.Name < m2.Name
+			} else {
+				less = id1 < id2
+			}
+		case "updated":
+			if m1.UpdatedAt != m2.UpdatedAt {
+				less = m1.UpdatedAt < m2.UpdatedAt
+			} else {
+				less = id1 < id2
+			}
+		default:
+			less = id1 < id2
+		}
+
+		if order == "desc" {
+			switch sortBy {
+			case "name":
+				if m1.Name != m2.Name {
+					return m1.Name > m2.Name
+				}
+				return id1 > id2
+			case "updated":
+				if m1.UpdatedAt != m2.UpdatedAt {
+					return m1.UpdatedAt > m2.UpdatedAt
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
+		}
+		return less
+	})
+
 	return ids
 }
 
@@ -474,6 +667,7 @@ func (r *Registry) DeleteGame(gameId string) {
 	defer r.mu.Unlock()
 
 	r.deletedGames[gameId] = time.Now().UnixNano()
+	delete(r.gameMetadata, gameId)
 
 	delete(r.gameOwners, gameId)
 	for _, games := range r.userGames {
@@ -490,6 +684,7 @@ func (r *Registry) DeleteTeam(teamId string) {
 	defer r.mu.Unlock()
 
 	r.deletedTeams[teamId] = time.Now().UnixNano()
+	delete(r.teamMetadata, teamId)
 
 	delete(r.teamOwners, teamId)
 	delete(r.teamMembers, teamId)
@@ -512,6 +707,46 @@ func (r *Registry) IsTeamDeleted(teamId string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	_, ok := r.deletedTeams[teamId]
+	return ok
+}
+
+// HasGameAccess checks if the user has read access to the game.
+func (r *Registry) HasGameAccess(userId, gameId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if games, ok := r.userGames[userId]; ok && games[gameId] {
+		return true
+	}
+	// Also check public access
+	if games, ok := r.userGames[""]; ok {
+		return games[gameId]
+	}
+	return false
+}
+
+// HasTeamAccess checks if the user has read access to the team.
+func (r *Registry) HasTeamAccess(userId, teamId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if teams, ok := r.userTeams[userId]; ok {
+		return teams[teamId]
+	}
+	return false
+}
+
+// GameExists checks if a game ID is known to the registry.
+func (r *Registry) GameExists(gameId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.gameOwners[gameId]
+	return ok
+}
+
+// TeamExists checks if a team ID is known to the registry.
+func (r *Registry) TeamExists(teamId string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.teamOwners[teamId]
 	return ok
 }
 

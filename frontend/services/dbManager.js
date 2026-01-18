@@ -71,6 +71,16 @@ export class DBManager {
     }
 
     /**
+     * Closes the IndexedDB database connection.
+     */
+    close() {
+        if (this.db) {
+            this.db.close();
+            this.db = null;
+        }
+    }
+
+    /**
      * Saves game stats to the 'game_stats' object store.
      * @async
      * @param {string} id - Game ID.

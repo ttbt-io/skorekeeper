@@ -184,6 +184,7 @@ func (ts *TeamStore) LoadTeamAsJSON(teamId string) ([]byte, error) {
 // TeamMetadata contains only the fields needed for indexing.
 type TeamMetadata struct {
 	ID        string    `json:"id"`
+	Name      string    `json:"name"` // Added for sorting
 	OwnerID   string    `json:"ownerId"`
 	Roles     TeamRoles `json:"roles"`
 	UpdatedAt int64     `json:"updatedAt"`
@@ -234,6 +235,7 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 
 				if !yield(TeamMetadata{
 					ID:        t.ID,
+					Name:      t.Name, // Populated
 					OwnerID:   t.OwnerID,
 					Roles:     t.Roles,
 					UpdatedAt: t.UpdatedAt,
@@ -257,6 +259,7 @@ func (ts *TeamStore) ListAllTeamMetadata() iter.Seq2[TeamMetadata, error] {
 
 			if !yield(TeamMetadata{
 				ID:        t.ID,
+				Name:      t.Name, // Populated
 				OwnerID:   t.OwnerID,
 				Roles:     t.Roles,
 				UpdatedAt: t.UpdatedAt,

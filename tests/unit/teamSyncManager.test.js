@@ -26,53 +26,50 @@ describe('TeamSyncManager', () => {
     });
 
     describe('fetchTeamList', () => {
-        test('should fetch team list via GET when no knownIds provided', async() => {
-            const mockTeams = [{ id: 't1', name: 'Team 1' }];
+        test('should fetch team list with pagination params', async() => {
+            const mockTeams = { data: [{ id: 't1', name: 'Team 1' }], meta: { total: 1 } };
+            mockFetch.mockResolvedValue({
+                ok: true,
+                json: async() => mockTeams,
+            });
+
+            const result = await teamSyncManager.fetchTeamList({ limit: 10, offset: 0 });
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.stringMatching(/\/api\/list-teams\?.*limit=10/),
+                expect.objectContaining({
+                    method: 'GET',
+                }),
+            );
+            expect(result).toEqual(mockTeams);
+        });
+
+        test('should handle legacy array response', async() => {
+            const mockTeams = [{ id: 't1' }];
             mockFetch.mockResolvedValue({
                 ok: true,
                 json: async() => mockTeams,
             });
 
             const result = await teamSyncManager.fetchTeamList();
-
-            expect(mockFetch).toHaveBeenCalledWith('/api/list-teams', expect.objectContaining({
-                method: 'GET',
-            }));
-            expect(result).toEqual(mockTeams);
+            expect(result).toEqual({ data: mockTeams, meta: { total: 1 } });
         });
 
-        test('should fetch team list via POST when knownIds provided', async() => {
-            const knownIds = ['t1'];
-            const mockTeams = [{ id: 't2', name: 'Team 2' }];
-            mockFetch.mockResolvedValue({
-                ok: true,
-                json: async() => mockTeams,
-            });
-
-            const result = await teamSyncManager.fetchTeamList(knownIds);
-
-            expect(mockFetch).toHaveBeenCalledWith('/api/list-teams', expect.objectContaining({
-                method: 'POST',
-                body: JSON.stringify({ knownIds }),
-            }));
-            expect(result).toEqual(mockTeams);
-        });
-
-        test('should return empty list on 401/403', async() => {
+        test('should return empty list structure on 401/403', async() => {
             mockFetch.mockResolvedValue({
                 ok: false,
                 status: 403,
             });
 
             const result = await teamSyncManager.fetchTeamList();
-            expect(result).toEqual([]);
+            expect(result).toEqual({ data: [], meta: { total: 0 } });
         });
 
         test('should handle network errors gracefully', async() => {
             mockFetch.mockRejectedValue(new Error('Network error'));
 
             const result = await teamSyncManager.fetchTeamList();
-            expect(result).toEqual([]);
+            expect(result).toEqual({ data: [], meta: { total: 0 } });
         });
     });
 

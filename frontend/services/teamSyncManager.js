@@ -21,42 +21,69 @@ export class TeamSyncManager {
 
     /**
      * Fetches the list of teams from the remote server.
-     * @param {Array<string>} [knownIds=null] - Optional list of local team IDs.
-     * @returns {Promise<Array<object>>} A promise that resolves to an array of team objects.
+     * @param {object} options - Pagination and filter options.
+     * @param {number} [options.limit=50]
+     * @param {number} [options.offset=0]
+     * @param {string} [options.sortBy='name']
+     * @param {string} [options.order='asc']
+     * @param {string} [options.query='']
+     * @returns {Promise<object>} A promise that resolves to { data: [], meta: {} }.
      */
-    async fetchTeamList(knownIds = null) {
+    async fetchTeamList({ limit = 50, offset = 0, sortBy = 'name', order = 'asc', query = '' } = {}) {
         try {
-            let response;
-            if (knownIds && knownIds.length > 0) {
-                response = await fetch('/api/list-teams', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ knownIds }),
-                });
-            } else {
-                response = await fetch('/api/list-teams', {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                });
-            }
+            const params = new URLSearchParams({
+                limit,
+                offset,
+                sortBy,
+                order,
+                q: query,
+            });
+
+            const response = await fetch(`/api/list-teams?${params.toString()}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
 
             if (!response.ok) {
                 if (response.status === 403 || response.status === 401) {
                     console.warn('TeamSyncManager: Not authenticated to fetch teams.');
-                    return [];
+                    return { data: [], meta: { total: 0 } };
                 }
                 throw new Error(`Server returned ${response.status}`);
             }
 
-            const teams = await response.json();
-            return teams || [];
+            const result = await response.json();
+            if (Array.isArray(result)) {
+                return { data: result, meta: { total: result.length } };
+            }
+            return result;
         } catch (error) {
             console.error('TeamSyncManager: Error fetching remote team list:', error);
-            // Return empty list on error to allow app to continue with local data
+            return { data: [], meta: { total: 0 } };
+        }
+    }
+
+    /**
+     * Checks if any of the provided team IDs have been deleted on the server.
+     * @param {Array<string>} teamIds
+     * @returns {Promise<Array<string>>} The list of deleted team IDs.
+     */
+    async checkTeamDeletions(teamIds) {
+        try {
+            const response = await fetch('/api/check-deletions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ teamIds: teamIds }),
+            });
+            if (!response.ok) {
+                return [];
+            }
+            const result = await response.json();
+            return result.deletedTeamIds || [];
+        } catch (error) {
+            console.warn('TeamSyncManager: Error checking team deletions:', error);
             return [];
         }
     }

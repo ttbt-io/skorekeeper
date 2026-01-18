@@ -15,103 +15,213 @@
 import {
     SyncStatusSynced,
     SyncStatusUnsynced,
-    SyncStatusLocalOnly,
     SyncStatusRemoteOnly,
+    SyncStatusLocalOnly,
 } from '../constants.js';
+import { StreamMerger } from '../services/streamMerger.js';
 
 export class DashboardController {
     constructor(app) {
         this.app = app;
+        this.merger = null;
+        this.localMap = new Map();
+        this.localRevisions = new Map();
+        this.isLoading = false;
+        this.query = '';
+        this.scrollBound = false;
+        this.batchSize = 20;
     }
 
     /**
-     * Loads the dashboard view by fetching and merging local and remote games.
+     * Loads the dashboard view.
      */
     async loadDashboard() {
-        const localGames = await this.app.db.getAllGames();
-        let remoteGames = [];
-        const localRevisions = await this.app.db.getLocalRevisions();
+        this.app.state.games = [];
+        this.app.state.view = 'dashboard';
+        this.isLoading = true;
 
-        // Attempt to fetch remote games if user seems authenticated
+        // 1. Prepare Local Data
+        let localGames = await this.app.db.getAllGames();
+
+        // Check for deletions if online
         if (this.app.auth.getUser()) {
-            try {
-                const localIds = localGames.map(g => g.id);
-                remoteGames = await this.app.sync.fetchGameList(localIds);
-            } catch (e) {
-                console.warn('Dashboard: Failed to fetch remote games', e);
-                if (e.message && e.message.includes('status: 403')) {
-                    this.app.modalConfirmFn(this.app.auth.accessDeniedMessage || 'Access Denied', { isError: true, autoClose: false });
-                    return; // Stop loading dashboard
+            const localIds = localGames.map(g => g.id);
+            if (localIds.length > 0) {
+                const deletedIds = await this.app.sync.checkGameDeletions(localIds);
+                if (deletedIds.length > 0) {
+                    console.log('Dashboard: Deleting stale local games', deletedIds);
+                    const deletedSet = new Set(deletedIds);
+                    await Promise.all(deletedIds.map(id =>
+                        this.app.db.deleteGame(id).catch(err => console.warn(`Dashboard: Failed to delete stale game ${id}`, err)),
+                    ));
+                    // Filter in memory to avoid redundant DB reload
+                    localGames = localGames.filter(g => !deletedSet.has(g.id));
                 }
             }
         }
 
-        // Merge lists: Map by ID to deduplicate.
-        const gameMap = new Map();
+        this.localRevisions = await this.app.db.getLocalRevisions();
+        this.localMap = new Map(localGames.map(g => [g.id, g]));
 
-        // 1. Process remote games (including deletions)
-        for (const g of remoteGames) {
-            if (g.status === 'deleted') {
-                console.log(`[Dashboard] Remote deletion detected for game ${g.id}. Deleting local copy.`);
-                await this.app.db.deleteGame(g.id);
-                // Also remove from localGames list so we don't re-add it below
-                const idx = localGames.findIndex(lg => lg.id === g.id);
-                if (idx !== -1) {
-                    localGames.splice(idx, 1);
+        // Filter and Sort Local Data (Date Descending)
+        let filteredLocal = localGames;
+        if (this.query) {
+            const q = this.query.toLowerCase();
+            filteredLocal = localGames.filter(g =>
+                (g.event || '').toLowerCase().includes(q) ||
+                (g.location || '').toLowerCase().includes(q) ||
+                (g.away || '').toLowerCase().includes(q) ||
+                (g.home || '').toLowerCase().includes(q),
+            );
+        }
+        filteredLocal.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        // 2. Initialize StreamMerger
+        this.merger = new StreamMerger(
+            filteredLocal,
+            async(offset) => {
+                if (!this.app.auth.getUser()) {
+                    return { data: [], meta: { total: 0 } };
                 }
-                continue;
-            }
+                return this.app.sync.fetchGameList({
+                    limit: 50,
+                    offset: offset,
+                    sortBy: 'date',
+                    order: 'desc',
+                    query: this.query,
+                });
+            },
+            (a, b) => new Date(b.date) - new Date(a.date), // Comparator: Date Desc
+            'id',
+        );
 
-            gameMap.set(g.id, {
-                ...g,
-                source: 'remote',
-                remoteRevision: g.revision,
-                localRevision: '',
-                syncStatus: SyncStatusRemoteOnly,
+        // 3. Bind Scroll Event
+        this.bindScrollEvent();
+
+        // 4. Initial Auto-Fill
+        await this.autoFill();
+        this.isLoading = false;
+    }
+
+    bindScrollEvent() {
+        const container = document.getElementById('game-list-container');
+        if (container && !this.scrollBound) {
+            container.addEventListener('scroll', () => {
+                this.handleScroll(container);
             });
+            this.scrollBound = true;
+        }
+    }
+
+    async handleScroll(container) {
+        if (this.isLoading || !this.merger || !this.merger.hasMore()) {
+            return;
         }
 
-        // 2. Overwrite/Add local games
-        localGames.forEach(g => {
-            const remoteG = gameMap.get(g.id);
-            const localRev = localRevisions.get(g.id) || '';
-            const remoteRev = remoteG ? remoteG.remoteRevision : '';
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        if (scrollTop + clientHeight >= scrollHeight - 200) {
+            await this.loadNextBatch();
+        }
+    }
+
+    async autoFill() {
+        const container = document.getElementById('game-list-container');
+        await this.loadNextBatch(false); // Initial load, must render to get baseline height
+
+        if (container && container.clientHeight > 0) {
+            let safety = 0;
+            while (
+                container.scrollHeight <= container.clientHeight * 2 &&
+                this.merger.hasMore() &&
+                safety < 10
+            ) {
+                await this.loadNextBatch(false); // Must render to update scrollHeight
+                safety++;
+            }
+        }
+    }
+
+    async loadNextBatch(skipRender = false) {
+        if (!this.merger) {
+            return;
+        }
+        this.isLoading = true;
+
+        try {
+            const rawBatch = await this.merger.fetchNextBatch(this.batchSize);
+            const processedBatch = this._processBatch(rawBatch);
+
+            this.app.state.games.push(...processedBatch);
+
+            this.hasMore = this.merger.hasMore();
+
+            if (!skipRender) {
+                this.renderWithPagination();
+            }
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    _processBatch(batch) {
+        return batch.map(item => {
+            const remoteItem = item._remote;
+            const localItem = (item.source === 'local') ? item : this.localMap.get(item.id);
+            const base = localItem || item;
 
             let status = SyncStatusSynced;
-            if (!remoteG) {
+            const localRev = localItem ? (this.localRevisions.get(localItem.id) || '') : '';
+            const remoteRev = remoteItem ? remoteItem.revision : (item.source === 'remote' ? item.revision : '');
+
+            if (!localItem) {
+                status = SyncStatusRemoteOnly;
+            } else if (!remoteItem && item.source === 'local') {
                 status = SyncStatusLocalOnly;
-            } else if (localRev === remoteRev) {
-                status = SyncStatusSynced;
-            } else {
+            } else if (localRev !== remoteRev) {
                 status = SyncStatusUnsynced;
             }
 
-            gameMap.set(g.id, {
-                ...g,
-                source: 'local',
+            return {
+                ...base,
+                source: localItem ? 'local' : 'remote',
                 localRevision: localRev,
                 remoteRevision: remoteRev,
                 syncStatus: status,
-            });
+            };
         });
+    }
 
-        // Filter out inaccessible games
-        const allTeams = await this.app.db.getAllTeams();
-        const allGames = Array.from(gameMap.values());
-        const accessibleGames = allGames.filter(g => this.app.hasReadAccess(g, allTeams));
+    async search(query) {
+        this.query = query;
+        await this.loadDashboard();
+    }
 
-        this.app.state.games = accessibleGames;
-        this.app.state.view = 'dashboard';
+    renderWithPagination() {
         this.app.render();
 
-        // Trigger auto-sync for divergent games
-        // We only auto-sync if we have a valid auth token
-        if (this.app.auth.getUser()) {
-            this.app.state.games.forEach(g => {
-                if (g.syncStatus === SyncStatusUnsynced || g.syncStatus === SyncStatusLocalOnly) {
-                    // this.app.syncGame(g.id); // Uncomment to enable true auto-sync
-                }
-            });
+        const main = document.getElementById('game-list-container');
+        if (!main || this.app.state.games.length === 0) {
+            return;
         }
+
+        if (this.hasMore || this.isLoading) {
+            const sentinel = document.createElement('div');
+            sentinel.className = 'py-4 text-center text-gray-500 text-sm font-medium';
+            sentinel.textContent = this.isLoading ? 'Loading more games...' : 'Scroll for more';
+            main.appendChild(sentinel);
+        } else {
+            const endMsg = document.createElement('div');
+            endMsg.className = 'py-8 text-center text-gray-400 text-xs italic';
+            endMsg.textContent = 'All games loaded.';
+            main.appendChild(endMsg);
+        }
+    }
+
+    // Legacy support for manual Load More click if needed
+    async loadMore() {
+        if (!this.hasMore || this.isLoading) {
+            return;
+        }
+        await this.loadNextBatch();
     }
 }

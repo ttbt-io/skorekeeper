@@ -435,7 +435,7 @@ func TestWebSocket(t *testing.T) {
 		conn.ReadJSON(&resp)
 
 		// Verify registry is updated
-		games := reg.ListGames("") // List public games
+		games := reg.ListGames("", "", "", "") // List public games
 		found := false
 		for _, id := range games {
 			if id == gId {

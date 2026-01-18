@@ -81,7 +81,7 @@ func BenchmarkRaftScaling(b *testing.B) {
 			reg := NewRegistry(gs, ts)
 
 			// Access something to ensure lazy loading/indexing is complete if applicable
-			games := reg.ListGames("bench@benchmark.com")
+			games := reg.ListGames("bench@benchmark.com", "", "", "")
 			if len(games) != numGames {
 				b.Errorf("Expected %d games, got %d", numGames, len(games))
 			}
