@@ -46,12 +46,12 @@ func TestClientSidePaginationAndFiltering(t *testing.T) {
 
 	runStep(t, ctx, "Inject Data and Set Limit",
 		chromedp.Evaluate(`(async () => {
-            // 1. Inject 50 Games
+            // 1. Inject 60 Games
             // We create enough games to ensure they don't all fit in one batch/screen
-            for (let i = 1; i <= 50; i++) {
-                // Date logic: g1 is newest (Jan 1 + 50 days), g50 is oldest
+            for (let i = 1; i <= 60; i++) {
+                // Date logic: g1 is newest (Jan 1 + 60 days), g60 is oldest
                 const date = new Date('2025-01-01');
-                date.setDate(date.getDate() + (50 - i));
+                date.setDate(date.getDate() + (60 - i));
                 
                 await window.app.db.saveGame({
                     id: 'g' + i,
@@ -65,8 +65,8 @@ func TestClientSidePaginationAndFiltering(t *testing.T) {
             // 2. Force Offline Mode (simulate failure) by mocking fetch
             window.app.sync.fetchGameList = async () => { throw new Error('Offline'); };
             
-            // 3. Set Batch Size (optional, default is 20, we can force it smaller to be sure)
-            window.app.dashboardController.batchSize = 10;
+            // 3. Set Display Limit (optional)
+            // window.app.dashboardController.displayLimit = 10;
             
             // 4. Reload Dashboard
             await window.app.dashboardController.loadDashboard();
@@ -78,13 +78,13 @@ func TestClientSidePaginationAndFiltering(t *testing.T) {
 		chromedp.WaitVisible(`div[data-game-id="g10"]`), // 10th
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var exists bool
-			// g50 (oldest) should NOT be visible yet
-			err := chromedp.Evaluate(`!!document.querySelector('div[data-game-id="g50"]')`, &exists).Do(ctx)
+			// g60 (oldest) should NOT be visible yet
+			err := chromedp.Evaluate(`!!document.querySelector('div[data-game-id="g60"]')`, &exists).Do(ctx)
 			if err != nil {
 				return err
 			}
 			if exists {
-				return fmt.Errorf("Game g50 should not be visible on initial load")
+				return fmt.Errorf("Game g60 should not be visible on initial load")
 			}
 			return nil
 		}),
@@ -101,9 +101,9 @@ func TestClientSidePaginationAndFiltering(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Search",
-		chromedp.SendKeys(`#dashboard-search`, "Home 50"),
+		chromedp.SendKeys(`#dashboard-search`, "Home 60"),
 		chromedp.Sleep(1000*time.Millisecond), // Wait for debounce
-		chromedp.WaitVisible(`div[data-game-id="g50"]`),
+		chromedp.WaitVisible(`div[data-game-id="g60"]`),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var count int
 			// Count visible game cards

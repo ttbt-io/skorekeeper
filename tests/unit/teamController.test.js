@@ -23,7 +23,7 @@ describe('TeamController', () => {
             db: {
                 getAllTeams: jest.fn().mockResolvedValue([]),
                 saveTeam: jest.fn(),
-                deleteTeam: jest.fn(),
+                deleteTeam: jest.fn().mockResolvedValue(true),
             },
             auth: {
                 getUser: jest.fn(() => ({ email: 'user@example.com' })),
@@ -31,7 +31,7 @@ describe('TeamController', () => {
                 isStale: false,
             },
             teamSync: {
-                fetchTeamList: jest.fn().mockResolvedValue([]),
+                fetchTeamList: jest.fn().mockResolvedValue({ data: [] }),
                 checkTeamDeletions: jest.fn().mockResolvedValue([]),
                 saveTeam: jest.fn().mockResolvedValue(true),
                 deleteTeam: jest.fn(),
@@ -56,35 +56,38 @@ describe('TeamController', () => {
         controller = new TeamController(mockApp);
     });
 
+    afterEach(() => {
+        document.body.innerHTML = '';
+        jest.clearAllMocks();
+    });
+
+    const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
+
     describe('loadTeamsView', () => {
-        test('should load local and remote teams', async() => {
+        test('should render immediately and update with local teams', async() => {
             mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local Team' }]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue({
-                data: [{ id: 't1', name: 'Remote Team' }],
-                meta: { total: 1 },
-            });
 
             await controller.loadTeamsView();
-
-            expect(mockApp.db.saveTeam).toHaveBeenCalledWith(expect.objectContaining({
-                id: 't1',
-                name: 'Remote Team',
-            }));
-            expect(mockApp.state.teams.length).toBe(1);
             expect(mockApp.render).toHaveBeenCalled();
+
+            await flushPromises();
+            expect(mockApp.state.teams.length).toBe(1);
+            expect(mockApp.state.teams[0].id).toBe('t1');
+            expect(mockApp.state.teams[0].source).toBe('local');
         });
 
-        test('should handle deleted remote teams', async() => {
-            mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1' }]);
+        test('should fetch remote teams and merge', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1', name: 'Local' }]);
             mockApp.teamSync.fetchTeamList.mockResolvedValue({
-                data: [{ id: 't1', status: 'deleted' }],
-                meta: { total: 1 },
+                data: [{ id: 't1', name: 'Remote' }],
             });
 
             await controller.loadTeamsView();
+            await flushPromises();
 
-            expect(mockApp.db.deleteTeam).toHaveBeenCalledWith('t1');
-            expect(mockApp.state.teams.length).toBe(0);
+            expect(mockApp.state.teams.length).toBe(1);
+            expect(mockApp.state.teams[0].id).toBe('t1');
+            expect(mockApp.state.teams[0].name).toBe('Local'); // Prefers local for editing safety
         });
 
         test('should handle offline mode', async() => {
@@ -92,55 +95,87 @@ describe('TeamController', () => {
             mockApp.teamSync.fetchTeamList.mockRejectedValue(new Error('Offline'));
 
             await controller.loadTeamsView();
+            await flushPromises();
 
             expect(mockApp.state.teams.length).toBe(1);
-            expect(controller.hasMore).toBe(false);
+            expect(controller.remoteHasMore).toBe(false);
+        });
+
+        test('should handle remote deletions', async() => {
+            mockApp.db.getAllTeams.mockResolvedValue([{ id: 't1' }]);
+            mockApp.teamSync.checkTeamDeletions.mockResolvedValue(['t1']);
+            mockApp.db.deleteTeam.mockResolvedValue(true);
+
+            await controller.loadTeamsView();
+            await flushPromises();
+
+            expect(mockApp.db.deleteTeam).toHaveBeenCalledWith('t1');
+            expect(mockApp.state.teams.length).toBe(0);
         });
     });
 
-    describe('loadMore', () => {
-        test('should load next page', async() => {
-            controller.hasMore = true;
-            controller.merger = {
-                fetchNextBatch: jest.fn().mockResolvedValue([{ id: 't2', source: 'remote', name: 'T2' }]),
-                hasMore: jest.fn().mockReturnValue(true),
-            };
-            mockApp.state.teams = [{ id: 't1' }];
+    describe('handleScroll', () => {
+        test('should increase displayLimit', async() => {
+            // Buffer size = 60
+            const teams = Array.from({ length: 60 }, (_, i) => ({ id: `t${i}`, name: `Team ${i}` }));
+            mockApp.db.getAllTeams.mockResolvedValue(teams);
 
-            await controller.loadMore();
+            await controller.loadTeamsView();
+            await flushPromises();
 
-            // expect(controller.page).toBe(1); // Page is not tracked on controller anymore
-            expect(mockApp.state.teams.length).toBe(2);
-            expect(mockApp.state.teams[1].id).toBe('t2');
-            expect(controller.merger.fetchNextBatch).toHaveBeenCalled();
+            expect(mockApp.state.teams.length).toBe(50); // Initial limit
+
+            const container = document.createElement('div');
+            Object.defineProperty(container, 'scrollTop', { value: 1000 });
+            Object.defineProperty(container, 'scrollHeight', { value: 1500 });
+            Object.defineProperty(container, 'clientHeight', { value: 500 });
+
+            controller.handleScroll(container);
+
+            // Limited by buffer size of 60
+            expect(mockApp.state.teams.length).toBe(60);
+        });
+
+        test('should trigger remote fetch if running low', async() => {
+            const teams = Array.from({ length: 60 }, (_, i) => ({
+                id: `t${i}`, name: `Team ${i}`,
+            }));
+            mockApp.db.getAllTeams.mockResolvedValue(teams);
+
+            await controller.loadTeamsView();
+            await flushPromises();
+
+            controller.displayLimit = 50;
+            controller.remoteHasMore = true;
+            controller.isFetchingRemote = false;
+
+            const container = document.createElement('div');
+            Object.defineProperty(container, 'scrollTop', { value: 1000 });
+            Object.defineProperty(container, 'scrollHeight', { value: 1500 });
+            Object.defineProperty(container, 'clientHeight', { value: 500 });
+
+            controller.handleScroll(container);
+
+            expect(mockApp.teamSync.fetchTeamList).toHaveBeenCalled();
         });
     });
 
     describe('search', () => {
-        test('should not show sentinel if no results', async() => {
-            mockApp.db.getAllTeams.mockResolvedValue([]);
-            mockApp.teamSync.fetchTeamList.mockResolvedValue({
-                data: [],
-                meta: { total: 0 },
-            });
-
-            // Set up DOM
-            const view = document.createElement('div');
-            view.id = 'teams-view';
-            const main = document.createElement('main');
-            view.appendChild(main);
-            document.body.appendChild(view);
-
-            await controller.search('nothing');
-
-            expect(main.textContent).not.toContain('Scroll for more');
-            expect(main.textContent).not.toContain('All teams loaded');
+        test('should reset state and reload', async() => {
+            const spy = jest.spyOn(controller, 'loadTeamsView');
+            await controller.search('query');
+            expect(controller.query).toBe('query');
+            expect(spy).toHaveBeenCalled();
         });
     });
 
     describe('syncTeam', () => {
         test('should sync team and update status', async() => {
-            mockApp.state.teams = [{ id: 't1', syncStatus: 'local_only' }];
+            const team = { id: 't1', name: 'Team', syncStatus: 'local_only' };
+            controller.localBuffer = [team];
+            controller.localMap = new Map([['t1', team]]);
+            mockApp.state.teams = [team]; // Initial state (though mergeAndRender will overwrite)
+
             await controller.syncTeam('t1');
 
             expect(mockApp.teamSync.saveTeam).toHaveBeenCalled();

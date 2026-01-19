@@ -62,6 +62,7 @@ import { DataService } from '../services/DataService.js';
 import { TeamController } from './TeamController.js';
 import { DashboardController } from './DashboardController.js';
 import { ActiveGameController } from './ActiveGameController.js';
+import { parseQuery, buildQuery } from '../utils/searchParser.js';
 
 /**
  * The main application controller for the Skorekeeper PWA.
@@ -1158,6 +1159,11 @@ export class AppController {
      * Loads the teams view by fetching all saved teams.
      */
     async loadTeamsView() {
+        this.teamController.query = '';
+        const searchInput = document.getElementById('teams-search');
+        if (searchInput) {
+            searchInput.value = '';
+        }
         await this.teamController.loadTeamsView();
     }
 
@@ -1677,6 +1683,239 @@ export class AppController {
             this.state.activeCtx,
         );
     }
+    syncAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        // Reset
+        ['adv-search-event', 'adv-search-location', 'adv-search-team', 'adv-search-date-start', 'adv-search-date-end'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = '';
+            }
+        });
+        const cbLocal = document.getElementById('adv-search-local');
+        const cbRemote = document.getElementById('adv-search-remote');
+        if (cbLocal) {
+            cbLocal.checked = false;
+        }
+        if (cbRemote) {
+            cbRemote.checked = false;
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'event') {
+                document.getElementById('adv-search-event').value = f.value;
+            }
+            if (f.key === 'location') {
+                document.getElementById('adv-search-location').value = f.value;
+            }
+            if (f.key === 'away' || f.key === 'home') {
+                document.getElementById('adv-search-team').value = f.value;
+            } // Simplified binding
+
+            if (f.key === 'date') {
+                if (f.operator === '>=') {
+                    document.getElementById('adv-search-date-start').value = f.value;
+                }
+                if (f.operator === '<=') {
+                    document.getElementById('adv-search-date-end').value = f.value;
+                }
+                // Range
+                if (f.operator === '..') {
+                    document.getElementById('adv-search-date-start').value = f.value;
+                    document.getElementById('adv-search-date-end').value = f.maxValue;
+                }
+            }
+
+            if (f.key === 'is') {
+                if (f.value === 'local') {
+                    cbLocal.checked = true;
+                }
+                if (f.value === 'remote') {
+                    cbRemote.checked = true;
+                }
+            }
+        }
+    }
+
+    syncTeamsAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        const nameInput = document.getElementById('teams-adv-search-name');
+        if (nameInput) {
+            nameInput.value = '';
+        }
+        const cbLocal = document.getElementById('teams-adv-search-local');
+        const cbRemote = document.getElementById('teams-adv-search-remote');
+        if (cbLocal) {
+            cbLocal.checked = false;
+        }
+        if (cbRemote) {
+            cbRemote.checked = false;
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'name') {
+                if (nameInput) {
+                    nameInput.value = f.value;
+                }
+            }
+            if (f.key === 'is') {
+                if (f.value === 'local') {
+                    cbLocal.checked = true;
+                }
+                if (f.value === 'remote') {
+                    cbRemote.checked = true;
+                }
+            }
+        }
+        // Also map free text to name for UI convenience if filter not set?
+        // Current parser treats free text separate from filters.
+        // TeamController _matchesTeam checks FreeText against name.
+        // So we can put free text into name input?
+        // But buildTeamsAdvancedQuery creates name:filter.
+        // Let's stick to explicit filters for the panel.
+    }
+
+    buildAdvancedQuery() {
+        const event = document.getElementById('adv-search-event').value.trim();
+        const location = document.getElementById('adv-search-location').value.trim();
+        const team = document.getElementById('adv-search-team').value.trim();
+        const dateStart = document.getElementById('adv-search-date-start').value;
+        const dateEnd = document.getElementById('adv-search-date-end').value;
+        const isLocal = document.getElementById('adv-search-local').checked;
+        const isRemote = document.getElementById('adv-search-remote').checked;
+
+        const filters = [];
+        if (event) {
+            filters.push({ key: 'event', value: event, operator: '=' });
+        }
+        if (location) {
+            filters.push({ key: 'location', value: location, operator: '=' });
+        }
+
+        const tokens = [];
+        if (team) {
+            tokens.push(team);
+        }
+
+        if (dateStart && dateEnd) {
+            filters.push({ key: 'date', value: dateStart, operator: '..', maxValue: dateEnd });
+        } else if (dateStart) {
+            filters.push({ key: 'date', value: dateStart, operator: '>=' });
+        } else if (dateEnd) {
+            filters.push({ key: 'date', value: dateEnd, operator: '<=' });
+        }
+
+        if (isLocal) {
+            filters.push({ key: 'is', value: 'local', operator: '=' });
+        }
+        if (isRemote) {
+            filters.push({ key: 'is', value: 'remote', operator: '=' });
+        }
+
+        return buildQuery({ filters, tokens });
+    }
+
+    buildTeamsAdvancedQuery() {
+        const name = document.getElementById('teams-adv-search-name').value.trim();
+        const isLocal = document.getElementById('teams-adv-search-local').checked;
+        const isRemote = document.getElementById('teams-adv-search-remote').checked;
+
+        const filters = [];
+        // Use name filter instead of free text for precision in panel
+        if (name) {
+            filters.push({ key: 'name', value: name, operator: '=' });
+        }
+        if (isLocal) {
+            filters.push({ key: 'is', value: 'local', operator: '=' });
+        }
+        if (isRemote) {
+            filters.push({ key: 'is', value: 'remote', operator: '=' });
+        }
+        return buildQuery({ filters, tokens: [] });
+    }
+
+    syncStatsAdvancedPanelFromQuery(query) {
+        const parsed = parseQuery(query);
+
+        const eventInput = document.getElementById('stats-adv-search-event');
+        const teamSelect = document.getElementById('stats-adv-search-team');
+        const dateStart = document.getElementById('stats-adv-search-date-start');
+        const dateEnd = document.getElementById('stats-adv-search-date-end');
+
+        if (eventInput) {
+            eventInput.value = '';
+        }
+        if (teamSelect) {
+            teamSelect.value = '';
+        }
+        if (dateStart) {
+            dateStart.value = '';
+        }
+        if (dateEnd) {
+            dateEnd.value = '';
+        }
+
+        for (const f of parsed.filters) {
+            if (f.key === 'event') {
+                if (eventInput) {
+                    eventInput.value = f.value;
+                }
+            }
+            if (f.key === 'team') {
+                if (teamSelect) {
+                    teamSelect.value = f.value;
+                }
+            }
+            if (f.key === 'date') {
+                if (f.operator === '>=') {
+                    if (dateStart) {
+                        dateStart.value = f.value;
+                    }
+                }
+                if (f.operator === '<=') {
+                    if (dateEnd) {
+                        dateEnd.value = f.value;
+                    }
+                }
+                if (f.operator === '..') {
+                    if (dateStart) {
+                        dateStart.value = f.value;
+                    }
+                    if (dateEnd) {
+                        dateEnd.value = f.maxValue;
+                    }
+                }
+            }
+        }
+    }
+
+    buildStatsAdvancedQuery() {
+        const event = document.getElementById('stats-adv-search-event').value.trim();
+        const team = document.getElementById('stats-adv-search-team').value;
+        const dateStart = document.getElementById('stats-adv-search-date-start').value;
+        const dateEnd = document.getElementById('stats-adv-search-date-end').value;
+
+        const filters = [];
+        if (event) {
+            filters.push({ key: 'event', value: event, operator: '=' });
+        }
+        if (team) {
+            filters.push({ key: 'team', value: team, operator: '=' });
+        }
+        if (dateStart && dateEnd) {
+            filters.push({ key: 'date', value: dateStart, operator: '..', maxValue: dateEnd });
+        } else if (dateStart) {
+            filters.push({ key: 'date', value: dateStart, operator: '>=' });
+        } else if (dateEnd) {
+            filters.push({ key: 'date', value: dateEnd, operator: '<=' });
+        }
+
+        return buildQuery({ filters, tokens: [] });
+    }
+
+
     bindEvents() {
         /**
          * Helper to get an element by its ID.
@@ -1706,9 +1945,7 @@ export class AppController {
                     }
                 }
             }
-            else {
-                console.warn(`App: Element '${id}' not found in DOM`);
-            }
+            // else { console.warn... } // Optional: suppress warning for optional elements
         };
 
         // Synchronize scoreboard scrolling
@@ -1791,29 +2028,159 @@ export class AppController {
             };
         }
 
-        // Stats View Events
-        const statsFilterChange = () => {
-            this.loadStatisticsView();
-        };
-        const filterTeamEl = byId('filter-team');
-        if (filterTeamEl) {
-            filterTeamEl.onchange = statsFilterChange;
+        // Teams Search
+        const teamsSearch = byId('teams-search');
+        if (teamsSearch) {
+            let debounceTimer;
+            teamsSearch.oninput = () => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.teamController.search(teamsSearch.value);
+                }, 300);
+            };
         }
-        ['filter-date-start', 'filter-date-end'].forEach(id => {
-            const el = byId(id);
-            if (el) {
-                el.onchange = statsFilterChange;
+
+        click('btn-toggle-teams-advanced-search', () => {
+            const panel = byId('teams-advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncTeamsAdvancedPanelFromQuery(teamsSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
             }
         });
 
-        const filterEvent = byId('filter-event');
-        if (filterEvent) {
+        click('btn-teams-adv-apply', () => {
+            const query = this.buildTeamsAdvancedQuery();
+            if (teamsSearch) {
+                teamsSearch.value = query;
+            }
+            this.teamController.search(query);
+        });
+
+        click('btn-teams-adv-clear', () => {
+            const nameInput = byId('teams-adv-search-name');
+            if (nameInput) {
+                nameInput.value = '';
+            }
+            const cbLocal = byId('teams-adv-search-local');
+            if (cbLocal) {
+                cbLocal.checked = false;
+            }
+            const cbRemote = byId('teams-adv-search-remote');
+            if (cbRemote) {
+                cbRemote.checked = false;
+            }
+
+            if (teamsSearch) {
+                teamsSearch.value = '';
+            }
+            this.teamController.search('');
+        });
+
+        // Advanced Search
+        click('btn-toggle-advanced-search', () => {
+            const panel = byId('advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncAdvancedPanelFromQuery(dashboardSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
+            }
+        });
+
+        click('btn-adv-apply', () => {
+            const query = this.buildAdvancedQuery();
+            if (dashboardSearch) {
+                dashboardSearch.value = query;
+            }
+            this.dashboardController.search(query);
+        });
+
+        click('btn-adv-clear', () => {
+            ['adv-search-event', 'adv-search-location', 'adv-search-team', 'adv-search-date-start', 'adv-search-date-end'].forEach(id => {
+                const el = byId(id);
+                if (el) {
+                    el.value = '';
+                }
+            });
+            const cbLocal = byId('adv-search-local');
+            const cbRemote = byId('adv-search-remote');
+            if (cbLocal) {
+                cbLocal.checked = false;
+            }
+            if (cbRemote) {
+                cbRemote.checked = false;
+            }
+
+            if (dashboardSearch) {
+                dashboardSearch.value = '';
+            }
+            this.dashboardController.search('');
+        });
+
+        // Stats Search
+        const statsSearch = byId('stats-search');
+        if (statsSearch) {
             let debounceTimer;
-            filterEvent.oninput = () => {
+            statsSearch.oninput = () => {
                 clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(statsFilterChange, 300);
+                debounceTimer = setTimeout(() => {
+                    this.loadStatisticsView();
+                }, 300);
             };
         }
+
+        click('btn-toggle-stats-advanced-search', () => {
+            const panel = byId('stats-advanced-search-panel');
+            if (panel) {
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    this.syncStatsAdvancedPanelFromQuery(statsSearch.value);
+                } else {
+                    panel.classList.add('hidden');
+                }
+            }
+        });
+
+        click('btn-stats-adv-apply', () => {
+            const query = this.buildStatsAdvancedQuery();
+            if (statsSearch) {
+                statsSearch.value = query;
+            }
+            this.loadStatisticsView();
+        });
+
+        click('btn-stats-adv-clear', () => {
+            const eventInput = byId('stats-adv-search-event');
+            if (eventInput) {
+                eventInput.value = '';
+            }
+            const teamSelect = byId('stats-adv-search-team');
+            if (teamSelect) {
+                teamSelect.value = '';
+            }
+            const dateStart = byId('stats-adv-search-date-start');
+            if (dateStart) {
+                dateStart.value = '';
+            }
+            const dateEnd = byId('stats-adv-search-date-end');
+            if (dateEnd) {
+                dateEnd.value = '';
+            }
+
+            if (statsSearch) {
+                statsSearch.value = '';
+            }
+            this.loadStatisticsView();
+        });
 
         click('btn-stats-columns', () => this.statsRenderer.renderColumnSelector());
         click('btn-cancel-stats-cols', () => byId('stats-columns-modal').classList.add('hidden'));
@@ -4964,8 +5331,8 @@ export class AppController {
             const accessibleGames = games.filter(g => this.hasReadAccess(g, this.state.teams));
             this.state.allGames = accessibleGames;
 
-            // 2. Populate Team Filter
-            const teamFilter = document.getElementById('filter-team');
+            // 2. Populate Team Filter (in Advanced Panel)
+            const teamFilter = document.getElementById('stats-adv-search-team');
             if (teamFilter) {
                 const currentVal = teamFilter.value;
                 teamFilter.innerHTML = '<option value="">All Teams</option>';
@@ -5022,33 +5389,108 @@ export class AppController {
                 }
             }
 
-            // 6. Apply Filters
-            const filterTeam = document.getElementById('filter-team')?.value;
-            const filterEvent = document.getElementById('filter-event')?.value?.toLowerCase();
-            const filterStart = document.getElementById('filter-date-start')?.value;
-            const filterEnd = document.getElementById('filter-date-end')?.value;
+            // 6. Apply Filters via Search Box
+            const searchInput = document.getElementById('stats-search');
+            const query = searchInput ? searchInput.value : '';
+            const parsedQ = parseQuery(query);
 
-            const filteredGames = accessibleGames.filter(g => {
-                if (filterTeam && g.away !== filterTeam && g.home !== filterTeam) {
-                    return false;
+            // DashboardController._matchesGame handles event, location, away, home, date.
+            // Stats view specifically cares about "Participating Team" (Away OR Home).
+            // Dashboard's _matchesGame checks:
+            // if (f.key === 'away' && !away.includes(val)) return false;
+            // The Stats UI has a "Teams" dropdown which implies "Is this team playing?".
+            // If I map the dropdown to "team:Name", my parser might need to handle it.
+            // My parser maps keys to specific filters.
+            // If I use "team:Name", DashboardController._matchesGame doesn't check "team". It checks "away" and "home".
+            // I should implement a specific matcher for stats or reuse Dashboard's if I map "team" to "away" OR "home".
+            // But parsedQ is ANDed.
+            // If I want to match "Yankees" (either away or home), I can use Free Text.
+            // If I use `team:Yankees` in the query, _matchesGame won't find `f.key === 'team'`.
+            // So I should implement a local matcher here.
+
+            const matchesStats = (g, q) => {
+                // 1. Free Text
+                for (const token of q.tokens) {
+                    const t = token.toLowerCase();
+                    const match = (g.event || '').toLowerCase().includes(t) ||
+                                  (g.location || '').toLowerCase().includes(t) ||
+                                  (g.away || '').toLowerCase().includes(t) ||
+                                  (g.home || '').toLowerCase().includes(t);
+                    if (!match) {
+                        return false;
+                    }
                 }
-                if (filterEvent && !((g.event || '').toLowerCase().includes(filterEvent))) {
-                    return false;
-                }
-                if (filterStart && g.date < filterStart) {
-                    return false;
-                }
-                if (filterEnd && g.date > (filterEnd + 'T23:59:59')) {
-                    return false;
+                // 2. Filters
+                for (const f of q.filters) {
+                    const val = f.value.toLowerCase();
+                    if (f.key === 'event' && !(g.event || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    if (f.key === 'location' && !(g.location || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    // "team" key matches either
+                    if (f.key === 'team' && !((g.away || '').toLowerCase().includes(val) || (g.home || '').toLowerCase().includes(val))) {
+                        return false;
+                    }
+
+                    if (f.key === 'away' && !(g.away || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+                    if (f.key === 'home' && !(g.home || '').toLowerCase().includes(val)) {
+                        return false;
+                    }
+
+                    if (f.key === 'date') {
+                        const d = g.date || '';
+                        if (f.operator === '=') {
+                            if (!d.startsWith(f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '>=') {
+                            if (!(d >= f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '<=') {
+                            if (!(d <= f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '>') {
+                            if (!(d > f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '<') {
+                            if (!(d < f.value)) {
+                                return false;
+                            }
+                        }
+                        else if (f.operator === '..') {
+                            const maxVal = f.maxValue + '~';
+                            if (!(d >= f.value && d <= maxVal)) {
+                                return false;
+                            }
+                        }
+                    }
                 }
                 return true;
-            });
+            };
 
-            const filteredIds = new Set(filteredGames.map(g => g.id));
+            const finalFiltered = accessibleGames.filter(g => matchesStats(g, parsedQ));
+
+            const filteredIds = new Set(finalFiltered.map(g => g.id));
             const statsList = Array.from(statsMap.values()).filter(s => filteredIds.has(s.id));
 
+            // Extract team filter for aggregation (if specific team selected)
+            // We look for 'team' filter in parsedQ
+            const teamFilterF = parsedQ.filters.find(f => f.key === 'team');
+            const teamFilterVal = teamFilterF ? teamFilterF.value : '';
+
             // 7. Aggregate
-            this.state.aggregatedStats = StatsEngine.aggregatePrecalculatedStats(statsList, accessibleGames, filterTeam);
+            this.state.aggregatedStats = StatsEngine.aggregatePrecalculatedStats(statsList, accessibleGames, teamFilterVal);
             this.render();
         } catch (e) {
             console.error('Failed to load statistics:', e);

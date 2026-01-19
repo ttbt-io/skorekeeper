@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ttbt-io/skorekeeper/backend/search"
 )
 
 const tombstoneTTL = 30 * 24 * time.Hour
@@ -366,9 +368,92 @@ func (r *Registry) addTeamGamesToIndex(teamId, gameId string) {
 	}
 }
 
-// containsCaseInsensitive checks if s contains substr, case-insensitive.
-func containsCaseInsensitive(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+// containsLower checks if s (case-insensitive) contains substrLower (already lowercased).
+func containsLower(s, substrLower string) bool {
+	return strings.Contains(strings.ToLower(s), substrLower)
+}
+
+func matchesGame(m GameMetadata, q search.Query) bool {
+	// 1. Free Text (Must match ANY field)
+	// Assumes q.FreeText tokens are already lowercased
+	for _, token := range q.FreeText {
+		match := containsLower(m.Event, token) ||
+			containsLower(m.Location, token) ||
+			containsLower(m.Away, token) ||
+			containsLower(m.Home, token)
+		if !match {
+			return false
+		}
+	}
+
+	// 2. Structured Filters (Must match ALL)
+	for _, f := range q.Filters {
+		// Assumes f.Value is already lowercased for string fields
+		switch f.Key {
+		case "event":
+			if !containsLower(m.Event, f.Value) {
+				return false
+			}
+		case "location":
+			if !containsLower(m.Location, f.Value) {
+				return false
+			}
+		case "away":
+			if !containsLower(m.Away, f.Value) {
+				return false
+			}
+		case "home":
+			if !containsLower(m.Home, f.Value) {
+				return false
+			}
+		case "date":
+			if !checkDateFilter(m.Date, f) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func matchesTeam(m TeamMetadata, q search.Query) bool {
+	// 1. Free Text
+	for _, token := range q.FreeText {
+		if !containsLower(m.Name, token) {
+			return false
+		}
+	}
+	// 2. Filters
+	for _, f := range q.Filters {
+		switch f.Key {
+		case "name":
+			if !containsLower(m.Name, f.Value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func checkDateFilter(dateVal string, f search.Filter) bool {
+	switch f.Operator {
+	case search.OpEqual:
+		return strings.HasPrefix(dateVal, f.Value)
+	case search.OpGreater:
+		return dateVal > f.Value
+	case search.OpGreaterOrEqual:
+		return dateVal >= f.Value
+	case search.OpLess:
+		return dateVal < f.Value
+	case search.OpLessOrEqual:
+		return dateVal <= f.Value
+	case search.OpRange:
+		// Inclusive Range: "2025-01" -> "2025-01~" (ASCII ~ is > digits)
+		// This ensures 2025-01-31 <= 2025-01~ is true
+		maxVal := f.MaxValue + "~"
+		return dateVal >= f.Value && dateVal <= maxVal
+	}
+	return true
 }
 
 // ListGames returns the IDs of all games accessible by the user, sorted and filtered.
@@ -376,22 +461,25 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	lowerQuery := strings.ToLower(query)
+	q := search.Parse(query)
+	// Optimization: Pre-lowercase tokens
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		if f.Key != "date" { // Date is case-sensitive/numeric
+			q.Filters[i].Value = strings.ToLower(f.Value)
+		}
+	}
+
 	var ids []string
 	for id := range r.userGames[userId] {
-		// Filter
-		if lowerQuery != "" {
-			meta, ok := r.gameMetadata[id]
-			if !ok {
-				continue
-			}
-			match := containsCaseInsensitive(meta.Event, lowerQuery) ||
-				containsCaseInsensitive(meta.Location, lowerQuery) ||
-				containsCaseInsensitive(meta.Away, lowerQuery) ||
-				containsCaseInsensitive(meta.Home, lowerQuery)
-			if !match {
-				continue
-			}
+		meta, ok := r.gameMetadata[id]
+		if !ok {
+			continue
+		}
+		if !matchesGame(meta, q) {
+			continue
 		}
 		ids = append(ids, id)
 	}
@@ -480,18 +568,23 @@ func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	lowerQuery := strings.ToLower(query)
+	q := search.Parse(query)
+	// Optimization: Pre-lowercase tokens
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		q.Filters[i].Value = strings.ToLower(f.Value)
+	}
+
 	var ids []string
 	for id := range r.userTeams[userId] {
-		// Filter
-		if lowerQuery != "" {
-			meta, ok := r.teamMetadata[id]
-			if !ok {
-				continue
-			}
-			if !containsCaseInsensitive(meta.Name, lowerQuery) {
-				continue
-			}
+		meta, ok := r.teamMetadata[id]
+		if !ok {
+			continue
+		}
+		if !matchesTeam(meta, q) {
+			continue
 		}
 		ids = append(ids, id)
 	}

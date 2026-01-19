@@ -181,4 +181,47 @@ func TestRegistry(t *testing.T) {
 			t.Error("Rebuild failed to find team")
 		}
 	})
+
+	t.Run("AdvancedSearch", func(t *testing.T) {
+		// Isolate Test Environment
+		tempDir, _ := os.MkdirTemp("", "registry_search_test")
+		defer os.RemoveAll(tempDir)
+		s := storage.New(tempDir, nil)
+		gStore := NewGameStore(tempDir, s)
+		tStore := NewTeamStore(tempDir, s)
+		reg := NewRegistry(gStore, tStore)
+
+		g1 := Game{ID: "g1", OwnerID: userId, Event: "World Series Game 1", Location: "Stadium A", Date: "2025-01-01", SchemaVersion: SchemaVersionV3}
+		g2 := Game{ID: "g2", OwnerID: userId, Event: "Regular Season", Location: "Field B", Date: "2025-02-15", SchemaVersion: SchemaVersionV3}
+		g3 := Game{ID: "g3", OwnerID: userId, Event: "Playoffs", Location: "Stadium A", Date: "2024-12-31", SchemaVersion: SchemaVersionV3}
+
+		reg.UpdateGame(g1)
+		reg.UpdateGame(g2)
+		reg.UpdateGame(g3)
+
+		tests := []struct {
+			query    string
+			expected []string // Order depends on sort (default date desc)
+		}{
+			{"event:Series", []string{"g1"}},
+			{"location:\"Stadium A\"", []string{"g1", "g3"}}, // Date desc: g1(2025-01), g3(2024-12)
+			{"date:>=2025-01-01", []string{"g2", "g1"}},
+			{"date:2025-02", []string{"g2"}},
+			{"date:<2025", []string{"g3"}},
+			{"Stadium A date:>=2025", []string{"g1"}}, // Changed to >=2025 to exclude g3 (2024) unequivocally
+		}
+
+		for _, tt := range tests {
+			got := reg.ListGames(userId, "date", "desc", tt.query)
+			if len(got) != len(tt.expected) {
+				t.Errorf("Query %q: got %d games, want %d. Got: %v", tt.query, len(got), len(tt.expected), got)
+				continue
+			}
+			for i, id := range got {
+				if id != tt.expected[i] {
+					t.Errorf("Query %q: index %d got %s, want %s", tt.query, i, id, tt.expected[i])
+				}
+			}
+		}
+	})
 }

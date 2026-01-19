@@ -1,96 +1,72 @@
-# Advanced Search Implementation Plan
+# Advanced Search
 
-> **STATUS: DRAFT / NOT IMPLEMENTED**
-> This document outlines the proposed design for the Advanced Search feature. It serves as a roadmap for implementation.
+The Advanced Search feature provides a structured query language (DSL) and a visual interface for filtering Games and Teams. It allows for precise filtering by metadata fields, dates, and synchronization status.
 
-## Overview
-This document outlines the plan to implement a structured search query language (DSL) for Games and Teams, supporting filters like `is:local`, `event:"..."`, and date ranges. This includes a shared query syntax for frontend/backend and a UI panel for constructing queries visually.
+## 1. Search Syntax
 
-## 1. Search Query Syntax (DSL)
-We will support a Google-style search syntax:
-*   **Keywords:** `key:value` or `key:"value with spaces"`.
-*   **Flags:** `is:local`, `is:remote` (Frontend only).
-*   **Comparators:** `date:2025-01-01`, `date:>=2025-01-01`, `date:2025-01..2025-02`.
-*   **Free Text:** Any tokens not matching `key:value` are treated as free text search across default fields.
+The search bar supports a Google-style syntax. Queries are composed of space-separated tokens.
+
+### Key-Value Filters
+Use `key:value` to filter by specific fields.
+*   **Exact Match:** `event:Finals`
+*   **Quoted Values:** `location:"Central Park"` (Supports values with spaces)
+*   **Case Insensitive:** `event:finals` matches "Finals", "finals", "FINALS".
 
 **Supported Keys:**
-*   **Games:** `event`, `location`, `away`, `home`, `date`.
-*   **Teams:** `name`, `city` (if applicable), `coach`.
+*   `event` - Game event name.
+*   `location` - Game location.
+*   `away` - Away team name.
+*   `home` - Home team name.
+*   `name` - Team name (Teams view only).
 
-## 2. Backend Implementation (Go)
+### Date Filtering
+Filter items by date using operators.
+*   **Exact Date:** `date:2025-01-01`
+*   **After:** `date:>=2025-01-01` or `date:>2025-01-01`
+*   **Before:** `date:<=2025-12-31` or `date:<2025-12-31`
+*   **Range:** `date:2025-01..2025-03` (Inclusive)
 
-### Step 2.1: Search Parser Package
-Create `backend/search/parser.go`.
-*   **Structs:** `Query`, `Filter`.
-*   **Function:** `Parse(input string) Query`.
-    *   Tokenize string by spaces (respecting quotes).
-    *   Extract keys and values.
-    *   Identify date ranges.
+### Source Flags
+Control where data is fetched from (Frontend Only).
+*   `is:local` - Only show data from the local database (Offline mode). Do not fetch from server.
+*   `is:remote` - Only show data fetched from the server. (Useful for debugging sync).
 
-### Step 2.2: Update Registry
-Refactor `backend/registry.go` to use the parser.
-*   **`ListGames` & `ListTeams`:**
-    *   Call `search.Parse(query)`.
-    *   Iterate through metadata (`gameMetadata`, `teamMetadata`).
-    *   Apply filters:
-        *   Exact/Substring match for string fields.
-        *   Range check for Date fields.
-        *   Free text search across all indexed text fields.
+### Free Text
+Any token that doesn't match the `key:value` pattern is treated as free text.
+*   `Yankees` -> Searches for "Yankees" in Event, Location, Away, Home, etc.
+*   `"Game 1"` -> Searches for the exact phrase "Game 1".
 
-### Step 2.3: Backend Tests
-*   **`backend/search/parser_test.go`:** Unit tests for tokenization, quoting, and edge cases.
-*   **`backend/pagination_test.go`:** Add test cases for `q=event:Finals`, `q=date:>=2025`, etc.
+## 2. Advanced Search Panel
 
-## 3. Frontend Implementation (JS)
+The UI includes a collapsible panel for constructing queries visually without memorizing syntax.
 
-### Step 3.1: Search Parser Utility
-Create `frontend/utils/searchParser.js`.
-*   **Function:** `parseQuery(queryString)`.
-*   **Returns:** `{ tokens: [], filters: { event: "...", is: [] } }`.
-*   **Function:** `buildQuery(parsedObj)` -> String (for UI two-way binding).
+*   **Inputs:** Event, Location, Team, Date Range.
+*   **Toggles:** Local Only, Remote Only.
+*   **Behavior:**
+    *   Entering values in the panel updates the main search bar in real-time with the corresponding DSL.
+    *   Clicking **Apply** triggers the search.
+    *   Clicking **Clear** resets all fields and the search bar.
 
-### Step 3.2: StreamMerger & Controller Logic
-Update `frontend/controllers/DashboardController.js` and `TeamController.js`.
-*   **Parsing:** In `search(query)`, parse the string immediately.
-*   **Source Filtering:**
-    *   If `is:local` set, do NOT fetch remote.
-    *   If `is:remote` set, do NOT fetch local (empty local stream).
-*   **Local Filtering:**
-    *   Update the local filtering logic (which currently does simple string `includes`) to use the parsed object and match specific fields (`event`, `date`, etc.) mirroring backend logic.
+## 3. Implementation Details
 
-### Step 3.3: Frontend Tests
-*   **`tests/unit/searchParser.test.js`:** Verify parsing logic.
-*   **`tests/unit/dashboardController.test.js`:** Verify `is:local` prevents remote fetch.
+### Parser
+*   **Backend (Go):** `backend/search/parser.go` - Parses queries for `Registry` filtering.
+*   **Frontend (JS):** `frontend/utils/searchParser.js` - Parses queries for local filtering and UI binding.
+*   Both parsers share the same logic for tokenization and operator handling.
 
-## 4. UI Implementation (Advanced Panel)
+### Filtering Logic
+1.  **Frontend (Local):** `DashboardController` and `TeamController` use the parsed query to filter the **Local Buffer** in-memory.
+2.  **Backend (Remote):** The parsed query is passed to the backend API (`/api/list-games?q=...`), which filters results at the Registry level before pagination.
+3.  **Merge:** The results from both sources are merged, deduplicated, and sorted by the Controller.
 
-### Step 4.1: HTML Structure
-Update `frontend/index.html` (Dashboard & Teams views).
-*   Add "Advanced" toggle button next to search input.
-*   Add `#advanced-search-panel` (hidden by default).
-    *   **Inputs:** Event, Location, Team, Date Start, Date End.
-    *   **Checkboxes:** Local Only, Remote Only.
-    *   **Buttons:** Apply, Clear.
+### Source Control
+*   `is:local`: The Controller skips the `fetchRemotePage()` call.
+*   `is:remote`: The Controller clears the `localBuffer` before rendering.
 
-### Step 4.2: AppController Logic
-Update `frontend/controllers/AppController.js`.
-*   **Toggle:** Show/Hide panel.
-*   **Sync:**
-    *   **Input -> Panel:** When user types `event:Test` in main box, update the "Event" input in the panel.
-    *   **Panel -> Input:** When user clicks Apply, construct string `event:Test` and update main box + trigger search.
-
-### Step 4.3: E2E Tests
-*   **`tests/e2e/advanced_search_test.go`:**
-    *   Open panel.
-    *   Fill fields (e.g., "Local Only").
-    *   Apply.
-    *   Verify URL/Search Box contains `is:local`.
-    *   Verify results are filtered.
-
-## 5. Execution Order
-1.  **Backend Parser & Registry:** Implement Go parser and integrate into Registry. Add backend tests.
-2.  **Frontend Parser:** Implement JS parser and unit tests.
-3.  **Controller Logic:** Integrate JS parser into Dashboard/Team controllers for local filtering and source selection (`is:local`).
-4.  **UI Panel:** Build the HTML and AppController logic for the Advanced Search panel.
-5.  **E2E Testing:** Verify the full flow.
-6.  **Finalize:** Rewrite this document (`docs/ADVANCED-SEARCH.md`) to serve as the authoritative documentation for the implemented feature, removing the "Plan" structure.
+## 4. Tests
+*   **Unit Tests:**
+    *   `backend/search/parser_test.go`: Verifies DSL parsing.
+    *   `frontend/utils/searchParser.test.js`: Verifies JS parsing and query reconstruction.
+    *   `tests/unit/dashboardController.test.js`: Verifies filtering integration.
+*   **E2E Tests:**
+    *   `tests/e2e/advanced_search_test.go`: Verifies the UI panel, syntax application, and result filtering in a real browser environment.
