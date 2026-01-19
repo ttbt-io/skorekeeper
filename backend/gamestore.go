@@ -185,8 +185,50 @@ func (gs *GameStore) SaveGame(game *Game) error {
 	return nil
 }
 
+// RestoreGame saves the game to disk directly, bypassing the in-memory cache.
+// This is used during Raft snapshot restore to prevent OOM.
+func (gs *GameStore) RestoreGame(game *Game) error {
+	gameId := game.ID
+	encodedGameId := url.PathEscape(gameId)
+	filename := filepath.Join("games", fmt.Sprintf("%s.json", encodedGameId))
+	metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
+
+	if len(game.ActionLog) == 0 {
+		log.Printf("RestoreGame WARNING: Saving game %s with 0 actions!", gameId)
+	}
+
+	if err := gs.storage.SaveDataFile(filename, game); err != nil {
+		return fmt.Errorf("storage.SaveDataFile: %w", err)
+	}
+
+	// Invalidate cache to prevent stale reads if this game was previously loaded
+	gs.cache.Delete(gameId)
+
+	// Save Metadata Sidecar
+	meta := GameMetadata{
+		ID:            game.ID,
+		SchemaVersion: game.SchemaVersion,
+		Date:          game.Date,
+		Location:      game.Location,
+		Event:         game.Event,
+		Away:          game.Away,
+		Home:          game.Home,
+		OwnerID:       game.OwnerID,
+		Permissions:   game.Permissions,
+		AwayTeamID:    game.AwayTeamID,
+		HomeTeamID:    game.HomeTeamID,
+		Status:        game.Status,
+		DeletedAt:     game.DeletedAt,
+	}
+	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
+		log.Printf("Warning: Failed to save metadata sidecar during restore for game %s: %v", gameId, err)
+	}
+
+	// Do NOT update cache.
+	return nil
+}
+
 // SaveGameInMemory updates the in-memory cache and marks the game as dirty.
-// If forceSync is true, it writes to disk immediately (behaving like SaveGame).
 func (gs *GameStore) SaveGameInMemory(game *Game, forceSync bool) error {
 	// 1. Update Cache (Authoritative)
 	jsonBytes, err := json.Marshal(game)
@@ -410,6 +452,50 @@ func (gs *GameStore) PurgeGame(gameId string) error {
 		}
 	}
 	return nil
+}
+
+// ListAllGameIDs returns a list of all game IDs currently known (disk + dirty).
+// This is an optimized version of ListAllGames that avoids loading file content.
+func (gs *GameStore) ListAllGameIDs() ([]string, error) {
+	// 1. Scan Disk
+	gamesDir := filepath.Join(gs.DataDir, "games")
+	files, err := os.ReadDir(gamesDir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("could not read games directory: %w", err)
+	}
+
+	// Snapshot dirty IDs first
+	gs.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(gs.dirty))
+	for id := range gs.dirty {
+		dirtySet[id] = true
+	}
+	gs.dirtyMu.Unlock()
+
+	idMap := make(map[string]bool)
+
+	// Add disk IDs
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
+			encodedGameId := strings.TrimSuffix(file.Name(), ".json")
+			gameId, err := url.PathUnescape(encodedGameId)
+			if err != nil {
+				continue
+			}
+			idMap[gameId] = true
+		}
+	}
+
+	// Add dirty IDs (authoritative)
+	for id := range dirtySet {
+		idMap[id] = true
+	}
+
+	ids := make([]string, 0, len(idMap))
+	for id := range idMap {
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // GameSummary represents a summary of a game.
