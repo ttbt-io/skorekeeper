@@ -163,6 +163,8 @@ func TestTeamSharing(t *testing.T) {
 		chromedp.Sleep(500*time.Millisecond),
 		chromedp.Click("#sidebar-btn-teams"),
 		chromedp.WaitVisible("#teams-view"),
+		// Wait for list to render
+		chromedp.WaitVisible(fmt.Sprintf(`//h3[contains(text(), '%s')]`, teamName), chromedp.BySearch),
 		// Check for short name in the list (assuming it is displayed)
 		// Usually short name is displayed in parens or badges?
 		// Or we can just open edit modal to check.

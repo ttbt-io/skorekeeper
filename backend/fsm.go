@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/c2FmZQ/storage"
 	"github.com/hashicorp/raft"
@@ -42,7 +43,8 @@ type FSM struct {
 	initialized atomic.Bool
 	rm          *RaftManager
 
-	nodeMap sync.Map // map[string]*NodeMeta
+	nodeMap          sync.Map // map[string]*NodeMeta
+	lastAppliedIndex atomic.Uint64
 }
 
 // NewFSM creates a new FSM.
@@ -62,6 +64,11 @@ func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storag
 		f.loadNodes()
 	}
 	return f
+}
+
+// LastAppliedIndex returns the index of the last applied log entry.
+func (f *FSM) LastAppliedIndex() uint64 {
+	return f.lastAppliedIndex.Load()
 }
 
 func (f *FSM) loadNodes() {
@@ -130,7 +137,9 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		return err
 	}
 
-	return f.applyCommand(cmd, l.Index)
+	res := f.applyCommand(cmd, l.Index)
+	f.lastAppliedIndex.Store(l.Index)
+	return res
 }
 
 func (f *FSM) GetHubManager() *HubManager {
@@ -503,6 +512,10 @@ func (f *FSM) ApplyBatch(logs []*raft.Log) []interface{} {
 		}
 	}
 
+	if len(logs) > 0 {
+		f.lastAppliedIndex.Store(logs[len(logs)-1].Index)
+	}
+
 	return results
 }
 
@@ -810,6 +823,18 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 			log.Printf("Warning: failed to rotate log key during snapshot: %v", err)
 		}
 	}
+
+	// Persist local state marker
+	state := map[string]any{
+		"lastAppliedIndex": f.LastAppliedIndex(),
+		"timestamp":        time.Now().UnixNano(),
+	}
+	if f.storage != nil {
+		if err := f.storage.SaveDataFile("fsm_state.json", state); err != nil {
+			log.Printf("Warning: failed to save fsm_state.json: %v", err)
+		}
+	}
+
 	return &FSMSnapshot{fsm: f}, nil
 }
 

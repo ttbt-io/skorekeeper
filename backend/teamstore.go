@@ -337,6 +337,29 @@ func (ts *TeamStore) ListAllTeams() iter.Seq2[*Team, error] {
 	}
 }
 
+// RestoreTeam saves the team to disk directly, bypassing the in-memory cache.
+func (ts *TeamStore) RestoreTeam(team *Team) error {
+	teamId := team.ID
+	encodedTeamId := url.PathEscape(teamId)
+	filename := filepath.Join("teams", fmt.Sprintf("%s.json", encodedTeamId))
+
+	m, _ := ts.mu.LoadOrStore(teamId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if err := ts.storage.SaveDataFile(filename, team); err != nil {
+		return fmt.Errorf("storage.SaveDataFile: %w", err)
+	}
+
+	// Invalidate cache
+	ts.cache.Delete(teamId)
+
+	// Do NOT update cache.
+	return nil
+}
+
 // SaveTeamInMemory updates the in-memory cache and marks the team as dirty.
 func (ts *TeamStore) SaveTeamInMemory(team *Team, forceSync bool) error {
 	jsonBytes, err := json.Marshal(team)
@@ -468,4 +491,48 @@ func (ts *TeamStore) PurgeTeam(teamId string) error {
 		return fmt.Errorf("could not purge team file: %w", err)
 	}
 	return nil
+}
+
+// ListAllTeamIDs returns a list of all team IDs currently known (disk + dirty).
+// This is an optimized version of ListAllTeams that avoids loading file content.
+func (ts *TeamStore) ListAllTeamIDs() ([]string, error) {
+	// 1. Scan Disk
+	teamsDir := filepath.Join(ts.DataDir, "teams")
+	files, err := os.ReadDir(teamsDir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("could not read teams directory: %w", err)
+	}
+
+	// Snapshot dirty IDs first
+	ts.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(ts.dirty))
+	for id := range ts.dirty {
+		dirtySet[id] = true
+	}
+	ts.dirtyMu.Unlock()
+
+	idMap := make(map[string]bool)
+
+	// Add disk IDs
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasSuffix(file.Name(), ".meta.json") {
+			encodedTeamId := strings.TrimSuffix(file.Name(), ".json")
+			teamId, err := url.PathUnescape(encodedTeamId)
+			if err != nil {
+				continue
+			}
+			idMap[teamId] = true
+		}
+	}
+
+	// Add dirty IDs
+	for id := range dirtySet {
+		idMap[id] = true
+	}
+
+	ids := make([]string, 0, len(idMap))
+	for id := range idMap {
+		ids = append(ids, id)
+	}
+	return ids, nil
 }

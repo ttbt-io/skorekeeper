@@ -21,12 +21,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"runtime"
 	"strings"
+	"sync"
 )
 
 type snapshotManifest struct {
 	NodeMap     map[string]*NodeMeta `json:"nodeMap"`
 	Initialized bool                 `json:"initialized"`
+	RaftIndex   uint64               `json:"raftIndex"`
 }
 
 func (f *FSM) persist(sink io.WriteCloser) error {
@@ -49,6 +52,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	manifest := snapshotManifest{
 		NodeMap:     nodes,
 		Initialized: f.initialized.Load(),
+		RaftIndex:   f.LastAppliedIndex(),
 	}
 	manifestBytes, _ := json.Marshal(manifest)
 	if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
@@ -70,10 +74,6 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		}
 		if len(g.ActionLog) == 0 {
 			log.Printf("Snapshot: Persisting game %s with EMPTY ActionLog!", g.ID)
-		} else {
-			if len(g.ActionLog)%500 == 0 {
-				log.Printf("Snapshot: Persisting game %s with %d actions", g.ID, len(g.ActionLog))
-			}
 		}
 	}
 
@@ -106,6 +106,51 @@ func (f *FSM) restore(rc io.Reader) error {
 
 	processedGames := make(map[string]bool)
 	processedTeams := make(map[string]bool)
+	shouldSkipRestore := false
+
+	// Worker Pool Setup
+	numWorkers := runtime.NumCPU()
+	jobs := make(chan interface{}, numWorkers)
+	errCh := make(chan error, 1) // Buffered 1 is enough for first error
+	var wg sync.WaitGroup
+
+	// Start Workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				select {
+				case <-errCh:
+					return // Stop if error exists
+				default:
+				}
+
+				switch v := job.(type) {
+				case *Game:
+					if err := f.gs.RestoreGame(v); err != nil {
+						select {
+						case errCh <- err:
+						default:
+						}
+					}
+				case *Team:
+					if err := f.ts.RestoreTeam(v); err != nil {
+						select {
+						case errCh <- err:
+						default:
+						}
+					}
+				}
+			}
+		}()
+	}
+
+	// Helper to clean up workers
+	teardown := func() {
+		close(jobs)
+		wg.Wait()
+	}
 
 	for {
 		header, err := tr.Next()
@@ -113,17 +158,28 @@ func (f *FSM) restore(rc io.Reader) error {
 			break
 		}
 		if err != nil {
+			teardown()
 			return err
+		}
+
+		// Check for error from workers
+		select {
+		case err := <-errCh:
+			teardown()
+			return err
+		default:
 		}
 
 		// Sanity check: limit entry size to 10MB to prevent OOM/Zip Bomb
 		if header.Size > 10*1024*1024 {
+			teardown()
 			return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
 		}
 
 		if header.Name == "manifest.json" {
 			var manifest snapshotManifest
 			if err := json.NewDecoder(tr).Decode(&manifest); err != nil {
+				teardown()
 				return err
 			}
 			for k, v := range manifest.NodeMap {
@@ -132,6 +188,35 @@ func (f *FSM) restore(rc io.Reader) error {
 			if manifest.Initialized {
 				f.setInitialized()
 			}
+
+			// Smart Snapshot Logic: Check if we can skip restore
+			if f.IsInitialized() && f.storage != nil {
+				var state map[string]any
+				if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
+					var localIndex uint64
+					if v, ok := state["lastAppliedIndex"]; ok {
+						switch val := v.(type) {
+						case float64:
+							localIndex = uint64(val)
+						case int:
+							localIndex = uint64(val)
+						case int64:
+							localIndex = uint64(val)
+						case uint64:
+							localIndex = val
+						}
+					}
+
+					if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
+						log.Printf("Smart Restore: Local state (Index %d) is fresh enough for Snapshot (Index %d). Skipping restore.", localIndex, manifest.RaftIndex)
+						shouldSkipRestore = true
+					}
+				}
+			}
+			continue
+		}
+
+		if shouldSkipRestore {
 			continue
 		}
 
@@ -147,7 +232,11 @@ func (f *FSM) restore(rc io.Reader) error {
 				log.Printf("Restore: Loaded game %s with %d actions from snapshot", g.ID, len(g.ActionLog))
 			}
 			processedGames[g.ID] = true
-			if err := f.gs.SaveGame(&g); err != nil {
+
+			select {
+			case jobs <- &g:
+			case err := <-errCh:
+				teardown()
 				return err
 			}
 		} else if strings.HasPrefix(header.Name, "teams/") {
@@ -157,33 +246,54 @@ func (f *FSM) restore(rc io.Reader) error {
 				continue
 			}
 			processedTeams[t.ID] = true
-			if err := f.ts.SaveTeam(&t); err != nil {
+
+			select {
+			case jobs <- &t:
+			case err := <-errCh:
+				teardown()
 				return err
 			}
 		}
+	}
+
+	teardown()
+	select {
+	case err := <-errCh:
+		return err
+	default:
 	}
 
 	// Persist learned node metadata to disk to ensure peer availability immediately
 	// upon next restart, even before Raft log replay.
 	f.saveNodes()
 
-	// 6. Cleanup: Delete local files not in snapshot
-	for g, err := range f.gs.ListAllGames() {
-		if err == nil {
-			if !processedGames[g.ID] {
-				log.Printf("Cleanup: Deleting zombie game %s after restore", g.ID)
-				f.gs.DeleteGame(g.ID)
-			}
-		}
+	if shouldSkipRestore {
+		return nil
 	}
 
-	for t, err := range f.ts.ListAllTeams() {
-		if err == nil {
-			if !processedTeams[t.ID] {
-				log.Printf("Cleanup: Deleting zombie team %s after restore", t.ID)
-				f.ts.DeleteTeam(t.ID)
+	// 6. Cleanup: Delete local files not in snapshot
+	gameIDs, err := f.gs.ListAllGameIDs()
+	if err == nil {
+		for _, id := range gameIDs {
+			if !processedGames[id] {
+				log.Printf("Cleanup: Deleting zombie game %s after restore", id)
+				f.gs.DeleteGame(id)
 			}
 		}
+	} else {
+		log.Printf("Cleanup Warning: failed to list games: %v", err)
+	}
+
+	teamIDs, err := f.ts.ListAllTeamIDs()
+	if err == nil {
+		for _, id := range teamIDs {
+			if !processedTeams[id] {
+				log.Printf("Cleanup: Deleting zombie team %s after restore", id)
+				f.ts.DeleteTeam(id)
+			}
+		}
+	} else {
+		log.Printf("Cleanup Warning: failed to list teams: %v", err)
 	}
 
 	return nil

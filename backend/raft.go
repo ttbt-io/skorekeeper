@@ -314,6 +314,7 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	// To be safe and consistent with the plan:
 	rm.NodeID = hex.EncodeToString(rm.PubKey[:8])
 	log.Printf("NodeID: %s", rm.NodeID)
+	log.Printf("PublicKey: %s", base64.StdEncoding.EncodeToString(rm.PubKey))
 	rm.nodeAddrMap.Store(raft.ServerID(rm.NodeID), rm.ClusterAdvertise)
 
 	config := raft.DefaultConfig()
@@ -335,7 +336,7 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	config.SnapshotThreshold = 20480
 
 	//config.ShutdownOnRemove = true
-	config.NoSnapshotRestoreOnStart = true
+	//config.NoSnapshotRestoreOnStart = true
 	config.LogLevel = "INFO"
 	config.MaxAppendEntries = 200
 	if rm.LogOutput != nil {
@@ -549,7 +550,9 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 
 	// Store own HTTP address locally as fallback/immediate
 	// Note: We store ClusterAddr as the HttpAddr for internal communication
-	rm.FSM.applyNodeMeta(rm.NodeID, []byte(fmt.Sprintf(`{"httpAddr":"%s"}`, rm.ClusterAdvertise)))
+	metaJSON := fmt.Sprintf(`{"httpAddr":"%s","pubKey":"%s"}`,
+		rm.ClusterAdvertise, base64.StdEncoding.EncodeToString(rm.PubKey))
+	rm.FSM.applyNodeMeta(rm.NodeID, []byte(metaJSON))
 	go rm.monitorConfiguration()
 
 	return nil
@@ -1405,7 +1408,13 @@ func (rm *RaftManager) verifyPeerCertificate(rawCerts [][]byte, verifiedChains [
 			}
 			return nil
 		}
-		return fmt.Errorf("unknown node %s", nodeID)
+		// Debugging unknown node
+		known := rm.FSM.GetAllNodes()
+		keys := make([]string, 0, len(known))
+		for k := range known {
+			keys = append(keys, k)
+		}
+		return fmt.Errorf("unknown node %s (known: %v, initialized: %v, bootstrap: %v)", nodeID, keys, rm.FSM.IsInitialized(), rm.Bootstrap)
 	}
 
 	expectedPubKey, err := base64.StdEncoding.DecodeString(expectedPubKeyBase64)
