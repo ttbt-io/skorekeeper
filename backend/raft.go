@@ -550,7 +550,7 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 
 	// Store own HTTP address locally as fallback/immediate
 	// Note: We store ClusterAddr as the HttpAddr for internal communication
-	metaJSON := fmt.Sprintf(`{"httpAddr":"%s","pubKey":"%s"}`, 
+	metaJSON := fmt.Sprintf(`{"httpAddr":"%s","pubKey":"%s"}`,
 		rm.ClusterAdvertise, base64.StdEncoding.EncodeToString(rm.PubKey))
 	rm.FSM.applyNodeMeta(rm.NodeID, []byte(metaJSON))
 	go rm.monitorConfiguration()

@@ -114,149 +114,149 @@ func (f *FSM) restore(rc io.Reader) error {
 	errCh := make(chan error, 1) // Buffered 1 is enough for first error
 	var wg sync.WaitGroup
 
-		// Start Workers
-		for i := 0; i < numWorkers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for job := range jobs {
-					select {
-					case <-errCh:
-						return // Stop if error exists
-					default:
-					}
-	
-					switch v := job.(type) {
-					case *Game:
-						if err := f.gs.RestoreGame(v); err != nil {
-							select {
-							case errCh <- err:
-							default:
-							}
+	// Start Workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				select {
+				case <-errCh:
+					return // Stop if error exists
+				default:
+				}
+
+				switch v := job.(type) {
+				case *Game:
+					if err := f.gs.RestoreGame(v); err != nil {
+						select {
+						case errCh <- err:
+						default:
 						}
-					case *Team:
-						if err := f.ts.RestoreTeam(v); err != nil {
-							select {
-							case errCh <- err:
-							default:
-							}
+					}
+				case *Team:
+					if err := f.ts.RestoreTeam(v); err != nil {
+						select {
+						case errCh <- err:
+						default:
 						}
 					}
 				}
-			}()
-		}
-	
-		// Helper to clean up workers
-		teardown := func() {
-			close(jobs)
-			wg.Wait()
-		}
-	
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
 			}
-			if err != nil {
+		}()
+	}
+
+	// Helper to clean up workers
+	teardown := func() {
+		close(jobs)
+		wg.Wait()
+	}
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			teardown()
+			return err
+		}
+
+		// Check for error from workers
+		select {
+		case err := <-errCh:
+			teardown()
+			return err
+		default:
+		}
+
+		// Sanity check: limit entry size to 10MB to prevent OOM/Zip Bomb
+		if header.Size > 10*1024*1024 {
+			teardown()
+			return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
+		}
+
+		if header.Name == "manifest.json" {
+			var manifest snapshotManifest
+			if err := json.NewDecoder(tr).Decode(&manifest); err != nil {
 				teardown()
 				return err
 			}
-	
-			// Check for error from workers
+			for k, v := range manifest.NodeMap {
+				f.nodeMap.Store(k, v)
+			}
+			if manifest.Initialized {
+				f.setInitialized()
+			}
+
+			// Smart Snapshot Logic: Check if we can skip restore
+			if f.IsInitialized() && f.storage != nil {
+				var state map[string]any
+				if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
+					var localIndex uint64
+					if v, ok := state["lastAppliedIndex"]; ok {
+						switch val := v.(type) {
+						case float64:
+							localIndex = uint64(val)
+						case int:
+							localIndex = uint64(val)
+						case int64:
+							localIndex = uint64(val)
+						case uint64:
+							localIndex = val
+						}
+					}
+
+					if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
+						log.Printf("Smart Restore: Local state (Index %d) is fresh enough for Snapshot (Index %d). Skipping restore.", localIndex, manifest.RaftIndex)
+						shouldSkipRestore = true
+					}
+				}
+			}
+			continue
+		}
+
+		if shouldSkipRestore {
+			continue
+		}
+
+		if strings.HasPrefix(header.Name, "games/") {
+			var g Game
+			if err := json.NewDecoder(tr).Decode(&g); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal game %s: %v", header.Name, err)
+				continue
+			}
+			if len(g.ActionLog) == 0 {
+				log.Printf("Restore: Loaded game %s with EMPTY ActionLog from snapshot!", g.ID)
+			} else {
+				log.Printf("Restore: Loaded game %s with %d actions from snapshot", g.ID, len(g.ActionLog))
+			}
+			processedGames[g.ID] = true
+
 			select {
+			case jobs <- &g:
 			case err := <-errCh:
 				teardown()
 				return err
-			default:
 			}
-	
-			// Sanity check: limit entry size to 10MB to prevent OOM/Zip Bomb
-			if header.Size > 10*1024*1024 {
+		} else if strings.HasPrefix(header.Name, "teams/") {
+			var t Team
+			if err := json.NewDecoder(tr).Decode(&t); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal team %s: %v", header.Name, err)
+				continue
+			}
+			processedTeams[t.ID] = true
+
+			select {
+			case jobs <- &t:
+			case err := <-errCh:
 				teardown()
-				return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
-			}
-	
-			if header.Name == "manifest.json" {
-				var manifest snapshotManifest
-				if err := json.NewDecoder(tr).Decode(&manifest); err != nil {
-					teardown()
-					return err
-				}
-				for k, v := range manifest.NodeMap {
-					f.nodeMap.Store(k, v)
-				}
-				if manifest.Initialized {
-					f.setInitialized()
-				}
-	
-				// Smart Snapshot Logic: Check if we can skip restore
-				if f.IsInitialized() && f.storage != nil {
-					var state map[string]any
-					if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
-						var localIndex uint64
-						if v, ok := state["lastAppliedIndex"]; ok {
-							switch val := v.(type) {
-							case float64:
-								localIndex = uint64(val)
-							case int:
-								localIndex = uint64(val)
-							case int64:
-								localIndex = uint64(val)
-							case uint64:
-								localIndex = val
-							}
-						}
-	
-						if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
-							log.Printf("Smart Restore: Local state (Index %d) is fresh enough for Snapshot (Index %d). Skipping restore.", localIndex, manifest.RaftIndex)
-							shouldSkipRestore = true
-						}
-					}
-				}
-				continue
-			}
-	
-			if shouldSkipRestore {
-				continue
-			}
-	
-			if strings.HasPrefix(header.Name, "games/") {
-				var g Game
-				if err := json.NewDecoder(tr).Decode(&g); err != nil {
-					log.Printf("Restore Warning: failed to unmarshal game %s: %v", header.Name, err)
-					continue
-				}
-				if len(g.ActionLog) == 0 {
-					log.Printf("Restore: Loaded game %s with EMPTY ActionLog from snapshot!", g.ID)
-				} else {
-					log.Printf("Restore: Loaded game %s with %d actions from snapshot", g.ID, len(g.ActionLog))
-				}
-				processedGames[g.ID] = true
-				
-				select {
-				case jobs <- &g:
-				case err := <-errCh:
-					teardown()
-					return err
-				}
-			} else if strings.HasPrefix(header.Name, "teams/") {
-				var t Team
-				if err := json.NewDecoder(tr).Decode(&t); err != nil {
-					log.Printf("Restore Warning: failed to unmarshal team %s: %v", header.Name, err)
-					continue
-				}
-				processedTeams[t.ID] = true
-				
-				select {
-				case jobs <- &t:
-				case err := <-errCh:
-					teardown()
-					return err
-				}
+				return err
 			}
 		}
-	
-		teardown()
+	}
+
+	teardown()
 	select {
 	case err := <-errCh:
 		return err
