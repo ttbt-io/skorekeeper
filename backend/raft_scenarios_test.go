@@ -24,14 +24,16 @@ import (
 		nodeDirs := make(map[string]string)
 		nodePorts := make(map[string]int)
 	
-		// Helper: Get free port
-		getFreePort := func() int {
-			l, _ := net.Listen("tcp", "127.0.0.1:0")
-			defer l.Close()
-			return l.Addr().(*net.TCPAddr).Port
-		}
-	
-		// Helper: Create/Start Node
+			// Helper: Get free port
+			getFreePort := func() int {
+				l, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatalf("getFreePort: could not get free port: %v", err)
+				}
+				defer l.Close()
+				return l.Addr().(*net.TCPAddr).Port
+			}
+				// Helper: Create/Start Node
 		startNode := func(id string, bootstrap bool) *RaftManager {
 			mu.Lock()
 			defer mu.Unlock()
@@ -187,7 +189,10 @@ time.Sleep(2 * time.Second) // Wait for cluster form
 	// Create G1
 	createGame := func(leader *RaftManager, id string) {
 		g := &Game{ID: id, ActionLog: []json.RawMessage{}}
-		data, _ := json.Marshal(g)
+		data, err := json.Marshal(g)
+		if err != nil {
+			t.Fatalf("failed to marshal game %s: %v", id, err)
+		}
 		raw := json.RawMessage(data)
 		cmd := RaftCommand{Type: CmdSaveGame, ID: id, GameData: &raw}
 		if _, err := leader.Propose(cmd); err != nil {

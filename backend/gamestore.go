@@ -102,6 +102,24 @@ func (g *Game) normalize() {
 	}
 }
 
+func (g *Game) Metadata() *GameMetadata {
+	return &GameMetadata{
+		ID:            g.ID,
+		SchemaVersion: g.SchemaVersion,
+		Date:          g.Date,
+		Location:      g.Location,
+		Event:         g.Event,
+		Away:          g.Away,
+		Home:          g.Home,
+		OwnerID:       g.OwnerID,
+		Permissions:   g.Permissions,
+		AwayTeamID:    g.AwayTeamID,
+		HomeTeamID:    g.HomeTeamID,
+		Status:        g.Status,
+		DeletedAt:     g.DeletedAt,
+	}
+}
+
 // GameStore manages game persistence to disk.
 type GameStore struct {
 	DataDir string
@@ -148,22 +166,8 @@ func (gs *GameStore) SaveGame(game *Game) error {
 	}
 
 	// Save Metadata Sidecar
-	meta := GameMetadata{
-		ID:            game.ID,
-		SchemaVersion: game.SchemaVersion,
-		Date:          game.Date,
-		Location:      game.Location,
-		Event:         game.Event,
-		Away:          game.Away,
-		Home:          game.Home,
-		OwnerID:       game.OwnerID,
-		Permissions:   game.Permissions,
-		AwayTeamID:    game.AwayTeamID,
-		HomeTeamID:    game.HomeTeamID,
-		Status:        game.Status,
-		DeletedAt:     game.DeletedAt,
-	}
-	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
+	meta := game.Metadata()
+	if err := gs.storage.SaveDataFile(metaFilename, meta); err != nil {
 		log.Printf("Warning: Failed to save metadata sidecar for game %s: %v", gameId, err)
 		// Non-fatal, we can fall back to main file, but we must remove the stale meta file to force that fallback.
 		if rmErr := os.Remove(filepath.Join(gs.DataDir, metaFilename)); rmErr != nil && !os.IsNotExist(rmErr) {
@@ -189,6 +193,13 @@ func (gs *GameStore) SaveGame(game *Game) error {
 // This is used during Raft snapshot restore to prevent OOM.
 func (gs *GameStore) RestoreGame(game *Game) error {
 	gameId := game.ID
+	// Get or create a mutex for this specific game
+	m, _ := gs.mu.LoadOrStore(gameId, &sync.RWMutex{})
+	mutex := m.(*sync.RWMutex)
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	encodedGameId := url.PathEscape(gameId)
 	filename := filepath.Join("games", fmt.Sprintf("%s.json", encodedGameId))
 	metaFilename := filepath.Join("games", fmt.Sprintf("%s.meta.json", encodedGameId))
@@ -205,22 +216,8 @@ func (gs *GameStore) RestoreGame(game *Game) error {
 	gs.cache.Delete(gameId)
 
 	// Save Metadata Sidecar
-	meta := GameMetadata{
-		ID:            game.ID,
-		SchemaVersion: game.SchemaVersion,
-		Date:          game.Date,
-		Location:      game.Location,
-		Event:         game.Event,
-		Away:          game.Away,
-		Home:          game.Home,
-		OwnerID:       game.OwnerID,
-		Permissions:   game.Permissions,
-		AwayTeamID:    game.AwayTeamID,
-		HomeTeamID:    game.HomeTeamID,
-		Status:        game.Status,
-		DeletedAt:     game.DeletedAt,
-	}
-	if err := gs.storage.SaveDataFile(metaFilename, &meta); err != nil {
+	meta := game.Metadata()
+	if err := gs.storage.SaveDataFile(metaFilename, meta); err != nil {
 		log.Printf("Warning: Failed to save metadata sidecar during restore for game %s: %v", gameId, err)
 	}
 
