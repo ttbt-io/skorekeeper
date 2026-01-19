@@ -295,7 +295,11 @@ export class RunnerManager {
                         shouldAdvance = true; // Hits/Sacrifices advance everyone by default
                     } else {
                         // Ground Outs / Dropped 3rd / FC / Error -> Only advance forced runners
-                        if (r.base >= 0 && r.base <= 2 && forced[r.base]) {
+                        // EXCEPTION: Generic Outs (Out, Int, BOO, etc) should NOT advance runners
+                        // These are typically procedural outs where runners stay put unless explicit action is taken.
+                        const isGenericOut = bip.res === 'Out' && ['Out', 'Int', 'BOO', 'SO', 'Interference'].includes(bip.type);
+
+                        if (!isGenericOut && r.base >= 0 && r.base <= 2 && forced[r.base]) {
                             shouldAdvance = true;
                         }
                     }
