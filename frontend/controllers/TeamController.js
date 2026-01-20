@@ -225,13 +225,7 @@ export class TeamController {
             if (item._source === 'remote') {
                 status = SyncStatusRemoteOnly;
             } else if (isDirty) {
-                status = SyncStatusLocalOnly; // Teams use "LocalOnly" style for pending push usually? Or Unsynced?
-                // Constants: LocalOnly, RemoteOnly, Synced, Syncing, Error. "Unsynced" is not in import list for TeamController?
-                // Importing Unsynced if needed. Actually TeamController imports:
-                // SyncStatusSynced, SyncStatusLocalOnly, SyncStatusSyncing, SyncStatusError, SyncStatusRemoteOnly.
-                // It does NOT import SyncStatusUnsynced.
-                // I should use SyncStatusLocalOnly to indicate "needs sync" or add SyncStatusUnsynced.
-                // Reusing SyncStatusLocalOnly for "Modified/Dirty" is acceptable for Teams UI context usually.
+                status = SyncStatusLocalOnly;
             } else if (item._source === 'local') {
                 if (!navigator.onLine) {
                     status = SyncStatusSynced;

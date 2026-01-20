@@ -68,7 +68,6 @@ func TestSyncStatusIndicators(t *testing.T) {
 		}),
 		// Go to Dashboard
 		chromedp.ActionFunc(OpenSidebar),
-		chromedp.Sleep(500*time.Millisecond),
 		chromedp.Click("#sidebar-btn-dashboard"),
 		chromedp.WaitVisible("#game-list"),
 		// Check Status: Synced (Green check)
@@ -137,7 +136,7 @@ func TestSyncStatusIndicators(t *testing.T) {
 				})()
 			`, gameID), nil).Do(ctx)
 		}),
-		chromedp.Sleep(2*time.Second), // Wait for sync
+		chromedp.WaitVisible(fmt.Sprintf(`//div[@data-game-id='%s']//button[contains(., '✅')]`, gameID), chromedp.BySearch),
 		// Check Status: Synced (✅)
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return chromedp.Evaluate(fmt.Sprintf(`
