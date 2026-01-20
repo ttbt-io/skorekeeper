@@ -19,6 +19,7 @@ import {
     SyncStatusLocalOnly,
 } from '../constants.js';
 import { parseQuery } from '../utils/searchParser.js';
+import { PullToRefresh } from '../ui/pullToRefresh.js';
 
 export class DashboardController {
     constructor(app) {
@@ -44,8 +45,9 @@ export class DashboardController {
      * Loads the dashboard view.
      * Starts async loading of local and remote data.
      * Returns immediately after initial setup.
+     * @param {boolean} [force=false] - If true, clears local state and forces a fresh load.
      */
-    async loadDashboard() {
+    async loadDashboard(force = false) {
         this.app.state.games = [];
         this.app.state.view = 'dashboard';
 
@@ -68,6 +70,11 @@ export class DashboardController {
         const parsedQ = parseQuery(this.query);
         const isLocalOnly = parsedQ.filters.some(f => f.key === 'is' && f.value === 'local');
         if (this.app.auth.getUser() && !isLocalOnly) {
+            // Reset remote offset if forcing refresh
+            if (force) {
+                this.remoteOffset = 0;
+                this.remoteHasMore = true;
+            }
             this.fetchNextRemoteBatch();
             localLoadPromise.then(() => this.checkDeletions());
         }
@@ -75,11 +82,23 @@ export class DashboardController {
 
     bindScrollEvent() {
         const container = document.getElementById('game-list-container');
-        if (container && !this.scrollBound) {
+        if (!container) {
+            return;
+        }
+
+        if (!this.scrollBound) {
             container.addEventListener('scroll', () => {
                 this.handleScroll(container);
             });
             this.scrollBound = true;
+        }
+
+        // Initialize PullToRefresh
+        if (!container.dataset.ptrInitialized) {
+            new PullToRefresh(container, async() => {
+                await this.loadDashboard(true);
+            });
+            container.dataset.ptrInitialized = 'true';
         }
     }
 
