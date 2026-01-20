@@ -45,7 +45,6 @@ export class DashboardController {
      * Loads the dashboard view.
      * Starts async loading of local and remote data.
      * Returns immediately after initial setup.
-     * @param {boolean} [force=false] - If true, clears local state and forces a fresh load.
      */
     async loadDashboard() {
         this.app.state.games = [];
