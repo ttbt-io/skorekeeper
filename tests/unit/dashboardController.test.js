@@ -163,6 +163,20 @@ describe('DashboardController', () => {
             expect(mockApp.db.deleteGame).toHaveBeenCalledWith('g1');
             expect(mockApp.state.games.length).toBe(0);
         });
+
+        test('should treat local-only games as synced when server is unreachable', async() => {
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01', source: 'local' }]);
+            mockApp.sync.isServerUnreachable = true;
+            // Ensure navigator.onLine is true to isolate isServerUnreachable effect
+            Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+
+            await controller.loadDashboard();
+            await flushPromises();
+
+            expect(mockApp.state.games.length).toBe(1);
+            expect(mockApp.state.games[0].id).toBe('g1');
+            expect(mockApp.state.games[0].syncStatus).toBe(SyncStatusSynced);
+        });
     });
 
     describe('handleScroll', () => {
