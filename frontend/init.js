@@ -20,7 +20,11 @@ if ('serviceWorker' in navigator) {
             .then((registration) => {
                 console.log('ServiceWorker registration successful with scope: ', registration.scope);
                 // Try to update the service worker on every page load
-                registration.update();
+                registration.update().catch(err => {
+                    // Swallow the error to prevent the global error handler from showing a modal.
+                    // This often happens in dev environments or when offline.
+                    console.warn('ServiceWorker update failed:', err);
+                });
             })
             .catch((err) => {
                 console.log('ServiceWorker registration failed: ', err);
