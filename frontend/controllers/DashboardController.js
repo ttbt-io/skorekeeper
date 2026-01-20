@@ -47,7 +47,7 @@ export class DashboardController {
      * Returns immediately after initial setup.
      * @param {boolean} [force=false] - If true, clears local state and forces a fresh load.
      */
-    async loadDashboard(force = false) {
+    async loadDashboard() {
         this.app.state.games = [];
         this.app.state.view = 'dashboard';
 
@@ -70,11 +70,6 @@ export class DashboardController {
         const parsedQ = parseQuery(this.query);
         const isLocalOnly = parsedQ.filters.some(f => f.key === 'is' && f.value === 'local');
         if (this.app.auth.getUser() && !isLocalOnly) {
-            // Reset remote offset if forcing refresh
-            if (force) {
-                this.remoteOffset = 0;
-                this.remoteHasMore = true;
-            }
             this.fetchNextRemoteBatch();
             localLoadPromise.then(() => this.checkDeletions());
         }
@@ -86,10 +81,11 @@ export class DashboardController {
             return;
         }
 
-        if (!this.scrollBound) {
+        if (!container.dataset.scrollBound) {
             container.addEventListener('scroll', () => {
                 this.handleScroll(container);
             });
+            container.dataset.scrollBound = 'true';
             this.scrollBound = true;
         }
 

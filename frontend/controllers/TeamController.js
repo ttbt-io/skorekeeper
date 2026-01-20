@@ -52,7 +52,7 @@ export class TeamController {
      * Returns immediately after initial setup.
      * @param {boolean} [force=false] - If true, clears state and forces fresh load.
      */
-    async loadTeamsView(force = false) {
+    async loadTeamsView() {
         this.app.state.teams = [];
         this.app.state.view = 'teams';
         window.location.hash = 'teams';
@@ -74,11 +74,6 @@ export class TeamController {
 
         // Only fetch remote if logged in
         if (this.app.auth.getUser()) {
-            // Reset remote offset if forcing
-            if (force) {
-                this.remoteOffset = 0;
-                this.remoteHasMore = true;
-            }
             this.fetchNextRemoteBatch();
             localLoadPromise.then(() => this.checkDeletions());
         }
@@ -86,17 +81,19 @@ export class TeamController {
 
     bindScrollEvent() {
         const container = document.getElementById('teams-list-container');
-        if (container && !this.scrollBound) {
+        if (container && !container.dataset.scrollBound) {
             container.addEventListener('scroll', () => {
                 this.handleScroll(container);
             });
+            container.dataset.scrollBound = 'true';
+            this.scrollBound = true;
+        }
 
+        if (container) {
             // Initialize PullToRefresh
             new PullToRefresh(container, async() => {
                 await this.loadTeamsView(true);
             });
-
-            this.scrollBound = true;
         }
     }
 
