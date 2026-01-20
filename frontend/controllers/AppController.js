@@ -1512,8 +1512,8 @@ export class AppController {
                 // Sanitize via Game model
                 const sanitizedGame = new Game(remoteData).toJSON();
 
-                // Save locally
-                await this.db.saveGame(sanitizedGame);
+                // Save locally (clean, as it matches remote)
+                await this.db.saveGame(sanitizedGame, false);
             } else {
                 // PUSH: Save to server
                 // We load the FULL game from DB to push it
@@ -1529,6 +1529,7 @@ export class AppController {
                     if (!response.ok) {
                         throw new Error('Save failed');
                     }
+                    await this.db.markClean(gameId, 'games');
                 }
             }
             // Refresh dashboard to show new status

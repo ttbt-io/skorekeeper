@@ -55,6 +55,14 @@ function updateSW() {
         .filter(name => name.endsWith('.js'))
         .map(name => './ui/' + name);
 
+    const utilFiles = fs.readdirSync(path.join(FRONTEND, 'utils'))
+        .filter(name => name.endsWith('.js'))
+        .map(name => './utils/' + name);
+
+    const vendorFiles = fs.readdirSync(path.join(FRONTEND, 'vendor'))
+        .filter(name => name.endsWith('.js') || name.endsWith('.mjs'))
+        .map(name => './vendor/' + name);
+
     const cssFiles = ['./css/style.css'];
     const ssoFiles = ['./.sso/proxy.mjs'];
 
@@ -68,6 +76,8 @@ function updateSW() {
         ...serviceFiles,
         ...gameFiles,
         ...uiFiles,
+        ...utilFiles,
+        ...vendorFiles,
         ...ssoFiles,
     ].sort();
 

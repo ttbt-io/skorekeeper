@@ -229,13 +229,29 @@ export class DashboardController {
             // Note: If it came from local buffer, it has revision. If from remote, it has revision.
             const localRev = localItem ? (this.localRevisions.get(localItem.id) || '') : '';
             const remoteRev = remoteItem ? remoteItem.revision : '';
+            const isDirty = localItem && localItem._dirty;
 
             if (item._source === 'remote') {
                 status = SyncStatusRemoteOnly;
+            } else if (isDirty) {
+                if (item._source === 'local') {
+                    status = SyncStatusLocalOnly;
+                } else {
+                    status = SyncStatusUnsynced;
+                }
             } else if (item._source === 'local') {
-                status = SyncStatusLocalOnly;
-            } else if (localRev !== remoteRev) {
-                status = SyncStatusUnsynced;
+                // Local only, not dirty.
+                // If offline, treat as cached (Synced).
+                // If online, it might be a new local item that was marked clean? (Unlikely)
+                // Or a zombie.
+                if (!navigator.onLine) {
+                    status = SyncStatusSynced;
+                } else {
+                    status = SyncStatusLocalOnly;
+                }
+            } else {
+                // Both exist and !dirty
+                status = SyncStatusSynced;
             }
 
             // Prefer local item if unsynced (show pending changes), otherwise prefer remote (latest source of truth)

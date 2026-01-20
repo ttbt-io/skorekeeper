@@ -540,7 +540,11 @@ export class SyncManager {
             case 'ACK':
                 console.log('WS ACK received');
                 this.isSyncingHistory = false;
-                this.setStatus('synced'); // Assuming ACK means we are synced with server's head
+                // Only mark clean if we have no more pending actions for this game
+                if (this.pendingActionIds.size === 0) {
+                    this.setStatus('synced');
+                    this.app.db.markClean(this.gameId, 'games');
+                }
                 this.processHttpQueue();
                 break;
 
@@ -575,6 +579,7 @@ export class SyncManager {
                     // If we have no more pending actions, we are fully synced
                     if (this.pendingActionIds.size === 0) {
                         this.setStatus('synced');
+                        this.app.db.markClean(this.gameId, 'games');
                     }
                 }
                 break;
