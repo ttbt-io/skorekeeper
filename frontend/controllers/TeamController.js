@@ -258,7 +258,7 @@ export class TeamController {
             } else if (isDirty) {
                 status = SyncStatusLocalOnly;
             } else if (item._source === 'local') {
-                if (!navigator.onLine) {
+                if (!navigator.onLine || this.app.sync.isServerUnreachable) {
                     status = SyncStatusSynced;
                 } else {
                     status = SyncStatusLocalOnly;

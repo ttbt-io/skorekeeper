@@ -28,12 +28,15 @@ describe('DashboardController', () => {
                 getAllTeams: jest.fn().mockResolvedValue([]),
             },
             auth: {
-                getUser: jest.fn(() => ({ email: 'user@example.com' })),
-                accessDeniedMessage: 'Denied',
+                getUser: jest.fn(() => ({ email: 'test@example.com' })),
             },
             sync: {
                 fetchGameList: jest.fn().mockResolvedValue({ data: [] }),
                 checkGameDeletions: jest.fn().mockResolvedValue([]),
+                isServerUnreachable: false,
+            },
+            dashboardRenderer: {
+                render: jest.fn(),
             },
             state: {
                 games: [],

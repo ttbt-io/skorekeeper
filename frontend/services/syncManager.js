@@ -54,10 +54,12 @@ export class SyncManager {
         this.isPaused = false;
         this.isSyncingHistory = false;
         this.queueGeneration = 0; // Generation counter to discard stale results
+        this.isServerUnreachable = false;
 
         // Listen for online event to resume HTTP queue
         window.addEventListener('online', () => {
             console.log('[SyncManager] Online event detected');
+            this.isServerUnreachable = false;
             if (this.shouldReconnect && !this.isConnected) {
                 console.log('[SyncManager] Triggering immediate reconnect');
                 this.connect(this.gameId, null);
@@ -91,6 +93,21 @@ export class SyncManager {
             if (this.onStatusChange) {
                 this.onStatusChange(newStatus);
             }
+        }
+    }
+
+    /**
+     * Helper to classify and handle fetch errors.
+     * Updates sync status to 'disconnected' if the error indicates a network or server issue.
+     * @param {Error} error
+     */
+    handleFetchError(error) {
+        const isNetworkError = error instanceof TypeError;
+        const isServerError = error.message && (error.message.includes('HTTP 5') || error.message.includes('Server returned 5'));
+
+        if (isNetworkError || isServerError) {
+            this.isServerUnreachable = true;
+            this.setStatus('disconnected');
         }
     }
 
@@ -132,6 +149,9 @@ export class SyncManager {
                     error.message = 'status: 403, message: ' + (msg || 'Access denied');
                     throw error;
                 }
+                if (response.status >= 500) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
                 throw new Error(`Server returned ${response.status}`);
             }
 
@@ -143,6 +163,7 @@ export class SyncManager {
             return result;
         } catch (error) {
             console.warn('SyncManager: Error fetching remote game list:', error);
+            this.handleFetchError(error);
             return { data: [], meta: { total: 0 } };
         }
     }
@@ -160,12 +181,16 @@ export class SyncManager {
                 body: JSON.stringify({ gameIds: gameIds }),
             });
             if (!response.ok) {
+                if (response.status >= 500) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
                 return [];
             }
             const result = await response.json();
             return result.deletedGameIds || [];
         } catch (error) {
             console.warn('SyncManager: Error checking game deletions:', error);
+            this.handleFetchError(error);
             return [];
         }
     }
@@ -497,6 +522,8 @@ export class SyncManager {
                 return;
             }
             console.error('HTTP Action Failed', e);
+            this.handleFetchError(e);
+
             // Put the batch back at the front of the queue
             this.httpQueue.unshift(...batchMessages);
 
