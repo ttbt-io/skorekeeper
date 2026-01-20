@@ -163,6 +163,7 @@ export class DashboardRenderer {
                     case 'local_only': icon = '☁️⬆️'; titleAttr = 'Upload to Cloud'; break;
                     case 'remote_only': icon = '☁️⬇️'; titleAttr = 'Download from Cloud'; break;
                     case 'unsynced': icon = '⚠️'; titleAttr = 'Unsynced (Click to Sync)'; break;
+                    case 'conflict': icon = '🛑'; titleAttr = 'Conflict! Click to Resolve'; break;
                     default: icon = '❓';
                 }
 

@@ -61,6 +61,7 @@ export const SyncStatusLocalOnly = 'local_only';
 export const SyncStatusRemoteOnly = 'remote_only';
 export const SyncStatusSyncing = 'syncing';
 export const SyncStatusError = 'error';
+export const SyncStatusConflict = 'conflict';
 
 // Ball in Play (BiP) Results
 export const BiPResultSafe = 'Safe';

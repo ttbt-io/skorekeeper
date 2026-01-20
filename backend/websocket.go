@@ -103,6 +103,7 @@ type HubRequest struct {
 	SkipBroadcast bool             // For Broadcast (overwrites)
 	NumActions    int              // For Broadcast: number of actions to broadcast from the end
 	Reply         chan HubResponse // For HTTP requests (and potentially WS sync)
+	Force         bool             // For HTTP Save (Force Overwrite)
 }
 
 // HubResponse represents a response from the Hub
@@ -203,7 +204,7 @@ func (h *Hub) run() {
 			case ReqTypeHTTPLoad:
 				h.handleHTTPLoad(req.Reply)
 			case ReqTypeHTTPSave:
-				h.handleHTTPSave(req.Payload, req.Reply)
+				h.handleHTTPSave(req.Payload, req.Reply, req.Force)
 			case ReqTypeBroadcast:
 				h.handleBroadcast(req.Payload, req.SkipBroadcast, req.NumActions)
 			}
@@ -843,7 +844,7 @@ func (h *Hub) handleHTTPLoad(reply chan HubResponse) {
 	reply <- HubResponse{Data: data, Error: err}
 }
 
-func (h *Hub) handleHTTPSave(payload []byte, reply chan HubResponse) {
+func (h *Hub) handleHTTPSave(payload []byte, reply chan HubResponse, force bool) {
 	if h.rm != nil {
 		cmdType := CmdSaveGame
 		var cmd RaftCommand
@@ -857,6 +858,7 @@ func (h *Hub) handleHTTPSave(payload []byte, reply chan HubResponse) {
 				Type:     cmdType,
 				ID:       h.resourceId,
 				TeamData: &raw,
+				Force:    force,
 			}
 		} else {
 			raw := json.RawMessage(payload)
@@ -864,6 +866,7 @@ func (h *Hub) handleHTTPSave(payload []byte, reply chan HubResponse) {
 				Type:     cmdType,
 				ID:       h.resourceId,
 				GameData: &raw,
+				Force:    force,
 			}
 		}
 

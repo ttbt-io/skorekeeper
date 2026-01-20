@@ -624,6 +624,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		}
 
 		// Serialize through Hub
+		force := r.URL.Query().Get("force") == "true"
 		hub := hm.GetHub(gameId, false, store, tStore, registry)
 		reply := make(chan HubResponse, 1)
 		select {
@@ -631,6 +632,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			Type:    ReqTypeHTTPSave,
 			Payload: body,
 			Reply:   reply,
+			Force:   force, // Add Force field to HubRequest
 		}:
 			select {
 			case resp := <-reply:
@@ -638,6 +640,11 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 					if errors.Is(resp.Error, ErrNotLeader) && raftMgr != nil {
 						r.Body = io.NopCloser(bytes.NewReader(body))
 						raftMgr.forwardRequestToLeader(w, r)
+						return
+					}
+					if errors.Is(resp.Error, ErrConflict) {
+						log.Printf("Conflict during Hub Save: %v", resp.Error)
+						http.Error(w, "Conflict: "+resp.Error.Error(), http.StatusConflict)
 						return
 					}
 					log.Printf("Internal Server Error during Hub Save: %v", resp.Error)

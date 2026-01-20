@@ -33,6 +33,8 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+var ErrConflict = errors.New("conflict detected")
+
 // FSM implements the raft.FSM interface.
 type FSM struct {
 	gs          *GameStore
@@ -297,7 +299,42 @@ func (f *FSM) applyActions(gameId string, actions []json.RawMessage, index uint6
 	return nil
 }
 
-func (f *FSM) applySaveGame(id string, data []byte, index uint64) error {
+func (f *FSM) checkGameConflict(incoming *Game, existing *Game) error {
+	if len(incoming.ActionLog) < len(existing.ActionLog) {
+		return fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(incoming.ActionLog), len(existing.ActionLog), ErrConflict)
+	}
+
+	for i := 0; i < len(existing.ActionLog); i++ {
+		var exID, inID struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(existing.ActionLog[i], &exID); err != nil {
+			log.Printf("Warning: failed to unmarshal existing action ID at index %d: %v", i, err)
+			continue
+		}
+		if err := json.Unmarshal(incoming.ActionLog[i], &inID); err != nil {
+			log.Printf("Warning: failed to unmarshal incoming action ID at index %d: %v", i, err)
+			continue
+		}
+		if exID.ID != inID.ID {
+			return fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
+		}
+	}
+	return nil
+}
+
+func (f *FSM) repairLastActionID(g *Game) {
+	if g.LastActionID == "" && len(g.ActionLog) > 0 {
+		var act struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
+			g.LastActionID = act.ID
+		}
+	}
+}
+
+func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) error {
 	// Optimization: Load header to check index? Or just unmarshal and overwrite?
 	// If overwrite is older than current state (replayed), we should SKIP?
 	// Yes, strict linearizability.
@@ -313,11 +350,22 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64) error {
 		if index > 0 && index <= existing.LastRaftIndex {
 			return nil
 		}
+
+		// Conflict Detection
+		// If not forced, ensure strictly strictly forward history.
+		if !force {
+			if err := f.checkGameConflict(&g, existing); err != nil {
+				return err
+			}
+		}
 	}
 
 	if index > 0 {
 		g.LastRaftIndex = index
 	}
+
+	// Ensure LastActionID is set (self-repair)
+	f.repairLastActionID(&g)
 
 	if err := f.gs.SaveGame(&g); err != nil {
 		return err
@@ -522,7 +570,7 @@ func (f *FSM) ApplyBatch(logs []*raft.Log) []interface{} {
 func (f *FSM) applyCommand(cmd RaftCommand, index uint64) interface{} {
 	switch cmd.Type {
 	case CmdSaveGame:
-		return f.applySaveGame(cmd.ID, *cmd.GameData, index)
+		return f.applySaveGame(cmd.ID, *cmd.GameData, index, cmd.Force)
 	case CmdApplyAction:
 		if len(cmd.Action.Actions) > 0 {
 			return f.applyActions(cmd.Action.GameID, cmd.Action.Actions, index)
@@ -626,8 +674,21 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 				results[item.index] = err
 				continue
 			}
+
+			// Conflict Detection (same as applySaveGame)
+			if !item.cmd.Force {
+				if err := f.checkGameConflict(&newG, g); err != nil {
+					results[item.index] = err
+					continue
+				}
+			}
+
 			g = &newG
 			g.LastRaftIndex = item.raftIndex
+
+			// Repair LastActionID if needed
+			f.repairLastActionID(g)
+
 			dirty = true
 			deleted = false
 			forceDiskSave = true

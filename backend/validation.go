@@ -736,5 +736,6 @@ func ApplyAction(g *Game, raw json.RawMessage) (bool, error) {
 
 	// Append to log
 	g.ActionLog = append(g.ActionLog, raw)
+	g.LastActionID = action.ID
 	return true, nil
 }

@@ -455,8 +455,8 @@ export class AppController {
 
         try {
             // 1. Force push current local game state to server
-            // Using /api/save because it overwrites the entire log without revision checks.
-            const response = await fetch('/api/save', {
+            // Using /api/save?force=true because it overwrites the entire log without revision checks.
+            const response = await fetch('/api/save?force=true', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1531,10 +1531,20 @@ export class AppController {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(fullGame),
                     });
-                    if (!response.ok) {
+                    if (response.status === 409) {
+                        game.syncStatus = 'conflict';
+                        // We mark it dirty to ensure it stays "Unsynced" or "Conflict" locally?
+                        // Actually, setting syncStatus property directly on the object in state works for the current session render.
+                        // But DashboardController re-calculates status on load.
+                        // Ideally we should persist this "Conflict" state?
+                        // Or just let the user see it now.
+                        console.warn(`Sync Conflict for game ${gameId}`);
+                        // Don't throw error, handled.
+                    } else if (!response.ok) {
                         throw new Error('Save failed');
+                    } else {
+                        await this.db.markClean(gameId, 'games');
                     }
-                    await this.db.markClean(gameId, 'games');
                 }
             }
             // Refresh dashboard to show new status
