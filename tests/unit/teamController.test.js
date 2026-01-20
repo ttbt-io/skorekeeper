@@ -31,6 +31,9 @@ describe('TeamController', () => {
                 getLocalId: jest.fn(() => 'local-123'),
                 isStale: false,
             },
+            sync: {
+                isServerUnreachable: false,
+            },
             teamSync: {
                 fetchTeamList: jest.fn().mockResolvedValue({ data: [] }),
                 checkTeamDeletions: jest.fn().mockResolvedValue([]),

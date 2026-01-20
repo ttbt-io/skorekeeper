@@ -278,10 +278,10 @@ export class DashboardController {
                 }
             } else if (item._source === 'local') {
                 // Local only, not dirty.
-                // If offline, treat as cached (Synced).
+                // If offline or server unreachable, treat as cached (Synced).
                 // If online, it might be a new local item that was marked clean? (Unlikely)
                 // Or a zombie.
-                if (!navigator.onLine) {
+                if (!navigator.onLine || this.app.sync.isServerUnreachable) {
                     status = SyncStatusSynced;
                 } else {
                     status = SyncStatusLocalOnly;
