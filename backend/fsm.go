@@ -299,6 +299,41 @@ func (f *FSM) applyActions(gameId string, actions []json.RawMessage, index uint6
 	return nil
 }
 
+func (f *FSM) checkGameConflict(incoming *Game, existing *Game) error {
+	if len(incoming.ActionLog) < len(existing.ActionLog) {
+		return fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(incoming.ActionLog), len(existing.ActionLog), ErrConflict)
+	}
+
+	for i := 0; i < len(existing.ActionLog); i++ {
+		var exID, inID struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(existing.ActionLog[i], &exID); err != nil {
+			log.Printf("Warning: failed to unmarshal existing action ID at index %d: %v", i, err)
+			continue
+		}
+		if err := json.Unmarshal(incoming.ActionLog[i], &inID); err != nil {
+			log.Printf("Warning: failed to unmarshal incoming action ID at index %d: %v", i, err)
+			continue
+		}
+		if exID.ID != inID.ID {
+			return fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
+		}
+	}
+	return nil
+}
+
+func (f *FSM) repairLastActionID(g *Game) {
+	if g.LastActionID == "" && len(g.ActionLog) > 0 {
+		var act struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
+			g.LastActionID = act.ID
+		}
+	}
+}
+
 func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) error {
 	// Optimization: Load header to check index? Or just unmarshal and overwrite?
 	// If overwrite is older than current state (replayed), we should SKIP?
@@ -319,27 +354,8 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) er
 		// Conflict Detection
 		// If not forced, ensure strictly strictly forward history.
 		if !force {
-			// 1. Check Stale/Fork
-			if len(g.ActionLog) < len(existing.ActionLog) {
-				return fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(g.ActionLog), len(existing.ActionLog), ErrConflict)
-			}
-
-			// 2. Check History Divergence
-			// Scan existing log to ensure it matches the prefix of incoming log
-			// For correctness, we should scan full relevant history.
-			for i := 0; i < len(existing.ActionLog); i++ {
-				var exID, inID struct {
-					ID string `json:"id"`
-				}
-				if err := json.Unmarshal(existing.ActionLog[i], &exID); err != nil {
-					continue
-				}
-				if err := json.Unmarshal(g.ActionLog[i], &inID); err != nil {
-					continue
-				}
-				if exID.ID != inID.ID {
-					return fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
-				}
+			if err := f.checkGameConflict(&g, existing); err != nil {
+				return err
 			}
 		}
 	}
@@ -349,14 +365,7 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) er
 	}
 
 	// Ensure LastActionID is set (self-repair)
-	if g.LastActionID == "" && len(g.ActionLog) > 0 {
-		var act struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
-			g.LastActionID = act.ID
-		}
-	}
+	f.repairLastActionID(&g)
 
 	if err := f.gs.SaveGame(&g); err != nil {
 		return err
@@ -668,29 +677,8 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 
 			// Conflict Detection (same as applySaveGame)
 			if !item.cmd.Force {
-				// g is the CURRENT state (loaded from disk or updated by previous batch items)
-				if len(newG.ActionLog) < len(g.ActionLog) {
-					results[item.index] = fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(newG.ActionLog), len(g.ActionLog), ErrConflict)
-					continue
-				}
-				conflict := false
-				for i := 0; i < len(g.ActionLog); i++ {
-					var exID, inID struct {
-						ID string `json:"id"`
-					}
-					if err := json.Unmarshal(g.ActionLog[i], &exID); err != nil {
-						continue
-					}
-					if err := json.Unmarshal(newG.ActionLog[i], &inID); err != nil {
-						continue
-					}
-					if exID.ID != inID.ID {
-						results[item.index] = fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
-						conflict = true
-						break
-					}
-				}
-				if conflict {
+				if err := f.checkGameConflict(&newG, g); err != nil {
+					results[item.index] = err
 					continue
 				}
 			}
@@ -699,14 +687,7 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 			g.LastRaftIndex = item.raftIndex
 
 			// Repair LastActionID if needed
-			if g.LastActionID == "" && len(g.ActionLog) > 0 {
-				var act struct {
-					ID string `json:"id"`
-				}
-				if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
-					g.LastActionID = act.ID
-				}
-			}
+			f.repairLastActionID(g)
 
 			dirty = true
 			deleted = false
