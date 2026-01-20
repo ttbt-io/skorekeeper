@@ -103,7 +103,7 @@ export class SyncManager {
      */
     handleFetchError(error) {
         const isNetworkError = error instanceof TypeError;
-        const isServerError = error.message && (error.message.includes('HTTP 5') || error.message.includes('Server returned 5'));
+        const isServerError = error.isServerError || (error.message && (error.message.includes('HTTP 5') || error.message.includes('Server returned 5')));
 
         if (isNetworkError || isServerError) {
             this.isServerUnreachable = true;
@@ -149,10 +149,11 @@ export class SyncManager {
                     error.message = 'status: 403, message: ' + (msg || 'Access denied');
                     throw error;
                 }
+                const error = new Error(`Server returned ${response.status}`);
                 if (response.status >= 500) {
-                    throw new Error(`Server returned ${response.status}`);
+                    error.isServerError = true;
                 }
-                throw new Error(`Server returned ${response.status}`);
+                throw error;
             }
 
             const result = await response.json();
@@ -181,10 +182,11 @@ export class SyncManager {
                 body: JSON.stringify({ gameIds: gameIds }),
             });
             if (!response.ok) {
+                const error = new Error(`Server returned ${response.status}`);
                 if (response.status >= 500) {
-                    throw new Error(`Server returned ${response.status}`);
+                    error.isServerError = true;
                 }
-                return [];
+                throw error;
             }
             const result = await response.json();
             return result.deletedGameIds || [];
