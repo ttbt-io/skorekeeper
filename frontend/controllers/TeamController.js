@@ -92,8 +92,31 @@ export class TeamController {
         if (container) {
             // Initialize PullToRefresh
             new PullToRefresh(container, async() => {
-                await this.loadTeamsView(true);
+                await this.refreshTeamsData();
             });
+        }
+    }
+
+    /**
+     * Refreshes the teams data without resetting the view state.
+     */
+    async refreshTeamsData() {
+        // Reset state
+        this.localBuffer = [];
+        this.remoteBuffer = [];
+        this.localMap = new Map();
+        this.syncStatuses = new Map();
+        this.displayLimit = 50;
+        this.remoteOffset = 0;
+        this.remoteHasMore = true;
+
+        // Start independent async streams
+        const localLoadPromise = this.loadAllLocalTeams();
+
+        // Only fetch remote if logged in
+        if (this.app.auth.getUser()) {
+            this.fetchNextRemoteBatch();
+            localLoadPromise.then(() => this.checkDeletions());
         }
     }
 

@@ -12,6 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+const PULL_RESISTANCE_FACTOR = 0.8;
+const INDICATOR_HEIGHT = 40;
+const INDICATOR_MAX_TOP_POSITION = 10;
+const REFRESH_LOCK_POSITION = 50;
+const INDICATOR_REFRESH_TOP_POSITION = 15;
+const INDICATOR_HIDDEN_TOP_POSITION = -40;
+const SNAP_BACK_DURATION_MS = 300;
+const REFRESH_COMPLETION_DELAY_MS = 500;
+const SLOP_THRESHOLD_PX = 10;
+
 /**
  * Handles "Pull to Refresh" functionality for scrollable containers.
  */
@@ -21,11 +31,13 @@ export class PullToRefresh {
      * @param {Function} onRefresh - Async function to call when refresh is triggered.
      * @param {object} options - Optional configuration.
      * @param {number} [options.threshold=70] - Drag distance in pixels to trigger refresh.
+     * @param {string} [options.contentSelector] - Selector for the content element to translate. Defaults to first child.
      */
     constructor(container, onRefresh, options = {}) {
         this.container = container;
         this.onRefresh = onRefresh;
         this.threshold = options.threshold || 70;
+        this.contentSelector = options.contentSelector;
 
         this.startY = 0;
         this.startX = 0;
@@ -45,8 +57,13 @@ export class PullToRefresh {
             this.container.style.position = 'relative';
         }
 
-        // Find the content wrapper. Usually the direct first child.
-        this.content = this.container.firstElementChild;
+        // Find the content wrapper.
+        if (this.contentSelector) {
+            this.content = this.container.querySelector(this.contentSelector);
+        } else {
+            this.content = this.container.firstElementChild;
+        }
+
         if (!this.content) {
             console.warn('PullToRefresh: Container has no content child.');
             return;
@@ -100,7 +117,7 @@ export class PullToRefresh {
         if (diffY > 0 && this.container.scrollTop === 0) {
             // 3. Slop Check: Ignore tiny movements to preserve click events.
             // If we preventDefault on < 10px moves, simple taps can be killed.
-            if (diffY < 10) {
+            if (diffY < SLOP_THRESHOLD_PX) {
                 return;
             }
 
@@ -110,13 +127,13 @@ export class PullToRefresh {
             }
 
             // Apply resistance
-            const pullDistance = Math.pow(diffY, 0.8);
+            const pullDistance = Math.pow(diffY, PULL_RESISTANCE_FACTOR);
 
             // Translate content
             this.content.style.transform = `translateY(${pullDistance}px)`;
 
             // Move indicator into view
-            this.indicator.style.top = `${Math.min(pullDistance - 40, 10)}px`;
+            this.indicator.style.top = `${Math.min(pullDistance - INDICATOR_HEIGHT, INDICATOR_MAX_TOP_POSITION)}px`;
             this.indicator.style.opacity = Math.min(1, pullDistance / this.threshold);
 
             // Rotate arrow based on distance
@@ -140,24 +157,24 @@ export class PullToRefresh {
         const diff = this.currentY - this.startY;
 
         // If movement was minimal (below slop), treat as no-op/click
-        if (diff < 10) {
+        if (diff < SLOP_THRESHOLD_PX) {
             this.isDragging = false;
             // Ensure no lingering transforms from micro-moves
             this.content.style.transform = '';
             return;
         }
 
-        const pullDistance = Math.pow(diff, 0.8);
+        const pullDistance = Math.pow(diff, PULL_RESISTANCE_FACTOR);
         this.isDragging = false;
 
         if (pullDistance > this.threshold) {
             // Trigger Refresh
             this.isRefreshing = true;
-            this.content.style.transition = 'transform 0.3s ease-out';
-            this.content.style.transform = 'translateY(50px)'; // Lock at loading position
+            this.content.style.transition = `transform ${SNAP_BACK_DURATION_MS/1000}s ease-out`;
+            this.content.style.transform = `translateY(${REFRESH_LOCK_POSITION}px)`; // Lock at loading position
 
-            this.indicator.style.transition = 'top 0.3s ease-out';
-            this.indicator.style.top = '15px';
+            this.indicator.style.transition = `top ${SNAP_BACK_DURATION_MS/1000}s ease-out`;
+            this.indicator.style.top = `${INDICATOR_REFRESH_TOP_POSITION}px`;
 
             const arrow = this.indicator.querySelector('svg');
             const spinner = this.indicator.querySelector('.refresh-spinner');
@@ -178,17 +195,17 @@ export class PullToRefresh {
     }
 
     snapBack() {
-        this.content.style.transition = 'transform 0.3s ease-out';
+        this.content.style.transition = `transform ${SNAP_BACK_DURATION_MS/1000}s ease-out`;
         this.content.style.transform = 'translateY(0)';
-        this.indicator.style.transition = 'top 0.3s ease-out, opacity 0.3s';
-        this.indicator.style.top = '-40px';
+        this.indicator.style.transition = `top ${SNAP_BACK_DURATION_MS/1000}s ease-out, opacity ${SNAP_BACK_DURATION_MS/1000}s`;
+        this.indicator.style.top = `${INDICATOR_HIDDEN_TOP_POSITION}px`;
         this.indicator.style.opacity = '0';
 
         setTimeout(() => {
             this.content.style.transition = '';
             this.indicator.style.transition = '';
             this.content.style.transform = '';
-        }, 300);
+        }, SNAP_BACK_DURATION_MS);
     }
 
     complete() {
@@ -202,6 +219,6 @@ export class PullToRefresh {
 
             this.isRefreshing = false;
             this.snapBack();
-        }, 500);
+        }, REFRESH_COMPLETION_DELAY_MS);
     }
 }

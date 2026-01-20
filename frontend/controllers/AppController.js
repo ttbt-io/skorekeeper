@@ -5331,11 +5331,18 @@ export class AppController {
         const container = document.getElementById('stats-list-container');
         if (container && !container.dataset.ptrInitialized) {
             new PullToRefresh(container, async() => {
-                await this.loadStatisticsView();
+                await this.refreshStatisticsData();
             });
             container.dataset.ptrInitialized = 'true';
         }
 
+        await this.refreshStatisticsData();
+    }
+
+    /**
+     * Refreshes the statistics data without resetting the view.
+     */
+    async refreshStatisticsData() {
         try {
             if (this.state.teams.length === 0) {
                 this.state.teams = await this.db.getAllTeams();
