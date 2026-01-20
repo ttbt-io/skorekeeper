@@ -22,6 +22,7 @@ import {
     SyncStatusRemoteOnly,
 } from '../constants.js';
 import { parseQuery } from '../utils/searchParser.js';
+import { PullToRefresh } from '../ui/pullToRefresh.js';
 
 export class TeamController {
     constructor(app) {
@@ -33,7 +34,8 @@ export class TeamController {
         this.localMap = new Map();
         this.syncStatuses = new Map();
 
-        this.isLoading = false;        this.isFetchingRemote = false;
+        this.isLoading = false;
+        this.isFetchingRemote = false;
 
         this.query = '';
         this.scrollBound = false;
@@ -48,6 +50,7 @@ export class TeamController {
      * Loads the teams view.
      * Starts async loading of local and remote data.
      * Returns immediately after initial setup.
+     * @param {boolean} [force=false] - If true, clears state and forces fresh load.
      */
     async loadTeamsView() {
         this.app.state.teams = [];
@@ -78,11 +81,42 @@ export class TeamController {
 
     bindScrollEvent() {
         const container = document.getElementById('teams-list-container');
-        if (container && !this.scrollBound) {
+        if (container && !container.dataset.scrollBound) {
             container.addEventListener('scroll', () => {
                 this.handleScroll(container);
             });
+            container.dataset.scrollBound = 'true';
             this.scrollBound = true;
+        }
+
+        if (container) {
+            // Initialize PullToRefresh
+            new PullToRefresh(container, async() => {
+                await this.refreshTeamsData();
+            });
+        }
+    }
+
+    /**
+     * Refreshes the teams data without resetting the view state.
+     */
+    async refreshTeamsData() {
+        // Reset state
+        this.localBuffer = [];
+        this.remoteBuffer = [];
+        this.localMap = new Map();
+        this.syncStatuses = new Map();
+        this.displayLimit = 50;
+        this.remoteOffset = 0;
+        this.remoteHasMore = true;
+
+        // Start independent async streams
+        const localLoadPromise = this.loadAllLocalTeams();
+
+        // Only fetch remote if logged in
+        if (this.app.auth.getUser()) {
+            this.fetchNextRemoteBatch();
+            localLoadPromise.then(() => this.checkDeletions());
         }
     }
 
@@ -136,9 +170,6 @@ export class TeamController {
         this.mergeAndRender();
 
         try {
-            // Note: parseQuery logic is duplicated here for the API call params if needed,
-            // but currently TeamController.js passes query directly?
-            // The original code passed `this.query` to `fetchTeamList`.
             const result = await this.app.teamSync.fetchTeamList({
                 limit: 50,
                 offset: this.remoteOffset,
@@ -333,8 +364,6 @@ export class TeamController {
             this.handleScroll(container);
         }
     }
-
-    // ... (Keep existing methods: syncTeam, openEditTeamModal, switchTeamModalTab, renderTeamMembers, addTeamMember, removeTeamMember, addTeamPlayerRow, closeTeamModal, saveTeam, deleteTeam) ...
 
     /**
      * Synchronizes a specific team with the server.
@@ -610,10 +639,7 @@ export class TeamController {
 
         const team = new Team({
             id,
-            name,
-            shortName,
-            color,
-            roster,
+            name, shortName, color, roster,
             ownerId: ownerId,
             roles: this.teamState.roles,
             updatedAt: Date.now(),

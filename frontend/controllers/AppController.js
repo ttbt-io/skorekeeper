@@ -63,6 +63,7 @@ import { TeamController } from './TeamController.js';
 import { DashboardController } from './DashboardController.js';
 import { ActiveGameController } from './ActiveGameController.js';
 import { parseQuery, buildQuery } from '../utils/searchParser.js';
+import { PullToRefresh } from '../ui/pullToRefresh.js';
 
 /**
  * The main application controller for the Skorekeeper PWA.
@@ -5326,6 +5327,22 @@ export class AppController {
         window.location.hash = 'stats';
         this.render(); // Show loading state or clear previous content
 
+        // Initialize Pull-to-Refresh
+        const container = document.getElementById('stats-list-container');
+        if (container && !container.dataset.ptrInitialized) {
+            new PullToRefresh(container, async() => {
+                await this.refreshStatisticsData();
+            });
+            container.dataset.ptrInitialized = 'true';
+        }
+
+        await this.refreshStatisticsData();
+    }
+
+    /**
+     * Refreshes the statistics data without resetting the view.
+     */
+    async refreshStatisticsData() {
         try {
             if (this.state.teams.length === 0) {
                 this.state.teams = await this.db.getAllTeams();

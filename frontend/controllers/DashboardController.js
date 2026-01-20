@@ -19,6 +19,7 @@ import {
     SyncStatusLocalOnly,
 } from '../constants.js';
 import { parseQuery } from '../utils/searchParser.js';
+import { PullToRefresh } from '../ui/pullToRefresh.js';
 
 export class DashboardController {
     constructor(app) {
@@ -75,11 +76,47 @@ export class DashboardController {
 
     bindScrollEvent() {
         const container = document.getElementById('game-list-container');
-        if (container && !this.scrollBound) {
+        if (!container) {
+            return;
+        }
+
+        if (!container.dataset.scrollBound) {
             container.addEventListener('scroll', () => {
                 this.handleScroll(container);
             });
+            container.dataset.scrollBound = 'true';
             this.scrollBound = true;
+        }
+
+        // Initialize PullToRefresh
+        if (!container.dataset.ptrInitialized) {
+            new PullToRefresh(container, async() => {
+                await this.refreshDashboardData();
+            });
+            container.dataset.ptrInitialized = 'true';
+        }
+    }
+
+    /**
+     * Refreshes the dashboard data without resetting the view state.
+     */
+    async refreshDashboardData() {
+        // Reset remote offset for fresh fetch
+        this.remoteOffset = 0;
+        this.remoteHasMore = true;
+        this.localBuffer = [];
+        this.remoteBuffer = [];
+        this.localRevisions = new Map();
+        this.localMap = new Map();
+
+        // Start independent async streams
+        const localLoadPromise = this.loadAllLocalGames();
+
+        const parsedQ = parseQuery(this.query);
+        const isLocalOnly = parsedQ.filters.some(f => f.key === 'is' && f.value === 'local');
+        if (this.app.auth.getUser() && !isLocalOnly) {
+            this.fetchNextRemoteBatch();
+            localLoadPromise.then(() => this.checkDeletions());
         }
     }
 
