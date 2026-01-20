@@ -134,8 +134,8 @@ describe('DashboardController', () => {
         });
 
         test('should detect unsynced state', async() => {
-            // Local has rev1, Remote has rev2
-            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01' }]);
+            // Local has _dirty=true
+            mockApp.db.getAllGames.mockResolvedValue([{ id: 'g1', date: '2025-01-01', _dirty: true }]);
             mockApp.db.getLocalRevisions.mockResolvedValue(new Map([['g1', 'rev1']]));
 
             mockApp.sync.fetchGameList.mockResolvedValue({

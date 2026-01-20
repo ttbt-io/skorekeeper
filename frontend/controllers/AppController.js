@@ -415,12 +415,14 @@ export class AppController {
             this.state.activeGame = newState;
 
             // 3. Save to IndexedDB (Persist overwrite)
-            await this.db.saveGame(newState);
+            await this.db.saveGame(newState, false);
 
             // 4. Update SyncManager revision before reconnecting
             const log = newState.actionLog;
             const lastId = log.length > 0 ? log[log.length - 1].id : '';
             this.sync.lastRevision = lastId;
+            // Clear pending actions as we have overwritten/discarded them
+            this.sync.pendingActionIds.clear();
 
             // 5. Update UI
             this.render();
@@ -469,6 +471,8 @@ export class AppController {
             const log = this.state.activeGame.actionLog || [];
             const lastId = log.length > 0 ? log[log.length - 1].id : '';
             this.sync.lastRevision = lastId;
+            // Clear pending actions as we have forcefully synced them
+            this.sync.pendingActionIds.clear();
 
             // 3. Clear conflict state
             document.getElementById('conflict-resolution-modal').classList.add('hidden');
@@ -1512,8 +1516,8 @@ export class AppController {
                 // Sanitize via Game model
                 const sanitizedGame = new Game(remoteData).toJSON();
 
-                // Save locally
-                await this.db.saveGame(sanitizedGame);
+                // Save locally (clean, as it matches remote)
+                await this.db.saveGame(sanitizedGame, false);
             } else {
                 // PUSH: Save to server
                 // We load the FULL game from DB to push it
@@ -1529,6 +1533,7 @@ export class AppController {
                     if (!response.ok) {
                         throw new Error('Save failed');
                     }
+                    await this.db.markClean(gameId, 'games');
                 }
             }
             // Refresh dashboard to show new status

@@ -27,6 +27,9 @@ describe('SyncManager Rate Limiting & Batching', () => {
             isOnline: true,
             debug: true,
             state: { activeGame: { id: 'game-1' } },
+            db: {
+                markClean: jest.fn(),
+            },
             dbManager: {
                 savePendingAction: jest.fn(),
                 getPendingActions: jest.fn().mockResolvedValue([]),

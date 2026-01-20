@@ -277,4 +277,51 @@ describe('DBManager', () => {
         mockTx.oncomplete();
         await promise;
     });
+
+    test('saveGame() should persist dirty flag', async() => {
+        dbManager.db = mockDb;
+        const promise = dbManager.saveGame({ id: 'g1' }, false); // Explicit dirty=false
+
+        expect(mockStore.put).toHaveBeenCalledWith(expect.objectContaining({
+            id: 'g1',
+            _dirty: false,
+        }));
+
+        mockTx.oncomplete();
+        await promise;
+    });
+
+    test('saveGame() should default dirty flag to true', async() => {
+        dbManager.db = mockDb;
+        const promise = dbManager.saveGame({ id: 'g1' });
+
+        expect(mockStore.put).toHaveBeenCalledWith(expect.objectContaining({
+            id: 'g1',
+            _dirty: true,
+        }));
+
+        mockTx.oncomplete();
+        await promise;
+    });
+
+    test('markClean() should update dirty flag to false', async() => {
+        dbManager.db = mockDb;
+        const mockGetReq = {};
+        mockStore.get.mockReturnValue(mockGetReq);
+
+        const promise = dbManager.markClean('g1', 'games');
+
+        expect(mockDb.transaction).toHaveBeenCalledWith(['games'], 'readwrite');
+        expect(mockStore.get).toHaveBeenCalledWith('g1');
+
+        // Simulate existing record
+        const record = { id: 'g1', _dirty: true };
+        mockGetReq.onsuccess({ target: { result: record } });
+
+        expect(record._dirty).toBe(false);
+        expect(mockStore.put).toHaveBeenCalledWith(record);
+
+        mockTx.oncomplete();
+        await promise;
+    });
 });

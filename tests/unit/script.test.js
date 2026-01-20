@@ -292,6 +292,7 @@ describe('DBManager', () => {
             name: 'Test Game',
             actionLog: [],
             schemaVersion: 3,
+            _dirty: true,
         });
     });
 

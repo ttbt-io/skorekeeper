@@ -220,28 +220,20 @@ export class TeamController {
             let status = SyncStatusSynced;
             const localItem = item._source === 'local' ? item : item._localTeam;
             const remoteItem = item._source === 'remote' || item._source === 'both' ? item : null;
-
-            // Simplified sync status logic compared to Dashboard (no revisions for Teams usually?)
-            // If local and remote exist, assume synced unless we track dirty state elsewhere.
-            // But if item source is 'local' and not in remote buffer...
-            // Wait, remoteBuffer only contains what we fetched.
-            // If we haven't fetched it yet, we don't know if it's remote only or synced.
-            // However, `fetchTeamList` returns synced teams.
+            const isDirty = localItem && localItem._dirty;
 
             if (item._source === 'remote') {
                 status = SyncStatusRemoteOnly;
-            } else if (item._source === 'local') {
+            } else if (isDirty) {
                 status = SyncStatusLocalOnly;
-            } else if (localItem && remoteItem) {
-                // Check if local is newer? Team updates set `updatedAt`.
-                // For now, assume synced if both present, unless local has explicit syncStatus
-                if (localItem.syncStatus === SyncStatusError) {
-                    status = SyncStatusError;
-                } else if (localItem.syncStatus === SyncStatusSyncing) {
-                    status = SyncStatusSyncing;
-                } else {
+            } else if (item._source === 'local') {
+                if (!navigator.onLine) {
                     status = SyncStatusSynced;
+                } else {
+                    status = SyncStatusLocalOnly;
                 }
+            } else if (localItem && remoteItem) {
+                status = SyncStatusSynced;
             }
 
             // Apply transient status from sync operations
@@ -367,6 +359,7 @@ export class TeamController {
             const success = await this.app.teamSync.saveTeam(team);
             if (success) {
                 this.syncStatuses.set(teamId, SyncStatusSynced);
+                await this.app.db.markClean(teamId, 'teams');
             } else {
                 this.syncStatuses.set(teamId, SyncStatusError);
                 if (this.app.auth.isStale) {
@@ -636,6 +629,8 @@ export class TeamController {
             const success = await this.app.teamSync.saveTeam(teamData);
             if (!success) {
                 console.warn('App: Team saved locally but failed to sync with server. It will sync automatically when you visit the Teams view while online.');
+            } else {
+                await this.app.db.markClean(id, 'teams');
             }
         }
 

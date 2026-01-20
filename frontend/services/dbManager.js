@@ -153,9 +153,10 @@ export class DBManager {
      * If the database is not open, it will attempt to open it first.
      * @async
      * @param {object} game - The game state object to save (will be converted to storage format).
+     * @param {boolean} [dirty=true] - Whether the game has local changes not yet synced.
      * @returns {Promise<void>} A promise that resolves when the game is successfully saved.
      */
-    async saveGame(game) {
+    async saveGame(game, dirty = true) {
         if (!this.db) {
             await this.open();
         }
@@ -167,6 +168,7 @@ export class DBManager {
             ...game, // Spread all top-level props (id, date, away, home, roster, etc.)
             // Ensure actionLog is present (legacy states might miss it)
             actionLog: game.actionLog || [],
+            _dirty: dirty,
         };
 
         return new Promise((resolve, reject) => {
@@ -224,6 +226,7 @@ export class DBManager {
                         homeTeamId: record.homeTeamId,
                         status: record.status,
                         ownerId: record.ownerId,
+                        _dirty: record._dirty, // Expose dirty flag
                     };
                 });
                 resolve(summaries);
@@ -278,9 +281,10 @@ export class DBManager {
      * Saves a team object to the 'teams' object store.
      * @async
      * @param {object} team - The team object to save.
+     * @param {boolean} [dirty=true] - Whether the team has local changes not yet synced.
      * @returns {Promise<void>}
      */
-    async saveTeam(team) {
+    async saveTeam(team, dirty = true) {
         if (!this.db) {
             await this.open();
         }
@@ -288,6 +292,7 @@ export class DBManager {
         const storageObject = {
             schemaVersion: 3,
             ...team,
+            _dirty: dirty,
         };
 
         return new Promise((resolve, reject) => {
@@ -312,6 +317,35 @@ export class DBManager {
             req.onsuccess = (e) => {
                 resolve(e.target.result || []);
             };
+        });
+    }
+
+    /**
+     * Marks an item as clean (synced) in the specified object store.
+     * @async
+     * @param {string} id - The ID of the item.
+     * @param {string} storeName - The name of the object store ('games' or 'teams').
+     * @returns {Promise<void>}
+     */
+    async markClean(id, storeName) {
+        if (!this.db) {
+            await this.open();
+        }
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction([storeName], 'readwrite');
+            const store = tx.objectStore(storeName);
+            const req = store.get(id);
+
+            req.onsuccess = (e) => {
+                const record = e.target.result;
+                if (record) {
+                    record._dirty = false;
+                    store.put(record);
+                }
+            };
+
+            tx.oncomplete = () => resolve();
+            tx.onerror = e => reject(e);
         });
     }
 

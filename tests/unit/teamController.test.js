@@ -24,6 +24,7 @@ describe('TeamController', () => {
                 getAllTeams: jest.fn().mockResolvedValue([]),
                 saveTeam: jest.fn(),
                 deleteTeam: jest.fn().mockResolvedValue(true),
+                markClean: jest.fn(),
             },
             auth: {
                 getUser: jest.fn(() => ({ email: 'user@example.com' })),
