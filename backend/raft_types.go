@@ -41,6 +41,7 @@ type RaftCommand struct {
 	TeamData   *json.RawMessage  `json:"teamData,omitempty"`
 	PolicyData *UserAccessPolicy `json:"policyData,omitempty"`
 	ID         string            `json:"id,omitempty"`
+	Force      bool              `json:"force,omitempty"`
 }
 
 // UserAccessPolicy defines global access rules and quotas.

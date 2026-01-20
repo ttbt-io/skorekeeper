@@ -74,6 +74,10 @@ type Game struct {
 	// Used for idempotency during log replay.
 	LastRaftIndex uint64 `json:"lastRaftIndex,omitempty"`
 
+	// LastActionID tracks the ID of the last action applied to this game.
+	// Used for conflict detection without loading the full log.
+	LastActionID string `json:"lastActionId,omitempty"`
+
 	// Roster and Subs are now strictly typed.
 	// We need custom Unmarshal to handle migration from v2 (n/u/p) to v3 (name/number/pos).
 	// For now, we'll use a map structure for intermediate loading or dual fields?
@@ -103,6 +107,18 @@ func (g *Game) normalize() {
 }
 
 func (g *Game) Metadata() *GameMetadata {
+	lastActionID := g.LastActionID
+	if lastActionID == "" && len(g.ActionLog) > 0 {
+		// Fallback: parse last action from log
+		var act struct {
+			ID string `json:"id"`
+		}
+		// We only need the ID, so this partial unmarshal is efficient enough for a fallback
+		if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
+			lastActionID = act.ID
+		}
+	}
+
 	return &GameMetadata{
 		ID:            g.ID,
 		SchemaVersion: g.SchemaVersion,
@@ -117,6 +133,7 @@ func (g *Game) Metadata() *GameMetadata {
 		HomeTeamID:    g.HomeTeamID,
 		Status:        g.Status,
 		DeletedAt:     g.DeletedAt,
+		LastActionID:  lastActionID,
 	}
 }
 
@@ -523,6 +540,7 @@ type GameMetadata struct {
 	HomeTeamID    string      `json:"homeTeamId"`
 	Status        string      `json:"status"`
 	DeletedAt     int64       `json:"deletedAt"`
+	LastActionID  string      `json:"lastActionId,omitempty"`
 }
 
 // ListAllGameMetadata returns metadata for all games without loading full action logs.

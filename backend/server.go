@@ -624,6 +624,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		}
 
 		// Serialize through Hub
+		force := r.URL.Query().Get("force") == "true"
 		hub := hm.GetHub(gameId, false, store, tStore, registry)
 		reply := make(chan HubResponse, 1)
 		select {
@@ -631,6 +632,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			Type:    ReqTypeHTTPSave,
 			Payload: body,
 			Reply:   reply,
+			Force:   force, // Add Force field to HubRequest
 		}:
 			select {
 			case resp := <-reply:

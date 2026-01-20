@@ -455,8 +455,8 @@ export class AppController {
 
         try {
             // 1. Force push current local game state to server
-            // Using /api/save because it overwrites the entire log without revision checks.
-            const response = await fetch('/api/save', {
+            // Using /api/save?force=true because it overwrites the entire log without revision checks.
+            const response = await fetch('/api/save?force=true', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

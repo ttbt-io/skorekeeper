@@ -297,7 +297,7 @@ func (f *FSM) applyActions(gameId string, actions []json.RawMessage, index uint6
 	return nil
 }
 
-func (f *FSM) applySaveGame(id string, data []byte, index uint64) error {
+func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) error {
 	// Optimization: Load header to check index? Or just unmarshal and overwrite?
 	// If overwrite is older than current state (replayed), we should SKIP?
 	// Yes, strict linearizability.
@@ -313,10 +313,47 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64) error {
 		if index > 0 && index <= existing.LastRaftIndex {
 			return nil
 		}
+
+		// Conflict Detection
+		// If not forced, ensure strictly strictly forward history.
+		if !force {
+			// 1. Check Stale/Fork
+			if len(g.ActionLog) < len(existing.ActionLog) {
+				return fmt.Errorf("conflict detected: incoming game state is older or forked (log length %d < %d)", len(g.ActionLog), len(existing.ActionLog))
+			}
+
+			// 2. Check History Divergence
+			// Scan existing log to ensure it matches the prefix of incoming log
+			// For correctness, we should scan full relevant history.
+			for i := 0; i < len(existing.ActionLog); i++ {
+				var exID, inID struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(existing.ActionLog[i], &exID); err != nil {
+					continue
+				}
+				if err := json.Unmarshal(g.ActionLog[i], &inID); err != nil {
+					continue
+				}
+				if exID.ID != inID.ID {
+					return fmt.Errorf("conflict detected: history divergence at index %d (%s vs %s)", i, exID.ID, inID.ID)
+				}
+			}
+		}
 	}
 
 	if index > 0 {
 		g.LastRaftIndex = index
+	}
+
+	// Ensure LastActionID is set (self-repair)
+	if g.LastActionID == "" && len(g.ActionLog) > 0 {
+		var act struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
+			g.LastActionID = act.ID
+		}
 	}
 
 	if err := f.gs.SaveGame(&g); err != nil {
@@ -522,7 +559,7 @@ func (f *FSM) ApplyBatch(logs []*raft.Log) []interface{} {
 func (f *FSM) applyCommand(cmd RaftCommand, index uint64) interface{} {
 	switch cmd.Type {
 	case CmdSaveGame:
-		return f.applySaveGame(cmd.ID, *cmd.GameData, index)
+		return f.applySaveGame(cmd.ID, *cmd.GameData, index, cmd.Force)
 	case CmdApplyAction:
 		if len(cmd.Action.Actions) > 0 {
 			return f.applyActions(cmd.Action.GameID, cmd.Action.Actions, index)
@@ -626,8 +663,49 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 				results[item.index] = err
 				continue
 			}
+
+			// Conflict Detection (same as applySaveGame)
+			if !item.cmd.Force {
+				// g is the CURRENT state (loaded from disk or updated by previous batch items)
+				if len(newG.ActionLog) < len(g.ActionLog) {
+					results[item.index] = fmt.Errorf("conflict detected: incoming game state is older or forked (log length %d < %d)", len(newG.ActionLog), len(g.ActionLog))
+					continue
+				}
+				conflict := false
+				for i := 0; i < len(g.ActionLog); i++ {
+					var exID, inID struct {
+						ID string `json:"id"`
+					}
+					if err := json.Unmarshal(g.ActionLog[i], &exID); err != nil {
+						continue
+					}
+					if err := json.Unmarshal(newG.ActionLog[i], &inID); err != nil {
+						continue
+					}
+					if exID.ID != inID.ID {
+						results[item.index] = fmt.Errorf("conflict detected: history divergence at index %d (%s vs %s)", i, exID.ID, inID.ID)
+						conflict = true
+						break
+					}
+				}
+				if conflict {
+					continue
+				}
+			}
+
 			g = &newG
 			g.LastRaftIndex = item.raftIndex
+
+			// Repair LastActionID if needed
+			if g.LastActionID == "" && len(g.ActionLog) > 0 {
+				var act struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(g.ActionLog[len(g.ActionLog)-1], &act); err == nil {
+					g.LastActionID = act.ID
+				}
+			}
+
 			dirty = true
 			deleted = false
 			forceDiskSave = true
