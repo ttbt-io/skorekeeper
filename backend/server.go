@@ -642,6 +642,11 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 						raftMgr.forwardRequestToLeader(w, r)
 						return
 					}
+					if errors.Is(resp.Error, ErrConflict) {
+						log.Printf("Conflict during Hub Save: %v", resp.Error)
+						http.Error(w, "Conflict: "+resp.Error.Error(), http.StatusConflict)
+						return
+					}
 					log.Printf("Internal Server Error during Hub Save: %v", resp.Error)
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return

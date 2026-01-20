@@ -33,6 +33,8 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+var ErrConflict = errors.New("conflict detected")
+
 // FSM implements the raft.FSM interface.
 type FSM struct {
 	gs          *GameStore
@@ -319,7 +321,7 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) er
 		if !force {
 			// 1. Check Stale/Fork
 			if len(g.ActionLog) < len(existing.ActionLog) {
-				return fmt.Errorf("conflict detected: incoming game state is older or forked (log length %d < %d)", len(g.ActionLog), len(existing.ActionLog))
+				return fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(g.ActionLog), len(existing.ActionLog), ErrConflict)
 			}
 
 			// 2. Check History Divergence
@@ -336,7 +338,7 @@ func (f *FSM) applySaveGame(id string, data []byte, index uint64, force bool) er
 					continue
 				}
 				if exID.ID != inID.ID {
-					return fmt.Errorf("conflict detected: history divergence at index %d (%s vs %s)", i, exID.ID, inID.ID)
+					return fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
 				}
 			}
 		}
@@ -668,7 +670,7 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 			if !item.cmd.Force {
 				// g is the CURRENT state (loaded from disk or updated by previous batch items)
 				if len(newG.ActionLog) < len(g.ActionLog) {
-					results[item.index] = fmt.Errorf("conflict detected: incoming game state is older or forked (log length %d < %d)", len(newG.ActionLog), len(g.ActionLog))
+					results[item.index] = fmt.Errorf("incoming game state is older or forked (log length %d < %d): %w", len(newG.ActionLog), len(g.ActionLog), ErrConflict)
 					continue
 				}
 				conflict := false
@@ -683,7 +685,7 @@ func (f *FSM) processGameJob(j *resourceJob, results []interface{}) {
 						continue
 					}
 					if exID.ID != inID.ID {
-						results[item.index] = fmt.Errorf("conflict detected: history divergence at index %d (%s vs %s)", i, exID.ID, inID.ID)
+						results[item.index] = fmt.Errorf("history divergence at index %d (%s vs %s): %w", i, exID.ID, inID.ID, ErrConflict)
 						conflict = true
 						break
 					}
