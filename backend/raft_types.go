@@ -30,18 +30,20 @@ const (
 	CmdNodeMeta           CommandType = "NODE_META"
 	CmdNodeLeft           CommandType = "NODE_LEFT"
 	CmdUpdateAccessPolicy CommandType = "UPDATE_ACCESS_POLICY"
+	CmdMetricsUpdate      CommandType = "METRICS_UPDATE"
 )
 
 // RaftCommand is a unified structure for all Raft log entries.
 type RaftCommand struct {
-	Type       CommandType       `json:"type"`
-	NodeMeta   *NodeMeta         `json:"nodeMeta,omitempty"`
-	Action     *ActionPayload    `json:"action,omitempty"`
-	GameData   *json.RawMessage  `json:"gameData,omitempty"`
-	TeamData   *json.RawMessage  `json:"teamData,omitempty"`
-	PolicyData *UserAccessPolicy `json:"policyData,omitempty"`
-	ID         string            `json:"id,omitempty"`
-	Force      bool              `json:"force,omitempty"`
+	Type           CommandType       `json:"type"`
+	NodeMeta       *NodeMeta         `json:"nodeMeta,omitempty"`
+	Action         *ActionPayload    `json:"action,omitempty"`
+	GameData       *json.RawMessage  `json:"gameData,omitempty"`
+	TeamData       *json.RawMessage  `json:"teamData,omitempty"`
+	PolicyData     *UserAccessPolicy `json:"policyData,omitempty"`
+	MetricsPayload *MetricsPayload   `json:"metricsPayload,omitempty"`
+	ID             string            `json:"id,omitempty"`
+	Force          bool              `json:"force,omitempty"`
 }
 
 // UserAccessPolicy defines global access rules and quotas.

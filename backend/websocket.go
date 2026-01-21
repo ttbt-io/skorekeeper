@@ -26,6 +26,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -169,10 +170,12 @@ func (h *Hub) run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
+			h.hm.IncConnectionCount()
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
+				h.hm.DecConnectionCount()
 			}
 		case req := <-h.requests:
 			if h.isTeam {
@@ -289,9 +292,10 @@ func (h *Hub) ensureTeamLoaded(reply chan HubResponse) {
 
 // HubManager manages hubs for different games/teams
 type HubManager struct {
-	hubs map[string]*Hub
-	mu   sync.Mutex
-	rm   *RaftManager
+	hubs              map[string]*Hub
+	mu                sync.Mutex
+	rm                *RaftManager
+	activeConnections atomic.Int64
 }
 
 func NewHubManager() *HubManager {
@@ -304,6 +308,18 @@ func (hm *HubManager) SetRaftManager(rm *RaftManager) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	hm.rm = rm
+}
+
+func (hm *HubManager) IncConnectionCount() {
+	hm.activeConnections.Add(1)
+}
+
+func (hm *HubManager) DecConnectionCount() {
+	hm.activeConnections.Add(-1)
+}
+
+func (hm *HubManager) GetTotalConnectionCount() int {
+	return int(hm.activeConnections.Load())
 }
 
 func (hm *HubManager) GetHub(id string, isTeam bool, gs *GameStore, ts *TeamStore, r *Registry) *Hub {

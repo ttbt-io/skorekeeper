@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/c2FmZQ/storage/crypto"
@@ -85,23 +86,33 @@ type RaftManager struct {
 	UseGob       bool      // Optional: Use GOB encoding for log entries
 	AppHandler   http.Handler
 	listener     net.Listener
+
+	countersMu   sync.Mutex
+	nodeCounters map[string]uint64
+	pendingGapMS int64 // Atomic
+	startTime    time.Time
+
+	latencyMu          sync.Mutex
+	latencyAccumulator *Histogram
 }
 
 func NewRaftManager(dataDir, bind, advertise, clusterAdvertise, clusterAddr, secret string, masterKey crypto.MasterKey, fsm *FSM) *RaftManager {
 	// clusterAdvertise is now mandatory and validated in main.go, but for library usage we can fallback or error.
 	// Since main.go handles it, we assume it's set. If not, it might break auto-config.
 	rm := &RaftManager{
-		DataDir:          dataDir,
-		Bind:             bind,
-		Advertise:        advertise,
-		ClusterAdvertise: clusterAdvertise,
-		ClusterAddr:      clusterAddr,
-		Secret:           secret,
-		MasterKey:        masterKey,
-		FSM:              fsm,
-		shutdownCh:       make(chan struct{}),
-		readyCh:          make(chan struct{}),
-		LogOutput:        os.Stderr, // Default
+		DataDir:            dataDir,
+		Bind:               bind,
+		Advertise:          advertise,
+		ClusterAdvertise:   clusterAdvertise,
+		ClusterAddr:        clusterAddr,
+		Secret:             secret,
+		MasterKey:          masterKey,
+		FSM:                fsm,
+		shutdownCh:         make(chan struct{}),
+		readyCh:            make(chan struct{}),
+		LogOutput:          os.Stderr, // Default
+		nodeCounters:       make(map[string]uint64),
+		latencyAccumulator: &Histogram{},
 	}
 	// Note: nodeAddrMap and NodeID derivation will happen in Start() after key loading
 	if fsm != nil {
@@ -303,6 +314,7 @@ func (rm *RaftManager) generateEphemeralCert() (*tls.Certificate, error) {
 
 func (rm *RaftManager) Start(bootstrap bool) error {
 	rm.Bootstrap = bootstrap
+	rm.startTime = time.Now()
 	if err := rm.loadOrGenerateLogKey(); err != nil {
 		return err
 	}
@@ -342,6 +354,9 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	if rm.LogOutput != nil {
 		config.LogOutput = rm.LogOutput
 	}
+
+	notifyCh := make(chan bool, 1)
+	config.NotifyCh = notifyCh
 
 	// Setup Transport
 	cert, err := rm.generateEphemeralCert()
@@ -554,6 +569,8 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 		rm.ClusterAdvertise, base64.StdEncoding.EncodeToString(rm.PubKey))
 	rm.FSM.applyNodeMeta(rm.NodeID, []byte(metaJSON))
 	go rm.monitorConfiguration()
+	go rm.monitorMetrics()
+	go rm.monitorLeadership(notifyCh)
 
 	return nil
 }
@@ -1439,4 +1456,243 @@ func (a raftAddress) Network() string {
 
 func (a raftAddress) String() string {
 	return a.addr
+}
+
+func (rm *RaftManager) monitorLeadership(notifyCh <-chan bool) {
+	for {
+		select {
+		case <-rm.shutdownCh:
+			return
+		case isLeader := <-notifyCh:
+			if isLeader {
+				// We became leader. Calculate gap since last contact.
+				var gap time.Duration
+				last := rm.Raft.LastContact()
+				if !last.IsZero() {
+					gap = time.Since(last)
+					log.Printf("Leadership acquired. Gap since last contact: %v", gap)
+				} else {
+					// Fallback: Check FSM for last metrics timestamp (handling restart)
+					// Wait for FSM to catch up with logs to ensure we have the latest metrics
+					// We use a longer timeout here to ensure full replay on large logs.
+					syncStart := time.Now()
+					if err := rm.WaitForSync(30 * time.Second); err != nil {
+						log.Printf("Warning: WaitForSync timed out in monitorLeadership: %v", err)
+					}
+					log.Printf("FSM sync completed in %v", time.Since(syncStart))
+
+					lastTs := rm.FSM.GetLastMetricsTimestamp()
+					if lastTs > 0 {
+						gap = time.Since(time.Unix(lastTs, 0))
+						log.Printf("Leadership acquired. LastContact was zero. Calculated gap since FSM timestamp %d: %v", lastTs, gap)
+					} else if !rm.startTime.IsZero() {
+						// Fallback 2: Gap since node start (Cold Start)
+						gap = time.Since(rm.startTime)
+						log.Printf("Leadership acquired. Cold start detected. Gap since node start: %v", gap)
+					}
+				}
+
+				if gap > 0 {
+					atomic.AddInt64(&rm.pendingGapMS, gap.Milliseconds())
+				} else {
+					log.Printf("Leadership acquired. No gap detected (gap=%v)", gap)
+				}
+			}
+		}
+	}
+}
+
+func (rm *RaftManager) monitorMetrics() {
+	// Align to the next minute boundary for cleaner charts
+	now := time.Now()
+	nextMinute := now.Truncate(time.Minute).Add(time.Minute)
+	time.Sleep(time.Until(nextMinute))
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	// Initial report immediately (after alignment)
+	rm.reportMetrics()
+
+	for {
+		select {
+		case <-rm.shutdownCh:
+			return
+		case <-ticker.C:
+			rm.reportMetrics()
+		}
+	}
+}
+
+func (rm *RaftManager) reportMetrics() {
+	count := GlobalRequestCounter.Load()
+	activeWS := 0
+	if rm.FSM != nil {
+		activeWS = rm.FSM.GetActiveWSCount()
+	}
+	timestamp := time.Now().Unix()
+
+	// Capture and reset latency histogram
+	rm.latencyMu.Lock()
+	latency := rm.latencyAccumulator
+	rm.latencyAccumulator = &Histogram{}
+	rm.latencyMu.Unlock()
+
+	// Prepare payload
+	payload := map[string]any{
+		"nodeId":    rm.NodeID,
+		"timestamp": timestamp,
+		"total":     count,
+		"activeWS":  activeWS,
+		"latency":   latency,
+	}
+	data, _ := json.Marshal(payload)
+
+	// Send to Leader
+	leaderAddr := rm.GetLeaderHTTPAddr()
+	if leaderAddr == "" {
+		log.Printf("Metrics: No leader address found, skipping report (NodeID: %s)", rm.NodeID)
+		return
+	}
+
+	// Ensure protocol
+	if !strings.HasPrefix(leaderAddr, "http") {
+		leaderAddr = "https://" + leaderAddr
+	}
+	url := fmt.Sprintf("%s/api/cluster/metrics", leaderAddr)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		log.Printf("Metrics Error: failed to create request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Raft-Secret", rm.Secret)
+
+	resp, err := rm.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Metrics Error: failed to send report to %s: %v", leaderAddr, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("Metrics Error: Leader returned %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+func (rm *RaftManager) handleMetricsReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	secret := r.Header.Get("X-Raft-Secret")
+	if rm.Secret == "" || secret != rm.Secret {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if rm.Raft.State() != raft.Leader {
+		rm.forwardRequestToLeader(w, r)
+		return
+	}
+
+	var req struct {
+		NodeID    string     `json:"nodeId"`
+		Timestamp int64      `json:"timestamp"`
+		Total     uint64     `json:"total"`
+		ActiveWS  int        `json:"activeWS"`
+		Latency   *Histogram `json:"latency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// Calculate Delta / RPS
+	rm.countersMu.Lock()
+	last, exists := rm.nodeCounters[req.NodeID]
+	rm.nodeCounters[req.NodeID] = req.Total
+	rm.countersMu.Unlock()
+
+	var delta uint64
+	if !exists || req.Total < last {
+		// First report or restart detected
+		delta = req.Total
+	} else {
+		delta = req.Total - last
+	}
+
+	rps := float64(delta) / 60.0
+
+	// Construct Raft Command
+	metricsCmd := &MetricsPayload{
+		Timestamp: req.Timestamp,
+		Nodes: []NodeMetric{
+			{NodeID: req.NodeID, RPS: rps, ActiveWS: req.ActiveWS, Latency: req.Latency},
+		},
+	}
+
+	// If sender is self (Leader), also append Cluster Metrics
+	if req.NodeID == rm.NodeID {
+		stats := rm.Raft.Stats()
+
+		// Parse string stats to numbers (Raft returns strings)
+		// Actually, let's just use what we can easily get or maintain.
+		// "num_peers", "term", "commit_index", "last_log_index", "last_snapshot_index"
+		// The `stats` map keys depend on implementation.
+		// Hashicorp Raft stats: "applied_index", "commit_index", "fsm_pending", "last_contact", "last_log_index", "last_log_term", "last_snapshot_index", "last_snapshot_term", "latest_configuration", "latest_configuration_index", "num_peers", "protocol_version", "protocol_version_min", "protocol_version_max", "snapshot_version_min", "snapshot_version_max", "state", "term"
+
+		parseUint := func(key string) uint64 {
+			if v, ok := stats[key]; ok {
+				var i uint64
+				fmt.Sscanf(v, "%d", &i)
+				return i
+			}
+			return 0
+		}
+
+		metricsCmd.Cluster = &ClusterMetric{
+			NodeCount:    rm.FSM.GetNodeCount(),
+			Elections:    parseUint("term"), // Approximation: Term is roughly election count
+			LastLogIndex: rm.Raft.LastIndex(),
+			Snapshots:    parseUint("last_snapshot_index"), // Not really count, but index. Close enough for visual.
+			LeaderGapMS:  uint64(atomic.SwapInt64(&rm.pendingGapMS, 0)),
+			TotalGames:   rm.FSM.GetTotalGames(),
+			TotalTeams:   rm.FSM.GetTotalTeams(),
+		}
+	}
+
+	cmd := RaftCommand{
+		Type:           CmdMetricsUpdate,
+		MetricsPayload: metricsCmd,
+	}
+
+	if _, err := rm.Propose(cmd); err != nil {
+		log.Printf("Metrics Error: failed to propose update: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// log.Printf("Metrics: Proposed update for node %s (RPS: %.2f)", req.NodeID, rps) // Debug log
+	w.WriteHeader(http.StatusOK)
+}
+
+func (rm *RaftManager) handleMetricsQuery(w http.ResponseWriter, r *http.Request) {
+	// Allow any authenticated node/user to query?
+	// The doc says: "The Admin Dashboard and the GET ... endpoint are available on any node"
+	// So we assume this is protected by `server.go` routing (it is NOT protected by middleware there for public API?)
+	// Wait, `server.go` put it under `/api/cluster/metrics`.
+	// If it's for Admin Dashboard, maybe we should protect it?
+	// The `handleMetricsQuery` checks for Secret if called inter-cluster, but for frontend?
+	// `server.go` uses `jwtAuthMiddleware` for the whole handler.
+	// So a user needs a JWT.
+	// We also might want to check if user is Admin?
+	// For now, let's keep it open to authenticated users.
+
+	data := rm.FSM.GetMetricsJSON()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
 }

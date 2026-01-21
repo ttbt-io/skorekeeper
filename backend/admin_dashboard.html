@@ -6,8 +6,14 @@
     <title>Skorekeeper Admin - Access Policy</title>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-        h1 { margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        h1 { margin-top: 0; padding-bottom: 10px; }
+        .nav-tabs { display: flex; border-bottom: 2px solid #e2e8f0; margin-bottom: 20px; }
+        .nav-tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-weight: bold; color: #64748b; }
+        .nav-tab.active { border-bottom-color: #2563eb; color: #2563eb; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
         h2 { margin-top: 30px; font-size: 1.2em; color: #475569; }
         .form-group { margin-bottom: 15px; }
         label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
@@ -24,67 +30,149 @@
         #status { margin-top: 20px; padding: 10px; border-radius: 4px; display: none; }
         .success { background: #dcfce7; color: #166534; }
         .error { background: #fee2e2; color: #991b1b; }
+
+        /* Chart Styles */
+        .chart-container { margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px; background: #fff; }
+        canvas { width: 100%; height: 300px; display: block; }
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+        .chart-tooltip {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #cbd5e1;
+            padding: 8px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 0.85em;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            display: none;
+            z-index: 100;
+        }
+        .tooltip-time { font-weight: bold; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; }
+        .tooltip-item { display: flex; align-items: center; gap: 6px; }
+        .tooltip-color { width: 8px; height: 8px; border-radius: 50%; }
+        .chart-container { position: relative; }
     </style>
 </head>
 <body>
+    <div id="chart-tooltip" class="chart-tooltip"></div>
     <div class="container">
-        <h1>Access Policy Management</h1>
+        <h1>Admin Dashboard</h1>
         
-        <div id="loading">Loading policy...</div>
-        
-        <form id="policyForm" style="display:none;">
-            <h2>Global Defaults</h2>
-            <div class="form-group">
-                <label for="defaultPolicy">Default Policy</label>
-                <select id="defaultPolicy">
-                    <option value="allow">Allow All</option>
-                    <option value="deny">Deny All</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="defaultMaxGames">Max Games per User</label>
-                <input type="number" id="defaultMaxGames" min="0">
-            </div>
-            <div class="form-group">
-                <label for="defaultMaxTeams">Max Teams per User</label>
-                <input type="number" id="defaultMaxTeams" min="0">
-            </div>
-            <div class="form-group">
-                <label for="defaultDenyMessage">Access Denied Message</label>
-                <textarea id="defaultDenyMessage"></textarea>
-            </div>
+        <div class="nav-tabs">
+            <div class="nav-tab active" data-tab="policy">Access Policy</div>
+            <div class="nav-tab" data-tab="monitoring">Cluster Monitoring</div>
+        </div>
 
-            <h2>Administrators</h2>
-            <div id="adminsList"></div>
-            <div class="form-group" style="display:flex; gap:10px;">
-                <input type="text" id="newAdminEmail" placeholder="New Admin Email">
-                <button type="button" class="btn btn-add" id="btnAddAdmin">Add Admin</button>
-            </div>
-
-            <h2>User Overrides</h2>
-            <div class="user-row user-header">
-                <div>Email</div>
-                <div>Access</div>
-                <div>Games</div>
-                <div>Teams</div>
-                <div>Action</div>
-            </div>
-            <div id="usersList"></div>
-            <div class="form-group" style="margin-top:10px; background:#f8fafc; padding:10px; border-radius:4px;">
-                <label>Add User Override</label>
-                <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap:10px;">
-                    <input type="text" id="newUserEmail" placeholder="User Email">
-                    <select id="newUserAccess"><option value="allow">Allow</option><option value="deny">Deny</option></select>
-                    <input type="number" id="newUserGames" placeholder="Games" value="10">
-                    <input type="number" id="newUserTeams" placeholder="Teams" value="5">
-                    <button type="button" class="btn btn-add" id="btnAddUser">Add</button>
+        <!-- POLICY TAB -->
+        <div id="tab-policy" class="tab-content active">
+            <div id="loading">Loading policy...</div>
+            
+            <form id="policyForm" style="display:none;">
+                <h2>Global Defaults</h2>
+                <div class="form-group">
+                    <label for="defaultPolicy">Default Policy</label>
+                    <select id="defaultPolicy">
+                        <option value="allow">Allow All</option>
+                        <option value="deny">Deny All</option>
+                    </select>
                 </div>
+                <div class="form-group">
+                    <label for="defaultMaxGames">Max Games per User</label>
+                    <input type="number" id="defaultMaxGames" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="defaultMaxTeams">Max Teams per User</label>
+                    <input type="number" id="defaultMaxTeams" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="defaultDenyMessage">Access Denied Message</label>
+                    <textarea id="defaultDenyMessage"></textarea>
+                </div>
+
+                <h2>Administrators</h2>
+                <div id="adminsList"></div>
+                <div class="form-group" style="display:flex; gap:10px;">
+                    <input type="text" id="newAdminEmail" placeholder="New Admin Email">
+                    <button type="button" class="btn btn-add" id="btnAddAdmin">Add Admin</button>
+                </div>
+
+                <h2>User Overrides</h2>
+                <div class="user-row user-header">
+                    <div>Email</div>
+                    <div>Access</div>
+                    <div>Games</div>
+                    <div>Teams</div>
+                    <div>Action</div>
+                </div>
+                <div id="usersList"></div>
+                <div class="form-group" style="margin-top:10px; background:#f8fafc; padding:10px; border-radius:4px;">
+                    <label>Add User Override</label>
+                    <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap:10px;">
+                        <input type="text" id="newUserEmail" placeholder="User Email">
+                        <select id="newUserAccess"><option value="allow">Allow</option><option value="deny">Deny</option></select>
+                        <input type="number" id="newUserGames" placeholder="Games" value="10">
+                        <input type="number" id="newUserTeams" placeholder="Teams" value="5">
+                        <button type="button" class="btn btn-add" id="btnAddUser">Add</button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; text-align: right;">
+                    <button type="submit" class="btn">Save Policy</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- MONITORING TAB -->
+        <div id="tab-monitoring" class="tab-content">
+            <div class="controls">
+                <label>Resolution: 
+                    <select id="metricRes">
+                        <option value="1m">1 Minute (2 Hours)</option>
+                        <option value="5m">5 Minutes (6 Hours)</option>
+                        <option value="15m">15 Minutes (1 Day)</option>
+                        <option value="1h">1 Hour (1 Month)</option>
+                        <option value="1d">1 Day (6 Months)</option>
+                    </select>
+                </label>
+                <button class="btn" id="btnRefreshMetrics">Refresh</button>
+                <span id="metricStatus" style="font-size: 0.8em; color: #666;"></span>
             </div>
 
-            <div style="margin-top: 30px; text-align: right;">
-                <button type="submit" class="btn">Save Policy</button>
+            <h2>Request Rate (RPS)</h2>
+            <div class="chart-container">
+                <canvas id="chart-rps"></canvas>
             </div>
-        </form>
+
+            <h2>Request Latency (ms)</h2>
+            <div class="chart-container">
+                <canvas id="chart-latency"></canvas>
+            </div>
+
+            <h2>Active WebSocket Connections</h2>
+            <div class="chart-container">
+                <canvas id="chart-ws"></canvas>
+            </div>
+
+            <h2>Games & Teams</h2>
+            <div class="chart-container">
+                <canvas id="chart-entities"></canvas>
+            </div>
+
+            <h2>Node Count</h2>
+            <div class="chart-container">
+                <canvas id="chart-nodes"></canvas>
+            </div>
+
+            <h2>Elections</h2>
+            <div class="chart-container">
+                <canvas id="chart-elections"></canvas>
+            </div>
+
+            <h2>Leader Gap (ms)</h2>
+            <div class="chart-container">
+                <canvas id="chart-gap"></canvas>
+            </div>
+        </div>
 
         <div id="status"></div>
     </div>
