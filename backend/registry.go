@@ -871,3 +871,17 @@ func (r *Registry) CountOwnedTeams(userId string) int {
 	}
 	return count
 }
+
+// CountTotalGames returns the total number of non-deleted games in the registry.
+func (r *Registry) CountTotalGames() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.gameMetadata)
+}
+
+// CountTotalTeams returns the total number of non-deleted teams in the registry.
+func (r *Registry) CountTotalTeams() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.teamMetadata)
+}

@@ -45,6 +45,9 @@ type FSM struct {
 	initialized atomic.Bool
 	rm          *RaftManager
 
+	metricsMu sync.RWMutex
+	metrics   *MetricsStore // Monitoring Data
+
 	nodeMap          sync.Map // map[string]*NodeMeta
 	lastAppliedIndex atomic.Uint64
 }
@@ -57,6 +60,7 @@ func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storag
 		r:       r,
 		hm:      hm,
 		storage: s,
+		metrics: NewMetricsStore(),
 	}
 	if s != nil {
 		// We still need to check for existence using os.Stat because storage might not expose it easily.
@@ -71,6 +75,74 @@ func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storag
 // LastAppliedIndex returns the index of the last applied log entry.
 func (f *FSM) LastAppliedIndex() uint64 {
 	return f.lastAppliedIndex.Load()
+}
+
+func (f *FSM) GetMetricsJSON() map[string]interface{} {
+	f.metricsMu.RLock()
+	defer f.metricsMu.RUnlock()
+	return f.metrics.ToJSON()
+}
+
+func (f *FSM) GetTotalGames() int {
+	return f.r.CountTotalGames()
+}
+
+func (f *FSM) GetTotalTeams() int {
+	return f.r.CountTotalTeams()
+}
+
+func (f *FSM) GetActiveWSCount() int {
+	if f.hm == nil {
+		return 0
+	}
+	return f.hm.GetTotalConnectionCount()
+}
+
+func (f *FSM) GetLastMetricsTimestamp() int64 {
+	f.metricsMu.RLock()
+	defer f.metricsMu.RUnlock()
+
+	ts := f.metrics.LastUpdate
+
+	// If the last update was very recent (e.g. within 15s), it might be the current node's first report
+	// clobbering the history. In that case, look for the previous point in the ring buffer.
+	if ts > 0 && time.Since(time.Unix(ts, 0)) < 15*time.Second {
+		if f.metrics.ClusterMetrics != nil {
+			if series, ok := f.metrics.ClusterMetrics["nodeCount"]; ok {
+				if buf, ok := series.Buffers["1m"]; ok {
+					points := buf.GetPoints()
+					// Look for a point strictly older than the bucket of the last update
+					alignedLast := (ts / 60) * 60
+					for i := len(points) - 1; i >= 0; i-- {
+						if points[i].Timestamp < alignedLast {
+							return points[i].Timestamp
+						}
+					}
+				}
+			}
+		}
+		// If no older point found, fall through to return ts (better than 0?)
+		// If we return ts, gap is 0. If we return 0, gap is 0.
+		// So it doesn't matter much, but let's return ts as best effort.
+	}
+
+	if ts > 0 {
+		return ts
+	}
+
+	// Fallback for legacy data
+	if f.metrics.ClusterMetrics == nil {
+		return 0
+	}
+	if series, ok := f.metrics.ClusterMetrics["nodeCount"]; ok {
+		if buf, ok := series.Buffers["1m"]; ok {
+			points := buf.GetPoints()
+			if len(points) > 0 {
+				return points[len(points)-1].Timestamp
+			}
+		}
+	}
+	return 0
 }
 
 func (f *FSM) loadNodes() {
@@ -492,7 +564,7 @@ func (f *FSM) ApplyBatch(logs []*raft.Log) []interface{} {
 		case CmdSaveTeam, CmdDeleteTeam:
 			key = "team:" + cmd.ID
 			isTeam = true
-		case CmdNodeMeta, CmdNodeLeft, CmdUpdateAccessPolicy:
+		case CmdNodeMeta, CmdNodeLeft, CmdUpdateAccessPolicy, CmdMetricsUpdate:
 			key = "sys:global"
 			isSystem = true
 		default:
@@ -604,9 +676,42 @@ func (f *FSM) applyCommand(cmd RaftCommand, index uint64) interface{} {
 			return fmt.Errorf("missing policy data")
 		}
 		return f.applyUpdateAccessPolicy(cmd.PolicyData)
+	case CmdMetricsUpdate:
+		if cmd.MetricsPayload == nil {
+			return nil
+		}
+		return f.applyMetricsUpdate(cmd.MetricsPayload)
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
 	}
+}
+
+func (f *FSM) applyMetricsUpdate(p *MetricsPayload) error {
+	f.metricsMu.Lock()
+	defer f.metricsMu.Unlock()
+
+	f.metrics.LastUpdate = p.Timestamp
+
+	// 1. Apply Node Metrics
+	for _, nm := range p.Nodes {
+		series := f.metrics.GetNodeSeries(nm.NodeID)
+		series.Ingest(p.Timestamp, nm.RPS)
+		f.metrics.GetNodeSeries(nm.NodeID+":ws").Ingest(p.Timestamp, float64(nm.ActiveWS))
+		f.metrics.GetNodeLatencySeries(nm.NodeID).Ingest(p.Timestamp, nm.Latency)
+	}
+
+	// 2. Apply Cluster Metrics
+	if p.Cluster != nil {
+		f.metrics.GetClusterSeries("nodeCount").Ingest(p.Timestamp, float64(p.Cluster.NodeCount))
+		f.metrics.GetClusterSeries("elections").Ingest(p.Timestamp, float64(p.Cluster.Elections))
+		f.metrics.GetClusterSeries("lastLogIndex").Ingest(p.Timestamp, float64(p.Cluster.LastLogIndex))
+		f.metrics.GetClusterSeries("snapshots").Ingest(p.Timestamp, float64(p.Cluster.Snapshots))
+		f.metrics.GetClusterSeries("leaderGapMs").Ingest(p.Timestamp, float64(p.Cluster.LeaderGapMS))
+		f.metrics.GetClusterSeries("totalGames").Ingest(p.Timestamp, float64(p.Cluster.TotalGames))
+		f.metrics.GetClusterSeries("totalTeams").Ingest(p.Timestamp, float64(p.Cluster.TotalTeams))
+	}
+
+	return nil
 }
 
 func (f *FSM) applyUpdateAccessPolicy(policy *UserAccessPolicy) error {
@@ -894,6 +999,12 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		if err := f.storage.SaveDataFile("fsm_state.json", state); err != nil {
 			log.Printf("Warning: failed to save fsm_state.json: %v", err)
 		}
+		// Persist Metrics
+		f.metricsMu.RLock()
+		if err := f.storage.SaveDataFile("metrics.json", f.metrics); err != nil {
+			log.Printf("Warning: failed to save metrics.json: %v", err)
+		}
+		f.metricsMu.RUnlock()
 	}
 
 	return &FSMSnapshot{fsm: f}, nil
@@ -906,6 +1017,18 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	}
 	// Re-build registry after restoration
 	f.r.Rebuild()
+	// Restore Metrics
+	if f.storage != nil {
+		var m MetricsStore
+		if err := f.storage.ReadDataFile("metrics.json", &m); err == nil {
+			m.Hydrate()
+			f.metricsMu.Lock()
+			f.metrics = &m
+			f.metricsMu.Unlock()
+		} else if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to restore metrics.json: %v", err)
+		}
+	}
 	return nil
 }
 

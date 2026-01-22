@@ -32,12 +32,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/c2FmZQ/storage"
 	"github.com/c2FmZQ/storage/crypto"
 	"github.com/ttbt-io/skorekeeper/frontend"
 )
+
+var GlobalRequestCounter atomic.Uint64
 
 func generateETag(data []byte) string {
 	return fmt.Sprintf("\"%x\"", sha256.Sum256(data))
@@ -367,6 +370,21 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 			return
 		}
 		raftMgr.handleStatus(w, r)
+	})
+
+	// Cluster Metrics Handler (Public/Protected)
+	mux.HandleFunc("/api/cluster/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if raftMgr == nil || !opts.RaftEnabled {
+			http.Error(w, "Raft is not enabled on this node", http.StatusNotImplemented)
+			return
+		}
+		if r.Method == http.MethodPost {
+			raftMgr.handleMetricsReport(w, r)
+		} else if r.Method == http.MethodGet {
+			raftMgr.handleMetricsQuery(w, r)
+		} else {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	// Admin API - Get/Update Policy
@@ -1394,6 +1412,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		handler = jwtAuthMiddleware(opts, handler)
 	}
 	handler = loggingMiddleware(handler)
+	handler = monitoringMiddleware(raftMgr, handler)
 	handler = securityMiddleware(handler)
 	handler = cacheControlMiddleware(handler)
 
@@ -1510,5 +1529,25 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received request: %s %s", r.Method, r.URL.Path)
 		next.ServeHTTP(w, r)
+	})
+}
+
+// monitoringMiddleware increments the global request counter and records latency.
+func monitoringMiddleware(rm *RaftManager, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		GlobalRequestCounter.Add(1)
+
+		if rm == nil || r.URL.Path == "/api/ws" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		duration := time.Since(start)
+
+		rm.latencyMu.Lock()
+		rm.latencyAccumulator.Add(duration)
+		rm.latencyMu.Unlock()
 	})
 }
