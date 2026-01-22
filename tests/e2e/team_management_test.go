@@ -155,12 +155,15 @@ func TestTeamManagement(t *testing.T) {
 		chromedp.ActionFunc(OpenSidebar),
 		chromedp.Click("#sidebar-btn-teams"),
 		chromedp.WaitVisible("#teams-view"),
-		// Click delete button on the first card
-		chromedp.Click(`#teams-list > div:first-child button[title="Delete Team"]`),
+		// Click the card to open detail
+		chromedp.Click(fmt.Sprintf(`//div[contains(@class, "bg-white") and .//h3[contains(text(), "%s")]]`, teamName)),
+		chromedp.WaitVisible("#team-view"),
+		// Click delete button in detail header
+		chromedp.Click("#btn-team-detail-delete"),
 		chromedp.WaitVisible("#custom-confirm-modal"),
 		chromedp.Click("#btn-confirm-yes"),
 		waitUntilDisplayNone("#custom-confirm-modal"),
-		// Wait for empty list message or verify reduction
+		// Should return to list
 		chromedp.WaitVisible("#teams-list"),
 	)
 }

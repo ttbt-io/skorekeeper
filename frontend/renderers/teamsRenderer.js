@@ -130,47 +130,132 @@ export class TeamsRenderer {
 
             // Admin Actions
             if (currentUser && (team.ownerId === currentUser.email || (team.roles && team.roles.admins && team.roles.admins.includes(currentUser.email)))) {
-                const actions = document.createElement('div');
-                actions.className = 'mt-4 flex gap-2 border-t pt-3';
-
-                const editBtn = document.createElement('button');
-                editBtn.className = 'text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-wider';
-                editBtn.textContent = 'Edit Roster & Members';
-                editBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.callbacks.onEdit(team);
-                };
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'text-xs font-bold text-red-600 hover:text-red-800 ml-auto p-1';
-                deleteBtn.title = 'Delete Team';
-
-                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                svg.setAttribute('class', 'w-5 h-5');
-                svg.setAttribute('fill', 'none');
-                svg.setAttribute('stroke', 'currentColor');
-                svg.setAttribute('viewBox', '0 0 24 24');
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                path.setAttribute('stroke-linecap', 'round');
-                path.setAttribute('stroke-linejoin', 'round');
-                path.setAttribute('stroke-width', '2');
-                path.setAttribute('d', 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16');
-                svg.appendChild(path);
-                deleteBtn.appendChild(svg);
-
-                deleteBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.callbacks.onDelete(team.id);
-                };
-
-                actions.appendChild(editBtn);
-                actions.appendChild(deleteBtn);
-                card.appendChild(actions);
+                // We don't show buttons here anymore, just click to view details
+                // Or maybe we keep Delete? The prompt says "Edit Team" button is in the Team Screen.
+                // Let's keep Delete here for convenience, or remove it.
+                // Standard UI usually allows delete from list or detail.
+                // Let's keep it minimal as per instruction "clicking on a team opens the Edit Team panel. Instead...".
+                // I'll leave the Delete button but remove the Edit button from the card actions if any.
             }
 
-            card.onclick = () => this.callbacks.onEdit(team);
+            // Entire card clicks to team detail
+            card.onclick = () => {
+                window.location.hash = `#team/${team.id}`;
+            };
             this.listContainer.appendChild(card);
         });
+    }
+
+    /**
+     * Renders the team detail view.
+     * @param {HTMLElement} container
+     * @param {object} team
+     */
+    renderTeamDetail(container, team) {
+        if (!container) {
+            return;
+        }
+
+        // 1. Update Header
+        const nameEl = document.getElementById('team-detail-name');
+        if (nameEl) {
+            nameEl.textContent = team.name;
+        }
+
+        // 2. Render Roster
+        const rosterContainer = document.getElementById('team-detail-roster-view');
+        if (rosterContainer) {
+            rosterContainer.innerHTML = '';
+            if (!team.roster || team.roster.length === 0) {
+                rosterContainer.appendChild(createElement('div', {
+                    className: 'text-center text-gray-500 py-8',
+                    text: 'No players in roster.',
+                }));
+            } else {
+                const list = document.createElement('div');
+                list.className = 'bg-white rounded-xl shadow-sm border border-gray-200 divide-y divide-gray-100';
+
+                team.roster.forEach(p => {
+                    const row = document.createElement('div');
+                    row.className = 'p-4 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-colors';
+                    row.onclick = () => {
+                        if (this.callbacks.onOpenPlayerProfile) {
+                            this.callbacks.onOpenPlayerProfile(p.id);
+                        }
+                    };
+
+                    const left = document.createElement('div');
+                    left.className = 'flex items-center gap-4';
+
+                    const num = document.createElement('span');
+                    num.className = 'font-mono text-gray-400 font-bold w-6 text-right';
+                    num.textContent = p.number || '--';
+
+                    const name = document.createElement('span');
+                    name.className = 'font-bold text-gray-900';
+                    name.textContent = p.name;
+
+                    left.appendChild(num);
+                    left.appendChild(name);
+
+                    const pos = document.createElement('span');
+                    pos.className = 'text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded';
+                    pos.textContent = p.pos || 'BENCH';
+
+                    row.appendChild(left);
+                    row.appendChild(pos);
+                    list.appendChild(row);
+                });
+                rosterContainer.appendChild(list);
+            }
+        }
+
+        // 3. Render Members
+        const membersContainer = document.getElementById('team-detail-members-view');
+        if (membersContainer) {
+            // We reuse renderTeamMembers but we need to target a specific container inside.
+            // Actually renderTeamMembers uses `this.membersContainer` which is bound to the modal.
+            // We should make a reusable internal render function or temporarily bind the container.
+            // Better: Manual rendering here for read-only list, as logic differs (no delete buttons in read-only view?).
+            // The prompt implies we can see members.
+
+            membersContainer.innerHTML = '';
+            const list = document.createElement('div');
+            list.className = 'space-y-4';
+
+            const renderGroup = (title, emails) => {
+                if (!emails || emails.length === 0) {
+                    return;
+                }
+                const grp = document.createElement('div');
+                grp.appendChild(createElement('h3', { className: 'text-xs font-bold text-gray-400 uppercase tracking-widest mb-2', text: title }));
+
+                emails.forEach(email => {
+                    const row = document.createElement('div');
+                    row.className = 'bg-white p-3 rounded border border-gray-200 text-sm font-medium text-gray-700 flex items-center gap-2';
+                    // Avatar placeholder
+                    const avatar = document.createElement('div');
+                    avatar.className = 'w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold';
+                    avatar.textContent = email.substring(0, 2).toUpperCase();
+                    row.appendChild(avatar);
+                    row.appendChild(document.createTextNode(email));
+                    grp.appendChild(row);
+                });
+                list.appendChild(grp);
+            };
+
+            const roles = team.roles || {};
+            const admins = roles.admins || [];
+            const owner = team.ownerId ? [team.ownerId] : [];
+            // Merge owner into admins for display if not present
+            const allAdmins = Array.from(new Set([...owner, ...admins]));
+
+            renderGroup('Admins', allAdmins);
+            renderGroup('Scorekeepers', roles.scorekeepers);
+            renderGroup('Spectators', roles.spectators);
+
+            membersContainer.appendChild(list);
+        }
     }
 
     /**

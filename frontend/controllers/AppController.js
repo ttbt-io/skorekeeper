@@ -233,6 +233,7 @@ export class AppController {
                 onSync: (id) => this.syncTeam(id),
                 canManage: (user, team) => this.canWriteTeam(user ? user.email : null, team),
                 onRemoveMember: (email, roleKey) => this.removeTeamMember(email, roleKey),
+                onOpenPlayerProfile: (id) => this.openPlayerProfile(id),
             },
         });
 
@@ -936,6 +937,10 @@ export class AppController {
                 await this.loadTeamsView();
                 break;
 
+            case 'team':
+                await this.teamController.loadTeamDetail(params.teamId);
+                break;
+
             case 'stats':
                 await this.loadStatisticsView();
                 break;
@@ -1571,6 +1576,8 @@ export class AppController {
             this.renderGameList();
         } else if (view === 'teams') {
             this.renderTeamsList();
+        } else if (view === 'team') {
+            this.teamController.renderTeamDetail();
         } else if (view === 'statistics') {
             this.renderStatistics();
         } else if (view === 'broadcast') {
@@ -1589,7 +1596,7 @@ export class AppController {
      * @param {string} viewId - The ID of the view container to show.
      */
     showView(viewId) {
-        const views = ['dashboard-view', 'scoresheet-view', 'teams-view', 'statistics-view', 'manual-view', 'broadcast-view'];
+        const views = ['dashboard-view', 'scoresheet-view', 'teams-view', 'team-view', 'statistics-view', 'manual-view', 'broadcast-view'];
         views.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
@@ -5322,9 +5329,29 @@ export class AppController {
             }
         }
 
+        // Look up player info fallback
+        let playerInfo = null;
+        // Check current team context first (most likely source of click)
+        if (this.teamController && this.teamController.teamState) {
+            const found = this.teamController.teamState.roster?.find(p => p.id === playerId);
+            if (found) {
+                playerInfo = found;
+            }
+        }
+        // Fallback to searching all teams if not found or no team context
+        if (!playerInfo && this.state.teams) {
+            for (const t of this.state.teams) {
+                const found = t.roster?.find(p => p.id === playerId);
+                if (found) {
+                    playerInfo = found;
+                    break;
+                }
+            }
+        }
+
         // 3. Render
         if (this.statsRenderer) {
-            this.statsRenderer.renderPlayerProfile(playerId, this.state.aggregatedStats, fullGames);
+            this.statsRenderer.renderPlayerProfile(playerId, this.state.aggregatedStats, fullGames, playerInfo);
         }
     }
 
@@ -5335,6 +5362,19 @@ export class AppController {
     async loadStatisticsView() {
         this.state.view = 'statistics';
         window.location.hash = 'stats';
+
+        // Handle pending filter from other views
+        if (this.state.pendingStatsFilter && this.state.pendingStatsFilter.teamId) {
+            const teamId = this.state.pendingStatsFilter.teamId;
+            const searchInput = document.getElementById('stats-search');
+            if (searchInput) {
+                // Using "team:" prefix to target the team filter specifically
+                searchInput.value = `team:${teamId}`;
+            }
+            // Clear it
+            this.state.pendingStatsFilter = null;
+        }
+
         this.render(); // Show loading state or clear previous content
 
         // Initialize Pull-to-Refresh
@@ -5354,13 +5394,13 @@ export class AppController {
      */
     async refreshStatisticsData() {
         try {
-            if (this.state.teams.length === 0) {
-                this.state.teams = await this.db.getAllTeams();
-            }
+            // Always fetch full team list for stats filter to avoid pagination issues
+            // and ensure we have the complete list for lookup
+            const allTeams = await this.db.getAllTeams();
 
             // 1. Get all game data
             const games = await this.db.getAllFullGames();
-            const accessibleGames = games.filter(g => this.hasReadAccess(g, this.state.teams));
+            const accessibleGames = games.filter(g => this.hasReadAccess(g, allTeams));
             this.state.allGames = accessibleGames;
 
             // 2. Populate Team Filter (in Advanced Panel)
@@ -5368,20 +5408,44 @@ export class AppController {
             if (teamFilter) {
                 const currentVal = teamFilter.value;
                 teamFilter.innerHTML = '<option value="">All Teams</option>';
-                const teamNames = new Set();
-                accessibleGames.forEach(g => {
-                    if (g.away) {
-                        teamNames.add(g.away);
-                    }
-                    if (g.home) {
-                        teamNames.add(g.home);
-                    }
+
+                const accessibleTeams = allTeams.filter(t => this.hasTeamReadAccess(t));
+                const options = [];
+                const dbTeamNames = new Set();
+
+                // Add DB Teams
+                accessibleTeams.forEach(t => {
+                    options.push({ value: t.id, label: t.name });
+                    dbTeamNames.add(t.name.toLowerCase());
                 });
-                Array.from(teamNames).sort().forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    teamFilter.appendChild(opt);
+
+                // Add Ad-hoc Teams
+                const adHocNames = new Set();
+                accessibleGames.forEach(g => {
+                    ['away', 'home'].forEach(side => {
+                        const name = g[side];
+                        const id = g[side + 'TeamId'];
+                        if (name && !id) {
+                            adHocNames.add(name);
+                        }
+                    });
+                });
+
+                Array.from(adHocNames).sort().forEach(name => {
+                    let label = name;
+                    if (dbTeamNames.has(name.toLowerCase())) {
+                        label = `${name} (Ad-hoc)`;
+                    }
+                    options.push({ value: name, label: label });
+                });
+
+                options.sort((a, b) => a.label.localeCompare(b.label));
+
+                options.forEach(opt => {
+                    const el = document.createElement('option');
+                    el.value = opt.value;
+                    el.textContent = opt.label;
+                    teamFilter.appendChild(el);
                 });
                 teamFilter.value = currentVal;
             }
@@ -5461,9 +5525,15 @@ export class AppController {
                     if (f.key === 'location' && !(g.location || '').toLowerCase().includes(val)) {
                         return false;
                     }
-                    // "team" key matches either
-                    if (f.key === 'team' && !((g.away || '').toLowerCase().includes(val) || (g.home || '').toLowerCase().includes(val))) {
-                        return false;
+                    // "team" key matches either name or ID
+                    if (f.key === 'team') {
+                        const matchesName = (g.away || '').toLowerCase().includes(val) || (g.home || '').toLowerCase().includes(val);
+                        // val is lowercased above. IDs should be compared case-insensitively or assuming lower.
+                        // We check direct match for ID.
+                        const matchesId = (g.awayTeamId === f.value) || (g.homeTeamId === f.value) || (g.awayTeamId === val) || (g.homeTeamId === val);
+                        if (!matchesName && !matchesId) {
+                            return false;
+                        }
                     }
 
                     if (f.key === 'away' && !(g.away || '').toLowerCase().includes(val)) {

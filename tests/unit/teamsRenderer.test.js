@@ -76,19 +76,6 @@ describe('TeamsRenderer', () => {
         expect(btn.title).toContain('Quota Reached');
     });
 
-    test('renderTeamsList() handles admin actions', () => {
-        const teams = [{ id: 't1', ownerId: 'me', name: 'My Team' }];
-        const user = { email: 'me' };
-
-        renderer.renderTeamsList(teams, user);
-
-        const deleteBtn = listContainer.querySelector('button[title="Delete Team"]');
-        expect(deleteBtn).not.toBeNull();
-
-        deleteBtn.click();
-        expect(mockCallbacks.onDelete).toHaveBeenCalledWith('t1');
-    });
-
     test('renderTeamsList() handles sync status', () => {
         const teams = [
             { id: 't1', syncStatus: 'synced' },

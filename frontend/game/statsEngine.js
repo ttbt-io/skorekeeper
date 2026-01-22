@@ -495,7 +495,7 @@ export class StatsEngine {
      * Aggregates statistics from a list of pre-calculated game stats.
      * @param {Array<object>} statsList - Array of { id, stats } objects.
      * @param {Array<object>} games - Array of game metadata objects (for team names/ids).
-     * @param {string} [teamFilter] - Optional team name to filter stats by.
+     * @param {string} [teamFilter] - Optional team name or ID to filter stats by.
      * @returns {object} Aggregated statistics.
      */
     static aggregatePrecalculatedStats(statsList, games, teamFilter) {
@@ -518,10 +518,14 @@ export class StatsEngine {
             let sides = ['away', 'home'];
             if (teamFilter) {
                 sides = [];
-                if (game.away === teamFilter) {
+                // Check name OR ID
+                const isAway = game.away === teamFilter || game.awayTeamId === teamFilter;
+                const isHome = game.home === teamFilter || game.homeTeamId === teamFilter;
+
+                if (isAway) {
                     sides.push('away');
                 }
-                if (game.home === teamFilter) {
+                if (isHome) {
                     sides.push('home');
                 }
             }
@@ -530,10 +534,13 @@ export class StatsEngine {
                 return;
             }
 
+            // Map valid sides to team names for player filtering
+            const validTeamNames = sides.map(s => game[s]);
+
             Object.keys(stats.playerStats).forEach(pId => {
                 const s = stats.playerStats[pId];
                 // If we are filtering by team, only include the player if they played for that team in THIS game
-                if (teamFilter && s.team !== teamFilter) {
+                if (teamFilter && !validTeamNames.includes(s.team)) {
                     return;
                 }
 
@@ -557,7 +564,7 @@ export class StatsEngine {
             Object.keys(stats.pitcherStats).forEach(pId => {
                 const s = stats.pitcherStats[pId];
                 // If we are filtering by team, only include the pitcher if they pitched for that team in THIS game
-                if (teamFilter && s.team !== teamFilter) {
+                if (teamFilter && !validTeamNames.includes(s.team)) {
                     return;
                 }
 
@@ -579,11 +586,12 @@ export class StatsEngine {
 
             // Aggregate Team Stats
             ['away', 'home'].forEach(t => {
-                const teamName = game[t];
-                if (teamFilter && teamName !== teamFilter) {
+                // Filter check: must match name or ID or belong to valid side
+                if (teamFilter && !sides.includes(t)) {
                     return;
                 }
 
+                const teamName = game[t];
                 const teamId = game[t + 'TeamId'] || teamName;
                 if (teamId) {
                     if (!aggregated.teams[teamId]) {
