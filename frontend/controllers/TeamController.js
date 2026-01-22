@@ -87,10 +87,6 @@ export class TeamController {
         this.app.state.view = 'team';
 
         // Ensure we have the team data.
-        // We reuse loadAllLocalTeams/fetchNextRemoteBatch logic via loadTeamsView if needed,
-        // or just fetch the single team if not present.
-        // Ideally, we check if we have it in memory or DB.
-
         let team = this.app.state.teams.find(t => t.id === teamId);
         if (!team) {
             // Try fetching from DB
@@ -113,7 +109,6 @@ export class TeamController {
         }
 
         this.teamState = team ? { ...team } : null; // Use teamState to hold the current detail team
-        // If not found, we might want to show an error or redirect.
 
         if (!this.teamState) {
             this.app.modalConfirmFn('Team not found.', { isError: true });
@@ -205,36 +200,8 @@ export class TeamController {
 
         const btnStats = document.getElementById('btn-team-detail-stats');
         if (btnStats) {
-            btnStats.onclick = () => {
-                window.location.hash = '#stats';
-                // We rely on search params or state to filter stats?
-                // The prompt says: "open #stats with team:<teamId> in the search"
-                // So we need to handle setting that search.
-                // We can set the hash to #stats and then prepopulate the search.
-                // Or better, we can modify Router/AppController to accept params in hash?
-                // Currently router parses params.
-                // Let's implement a mechanism to pass filter to stats view.
-
-                // For now, simpler: Set state or localStorage?
-                // Or just:
-                setTimeout(() => {
-                    const input = document.getElementById('stats-adv-search-team');
-                    if (input) {
-                        input.value = this.teamState.id;
-                        // Trigger stats search... logic is inside StatsView loading.
-                    }
-                }, 100);
-            };
-            // Better approach: Since we can't easily pass params via simple #stats hash without changing router extensively,
-            // we will use the AppController state to signal the intent.
-            // Or just update the DOM elements after hash change if they exist?
-            // Actually, the prompt says "open #stats with team:<teamId> in the search".
-            // The router doesn't support query params in hash like #stats?team=...
-            // But we can implement it or just use a shared state.
-
             btnStats.onclick = async() => {
-                // Pre-set the filter in a way that loadStatisticsView picks it up
-                // We'll use a hack or just direct DOM manipulation if view is loaded.
+                // Pre-set the filter so loadStatisticsView can pick it up
                 this.app.state.pendingStatsFilter = { teamId: this.teamState.id };
                 window.location.hash = 'stats';
             };

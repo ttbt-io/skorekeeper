@@ -128,17 +128,6 @@ export class TeamsRenderer {
             flex.appendChild(rightSide);
             card.appendChild(flex);
 
-            // Admin Actions
-            if (currentUser && (team.ownerId === currentUser.email || (team.roles && team.roles.admins && team.roles.admins.includes(currentUser.email)))) {
-                // We don't show buttons here anymore, just click to view details
-                // Or maybe we keep Delete? The prompt says "Edit Team" button is in the Team Screen.
-                // Let's keep Delete here for convenience, or remove it.
-                // Standard UI usually allows delete from list or detail.
-                // Let's keep it minimal as per instruction "clicking on a team opens the Edit Team panel. Instead...".
-                // I'll leave the Delete button but remove the Edit button from the card actions if any.
-            }
-
-            // Entire card clicks to team detail
             card.onclick = () => {
                 window.location.hash = `#team/${team.id}`;
             };
@@ -213,12 +202,6 @@ export class TeamsRenderer {
         // 3. Render Members
         const membersContainer = document.getElementById('team-detail-members-view');
         if (membersContainer) {
-            // We reuse renderTeamMembers but we need to target a specific container inside.
-            // Actually renderTeamMembers uses `this.membersContainer` which is bound to the modal.
-            // We should make a reusable internal render function or temporarily bind the container.
-            // Better: Manual rendering here for read-only list, as logic differs (no delete buttons in read-only view?).
-            // The prompt implies we can see members.
-
             membersContainer.innerHTML = '';
             const list = document.createElement('div');
             list.className = 'space-y-4';

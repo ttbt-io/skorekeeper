@@ -165,16 +165,10 @@ func TestTeamScreen(t *testing.T) {
 			teamId := strings.TrimPrefix(val, "team:")
 
 			// Verify dropdown has this team
-			// We need to open the advanced panel first? No, the select element exists in DOM.
-			// But maybe populated async? refreshStatisticsData populates it.
-			// Wait for the option to appear.
-			// The select ID is #stats-adv-search-team
-
 			// Wait for any option to populate (besides "All Teams")
 			if err := chromedp.WaitReady(`#stats-adv-search-team option:not([value=""])`).Do(ctx); err != nil {
 				return err
 			}
-
 			// Use Evaluate to get textContent directly
 			var jsText string
 			jsSel := fmt.Sprintf(`document.querySelector('#stats-adv-search-team option[value="%s"]').textContent`, teamId)
