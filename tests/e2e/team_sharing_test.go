@@ -87,17 +87,11 @@ func TestTeamSharing(t *testing.T) {
 	// 2. User A Invites User B
 	runStep(t, ctxA, "User A invites User B",
 		chromedp.Sleep(1*time.Second),
-		// Click the Team Card to open edit modal
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(fmt.Sprintf(`
-				(() => {
-					const headers = Array.from(document.querySelectorAll('h3'));
-					const h = headers.find(el => el.textContent.trim() === '%s');
-					if (!h) throw "Team header not found";
-					h.click(); // Click header (or card)
-				})()
-			`, teamName), nil).Do(ctx)
-		}),
+		// Click the Team Card to open detail view
+		chromedp.Click(fmt.Sprintf(`//div[contains(@class, "bg-white") and .//h3[contains(text(), "%s")]]`, teamName)),
+		chromedp.WaitVisible("#team-view"),
+		// Click Edit button in detail view header
+		chromedp.Click("#btn-team-detail-edit"),
 		chromedp.WaitVisible("#team-modal"),
 		chromedp.Click("#tab-team-members"),
 		chromedp.WaitVisible("#team-members-view"),
@@ -133,20 +127,11 @@ func TestTeamSharing(t *testing.T) {
 	// 4. User B Edits Team
 	newShortName := "SHRD"
 	runStep(t, ctxB, "User B edits shared team",
-		// Click Team Card
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(fmt.Sprintf(`
-				(() => {
-					const headers = Array.from(document.querySelectorAll('h3'));
-					const h = headers.find(el => el.textContent.trim().startsWith('%s'));
-					if (!h) {
-						console.error('Available headers:', headers.map(h => h.textContent));
-						throw "Team header not found for: " + '%s';
-					}
-					h.click();
-				})()
-			`, teamName, teamName), nil).Do(ctx)
-		}),
+		// Click Team Card to open detail
+		chromedp.Click(fmt.Sprintf(`//div[contains(@class, "bg-white") and .//h3[contains(text(), "%s")]]`, teamName)),
+		chromedp.WaitVisible("#team-view"),
+		// Click Edit button in detail view header
+		chromedp.Click("#btn-team-detail-edit"),
 		chromedp.WaitVisible("#team-modal"),
 		chromedp.SetValue("#team-short-name", newShortName),
 		chromedp.Click("#btn-save-team"),
@@ -168,16 +153,9 @@ func TestTeamSharing(t *testing.T) {
 		// Check for short name in the list (assuming it is displayed)
 		// Usually short name is displayed in parens or badges?
 		// Or we can just open edit modal to check.
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(fmt.Sprintf(`
-		        				(() => {
-		        										const headers = Array.from(document.querySelectorAll('h3'));
-		        										const h = headers.find(el => el.textContent.trim().startsWith('%s'));
-		        										if (!h) throw "Team header not found";
-		        										h.click();
-		        									})()
-		        								`, teamName), nil).Do(ctx)
-		}),
+		chromedp.Click(fmt.Sprintf(`//div[contains(@class, "bg-white") and .//h3[contains(text(), "%s")]]`, teamName)),
+		chromedp.WaitVisible("#team-view"),
+		chromedp.Click("#btn-team-detail-edit"),
 		chromedp.WaitVisible("#team-modal"),
 		chromedp.Value("#team-short-name", &newShortName), // Verify value
 	)

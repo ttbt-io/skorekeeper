@@ -79,6 +79,135 @@ export class TeamController {
         }
     }
 
+    /**
+     * Loads the details for a specific team.
+     * @param {string} teamId
+     */
+    async loadTeamDetail(teamId) {
+        this.app.state.view = 'team';
+
+        // Ensure we have the team data.
+        let team = this.app.state.teams.find(t => t.id === teamId);
+        if (!team) {
+            // Try fetching from DB
+            const localTeams = await this.app.db.getAllTeams();
+            team = localTeams.find(t => t.id === teamId);
+
+            if (!team && this.app.auth.getUser()) {
+                // Try fetching from server
+                try {
+                    const response = await fetch(`/api/load-team/${encodeURIComponent(teamId)}`);
+                    if (response.ok) {
+                        team = await response.json();
+                        // We don't auto-save remote teams to local DB just by viewing them
+                        // unless we are syncing. For now, just use it for display.
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch team details', e);
+                }
+            }
+        }
+
+        this.teamState = team ? { ...team } : null; // Use teamState to hold the current detail team
+
+        if (!this.teamState) {
+            this.app.modalConfirmFn('Team not found.', { isError: true });
+            window.location.hash = 'teams';
+            return;
+        }
+
+        this.app.render();
+        this.bindDetailEvents();
+    }
+
+    renderTeamDetail() {
+        if (!this.teamState) {
+            return;
+        }
+
+        const container = document.getElementById('team-view');
+        this.app.teamsRenderer.renderTeamDetail(container, this.teamState, this.app.auth.getUser());
+    }
+
+    bindDetailEvents() {
+        const tabRoster = document.getElementById('tab-team-detail-roster');
+        const tabMembers = document.getElementById('tab-team-detail-members');
+        const viewRoster = document.getElementById('team-detail-roster-view');
+        const viewMembers = document.getElementById('team-detail-members-view');
+
+        if (tabRoster && tabMembers) {
+            tabRoster.onclick = () => {
+                tabRoster.classList.add('border-blue-600', 'text-blue-600');
+                tabRoster.classList.remove('border-transparent', 'text-gray-500');
+                tabMembers.classList.remove('border-blue-600', 'text-blue-600');
+                tabMembers.classList.add('border-transparent', 'text-gray-500');
+
+                viewRoster.classList.remove('hidden');
+                viewMembers.classList.add('hidden');
+            };
+
+            tabMembers.onclick = () => {
+                tabMembers.classList.add('border-blue-600', 'text-blue-600');
+                tabMembers.classList.remove('border-transparent', 'text-gray-500');
+                tabRoster.classList.remove('border-blue-600', 'text-blue-600');
+                tabRoster.classList.add('border-transparent', 'text-gray-500');
+
+                viewRoster.classList.add('hidden');
+                viewMembers.classList.remove('hidden');
+            };
+        }
+
+        const btnBack = document.getElementById('btn-team-detail-back');
+        if (btnBack) {
+            btnBack.onclick = () => {
+                window.location.hash = 'teams';
+            };
+        }
+
+        const btnEdit = document.getElementById('btn-team-detail-edit');
+        const btnDelete = document.getElementById('btn-team-detail-delete');
+
+        if (btnEdit || btnDelete) {
+            const user = this.app.auth.getUser();
+            const canEdit = this.app.canWriteTeam(user ? user.email : null, this.teamState);
+
+            if (btnEdit) {
+                if (canEdit) {
+                    btnEdit.classList.remove('hidden');
+                    btnEdit.onclick = () => {
+                        this.openEditTeamModal(this.teamState);
+                    };
+                } else {
+                    btnEdit.classList.add('hidden');
+                }
+            }
+
+            if (btnDelete) {
+                // Only owner or admin can delete? canWriteTeam covers this usually.
+                // Or maybe strictly owner? The original renderer checked:
+                // team.ownerId === currentUser.email || (team.roles && team.roles.admins && team.roles.admins.includes(currentUser.email))
+                // canWriteTeam is likely similar.
+                if (canEdit) {
+                    btnDelete.classList.remove('hidden');
+                    btnDelete.onclick = () => {
+                        this.deleteTeam(this.teamState.id);
+                    };
+                } else {
+                    btnDelete.classList.add('hidden');
+                }
+            }
+        }
+
+        const btnStats = document.getElementById('btn-team-detail-stats');
+        if (btnStats) {
+            btnStats.onclick = async() => {
+                // Pre-set the filter so loadStatisticsView can pick it up
+                this.app.state.pendingStatsFilter = { teamId: this.teamState.id };
+                window.location.hash = 'stats';
+            };
+        }
+    }
+
     bindScrollEvent() {
         const container = document.getElementById('teams-list-container');
         if (container && !container.dataset.scrollBound) {

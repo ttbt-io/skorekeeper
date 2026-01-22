@@ -50,6 +50,11 @@ export class Router {
             return { view: 'scoresheet', params: { gameId, subView: 'grid' } };
         }
 
+        if (hash.startsWith('#team/')) {
+            const teamId = hash.substring(6);
+            return { view: 'team', params: { teamId } };
+        }
+
         return { view: 'dashboard', params: {} };
     }
 }

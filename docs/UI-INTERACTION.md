@@ -61,3 +61,18 @@ A distinct interaction layer handles multi-runner scenarios.
 *   **Optimistic Updates**: The UI responds instantly to inputs, with background synchronization handled transparently.
 *   **Status Indicators**: Real-time visual feedback on synchronization status and network health.
 *   **Narrative Synchronization**: The play-by-play feed updates in real-time as actions are recorded, providing immediate confirmation of the recorded event.
+
+## 7. Team Management
+
+Team management uses a hierarchical navigation model to balance quick access with deep editing.
+
+### 7.1 Navigation Flow
+*   **Teams List**: High-level summary cards for all accessible teams.
+*   **Team Screen**: Detailed view of a specific team, featuring tabs for **Roster** and **Members**.
+*   **Edit Modal**: A dedicated interface for modifying team metadata, roster rows, and member permissions.
+
+### 7.2 The Team Screen
+*   **Roster Tab**: Lists all players with their jersey numbers and default positions. Clicking a player opens their **Player Profile** (Stats).
+*   **Members Tab**: Displays all users with access to the team (Admins, Scorekeepers, Spectators).
+*   **View Stats Link**: Provides a direct shortcut to the Statistics view, automatically filtered for the current team using its unique ID.
+

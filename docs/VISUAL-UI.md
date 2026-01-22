@@ -30,8 +30,12 @@ The application uses a high-contrast theme combining "Pitch" (dark interface ele
 *   **Search Logic**: Filters game cards based on Team Name, Event Name, Location, or Date.
 *   **Game Cards**: Grouped chronologically. Finalized games appear with reduced opacity (80%).
 
-### 2.2 Teams & Roster Hydration
-*   **Smart Population**: Selecting a saved team for a new game automatically populates the initial lineup with the team's stored names, numbers, and default positions.
+### 2.2 Teams & Team Screen
+*   **Team Screen**: A dedicated view for team details (`#team/<teamId>`).
+    *   **Roster**: List of players, clickable to view individual statistics.
+    *   **Members**: Read-only list of users with access to the team.
+    *   **Navigation**: Direct link to the statistics page filtered for the team.
+*   **Roster Hydration**: Selecting a saved team for a new game automatically populates the initial lineup with the team's stored names, numbers, and default positions.
 *   **Persistent IDs**: Each player has a stable UUID to maintain statistical integrity across multiple games.
 
 ### 2.3 The Scoresheet Grid

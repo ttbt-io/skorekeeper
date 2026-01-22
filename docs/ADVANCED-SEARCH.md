@@ -17,6 +17,7 @@ Use `key:value` to filter by specific fields.
 *   `location` - Game location.
 *   `away` - Away team name.
 *   `home` - Home team name.
+*   `team` - Matches either Away or Home (supports Name or Team ID).
 *   `name` - Team name (Teams view only).
 
 ### Date Filtering

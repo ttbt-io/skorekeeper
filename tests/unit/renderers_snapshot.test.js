@@ -188,7 +188,10 @@ describe('Renderers Snapshots', () => {
 
         // renderTeamsList(teams, currentTeamId)
         renderer.renderTeamsList(teams, 't1');
-        expect(listContainer.innerHTML).toMatchSnapshot();
+
+        const expectedHTML = '<div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer relative"><div class="flex justify-between items-start"><div><h3 class="text-lg font-bold text-gray-900">Tigers</h3><p class="text-sm text-gray-500">--- • 0 Players</p></div><div class="flex flex-col items-end gap-2"><div class="w-6 h-6 rounded-full border border-gray-200 shadow-sm" style="background-color: orange;"></div></div></div></div><div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer relative"><div class="flex justify-between items-start"><div><h3 class="text-lg font-bold text-gray-900">Bears</h3><p class="text-sm text-gray-500">--- • 0 Players</p></div><div class="flex flex-col items-end gap-2"><div class="w-6 h-6 rounded-full border border-gray-200 shadow-sm" style="background-color: brown;"></div></div></div></div>';
+
+        expect(listContainer.innerHTML).toBe(expectedHTML);
     });
 
     test('StatsRenderer Snapshot', () => {

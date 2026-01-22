@@ -366,17 +366,19 @@ export class StatsRenderer {
     /**
      * Renders the player profile modal.
      */
-    renderPlayerProfile(playerId, stats, games) {
+    renderPlayerProfile(playerId, stats, games, playerInfo = null) {
         const modal = document.getElementById('player-profile-modal');
         if (!modal) {
             return;
         }
 
-        const p = stats.players[playerId] || {
+        const p = (stats && stats.players && stats.players[playerId]) ? stats.players[playerId] : {
             ab: 0, r: 0, h: 0, rbi: 0, bb: 0, k: 0, hbp: 0, sf: 0, sh: 0,
             singles: 0, doubles: 0, triples: 0, hr: 0, sb: 0, pa: 0,
             flyouts: 0, lineouts: 0, groundouts: 0, otherOuts: 0, roe: 0, calledStrikes: 0,
-            games: 0, name: 'Unknown',
+            games: 0,
+            name: playerInfo ? playerInfo.name : 'Unknown',
+            number: playerInfo ? playerInfo.number : '',
         };
         const derived = this.callbacks.getDerivedHittingStats(p);
 
@@ -437,7 +439,8 @@ export class StatsRenderer {
         }
 
         // Pitching Breakdown (if applicable)
-        const pitchStats = (stats.pitchers || stats.pitcherStats || {})[playerId];
+        const pitchingData = stats ? (stats.pitchers || stats.pitcherStats || {}) : {};
+        const pitchStats = pitchingData[playerId];
         if (pitchStats && pitchStats.bf > 0) {
             const dps = this.callbacks.getDerivedPitchingStats(pitchStats);
             const pitchingBreakdown = createElement('div', { className: 'mt-6 pt-6 border-t border-gray-200 profile-breakdown' });
