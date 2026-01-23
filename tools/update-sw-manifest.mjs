@@ -119,10 +119,10 @@ function updateSW() {
     // 7. Bump Cache Name and Update Assets
     let newContent = oldContent;
 
-    newContent = newContent.replace(/const CACHE_NAME = 'skorekeeper-v(\d+)';/, (match, version) => {
+    newContent = newContent.replace(/const CACHE_NAME = 'skorekeeper-v(\d+\.\d+)\.(\d+)';/, (match, minor, version) => {
         const nextVersion = parseInt(version, 10) + 1;
-        console.log(`Bumping cache version: v${version} -> v${nextVersion}`);
-        return `const CACHE_NAME = 'skorekeeper-v${nextVersion}';`;
+        console.log(`Bumping cache version: v${minor}.${version} -> v${minor}.${nextVersion}`);
+        return `const CACHE_NAME = 'skorekeeper-v${minor}.${nextVersion}';`;
     });
 
     newContent = newContent.replace(coreRegex, coreAssetsString);
