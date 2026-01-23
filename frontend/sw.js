@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const CACHE_NAME = 'skorekeeper-v38';
+const CACHE_NAME = 'skorekeeper-v0.1.120';
 const CORE_ASSETS = [
     './',
     './.sso/proxy.mjs',
@@ -133,7 +133,6 @@ self.addEventListener('install', (event) => {
             }
         }),
     );
-    self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -148,6 +147,12 @@ self.addEventListener('activate', (event) => {
         }),
     );
     self.clients.claim();
+});
+
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
 });
 
 self.addEventListener('fetch', (event) => {
