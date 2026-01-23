@@ -1400,28 +1400,15 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 				log.Printf("DeleteAll: Error loading game %s: %v", id, err)
 				continue
 			}
-			if g.OwnerID == userId {
-				if raftMgr != nil {
-					cmd := RaftCommand{
-						Type: CmdDeleteGame,
-						ID:   id,
-					}
-					if _, err := raftMgr.Propose(cmd); err == nil {
-						deletedGames++
-					} else {
-						log.Printf("Raft Propose Error delete game %s: %v", id, err)
-					}
-				} else {
-					if err := store.DeleteGame(id); err == nil {
-						registry.DeleteGame(id)
-						hm.RemoveHub(id, false) // Clear from memory
-						deletedGames++
-					} else {
-						log.Printf("Error deleting game %s: %v", id, err)
-					}
-				}
+			if g.OwnerID != userId {
+				continue
+			}
+			if err := store.DeleteGame(id); err == nil {
+				registry.DeleteGame(id)
+				hm.RemoveHub(id, false) // Clear from memory
+				deletedGames++
 			} else {
-				log.Printf("DeleteAll: Skipping game %s (Owner: %s)", id, g.OwnerID)
+				log.Printf("Error deleting game %s: %v", id, err)
 			}
 		}
 
@@ -1435,16 +1422,15 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 				log.Printf("DeleteAll: Error loading team %s: %v", id, err)
 				continue
 			}
-			if t.OwnerID == userId {
-				if err := tStore.DeleteTeam(id); err == nil {
-					registry.DeleteTeam(id)
-					hm.RemoveHub(id, true) // Clear from memory
-					deletedTeams++
-				} else {
-					log.Printf("Error deleting team %s: %v", id, err)
-				}
+			if t.OwnerID != userId {
+				continue
+			}
+			if err := tStore.DeleteTeam(id); err == nil {
+				registry.DeleteTeam(id)
+				hm.RemoveHub(id, true) // Clear from memory
+				deletedTeams++
 			} else {
-				log.Printf("DeleteAll: Skipping team %s (Owner: %s)", id, t.OwnerID)
+				log.Printf("Error deleting team %s: %v", id, err)
 			}
 		}
 
