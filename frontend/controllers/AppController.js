@@ -62,6 +62,7 @@ import { DataService } from '../services/DataService.js';
 import { TeamController } from './TeamController.js';
 import { DashboardController } from './DashboardController.js';
 import { ActiveGameController } from './ActiveGameController.js';
+import { ProfileController } from './ProfileController.js';
 import { parseQuery, buildQuery } from '../utils/searchParser.js';
 import { PullToRefresh } from '../ui/pullToRefresh.js';
 
@@ -147,6 +148,7 @@ export class AppController {
         this.teamController = new TeamController(this);
         this.dashboardController = new DashboardController(this);
         this.activeGameController = new ActiveGameController(this);
+        this.profileController = new ProfileController(this);
         this.stats = new StatsEngine();
         this.narrative = new NarrativeEngine();
 
@@ -667,6 +669,13 @@ export class AppController {
     }
 
     /**
+     * Helper to reload the page.
+     */
+    reload() {
+        window.location.reload();
+    }
+
+    /**
      * Initializes the application by opening the database and handling initial routing.
      * @async
      */
@@ -943,6 +952,10 @@ export class AppController {
 
             case 'stats':
                 await this.loadStatisticsView();
+                break;
+
+            case 'profile':
+                await this.profileController.loadProfile();
                 break;
 
             case 'broadcast':
@@ -1580,6 +1593,9 @@ export class AppController {
             this.teamController.renderTeamDetail();
         } else if (view === 'statistics') {
             this.renderStatistics();
+        } else if (view === 'profile') {
+            // Profile renders itself in loadProfile via controller,
+            // but we ensure the view is visible via showView above.
         } else if (view === 'broadcast') {
             this.renderBroadcast();
         } else if (view === 'manual') {
@@ -1596,7 +1612,7 @@ export class AppController {
      * @param {string} viewId - The ID of the view container to show.
      */
     showView(viewId) {
-        const views = ['dashboard-view', 'scoresheet-view', 'teams-view', 'team-view', 'statistics-view', 'manual-view', 'broadcast-view'];
+        const views = ['dashboard-view', 'scoresheet-view', 'teams-view', 'team-view', 'statistics-view', 'manual-view', 'broadcast-view', 'profile-view'];
         views.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
@@ -1997,6 +2013,7 @@ export class AppController {
         click('btn-menu-dashboard', () => this.toggleSidebar(true));
         click('btn-menu-teams', () => this.toggleSidebar(true));
         click('btn-menu-stats', () => this.toggleSidebar(true));
+        click('btn-menu-profile', () => this.toggleSidebar(true));
         click('btn-menu-scoresheet', () => this.toggleSidebar(true));
         click('sidebar-backdrop', () => this.toggleSidebar(false));
 
@@ -2024,8 +2041,13 @@ export class AppController {
             this.toggleSidebar(false);
         });
         click('sidebar-btn-stats', () => {
-            this.loadStatisticsView();
-            this.toggleSidebar(false);
+            window.location.hash = 'stats'; this.toggleSidebar(false);
+        });
+        click('sidebar-btn-profile', () => {
+            window.location.hash = 'profile'; this.toggleSidebar(false);
+        });
+        click('sidebar-btn-scoresheet', () => {
+            window.location.hash = 'scoresheet'; this.toggleSidebar(false);
         });
         click('sidebar-btn-manual', () => this.openManual());
         click('sidebar-btn-report-bug', () => {

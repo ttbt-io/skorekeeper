@@ -81,6 +81,24 @@ export class DBManager {
     }
 
     /**
+     * Deletes the entire IndexedDB database.
+     * @async
+     * @returns {Promise<void>}
+     */
+    async deleteDatabase() {
+        this.close();
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.deleteDatabase(this.dbName);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(new Error('Failed to delete database'));
+            req.onblocked = () => {
+                console.warn('Delete database blocked. Please close other tabs.');
+                reject(new Error('Database deletion blocked by other open tabs'));
+            };
+        });
+    }
+
+    /**
      * Saves game stats to the 'game_stats' object store.
      * @async
      * @param {string} id - Game ID.

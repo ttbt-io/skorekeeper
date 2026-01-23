@@ -37,6 +37,7 @@ import (
 
 	"github.com/c2FmZQ/storage"
 	"github.com/c2FmZQ/storage/crypto"
+	"github.com/hashicorp/raft"
 	"github.com/ttbt-io/skorekeeper/frontend"
 )
 
@@ -1347,6 +1348,108 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("/api/delete-all", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		userId := getUserID(r)
+		if userId == "" || !isValidEmail(userId) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		if raftMgr != nil && raftMgr.Raft.State() != raft.Leader {
+			raftMgr.forwardRequestToLeader(w, r)
+			return
+		}
+
+		if raftMgr != nil {
+			// Atomic deletion via Raft
+			cmd := RaftCommand{
+				Type: CmdDeleteAllUser,
+				Action: &ActionPayload{
+					UserID: userId,
+				},
+			}
+			if _, err := raftMgr.Propose(cmd); err != nil {
+				log.Printf("Raft Propose Error delete all for user %s: %v", userId, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			// Note: We don't get the exact count of deleted items back from Propose immediately
+			// unless we change Propose signature or FSM return value structure.
+			// For now, we return 200 OK.
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "Deletion request accepted")
+			return
+		}
+
+		log.Printf("DeleteAll: User %s requested deletion", userId)
+
+		// 1. Delete Games
+		accessibleGames := registry.ListGames(userId, "", "", "")
+		log.Printf("DeleteAll: Found %d accessible games", len(accessibleGames))
+		deletedGames := 0
+		for _, id := range accessibleGames {
+			g, err := store.LoadGame(id)
+			if err != nil {
+				log.Printf("DeleteAll: Error loading game %s: %v", id, err)
+				continue
+			}
+			if g.OwnerID == userId {
+				if raftMgr != nil {
+					cmd := RaftCommand{
+						Type: CmdDeleteGame,
+						ID:   id,
+					}
+					if _, err := raftMgr.Propose(cmd); err == nil {
+						deletedGames++
+					} else {
+						log.Printf("Raft Propose Error delete game %s: %v", id, err)
+					}
+				} else {
+					if err := store.DeleteGame(id); err == nil {
+						registry.DeleteGame(id)
+						hm.RemoveHub(id, false) // Clear from memory
+						deletedGames++
+					} else {
+						log.Printf("Error deleting game %s: %v", id, err)
+					}
+				}
+			} else {
+				log.Printf("DeleteAll: Skipping game %s (Owner: %s)", id, g.OwnerID)
+			}
+		}
+
+		// 2. Delete Teams
+		accessibleTeams := registry.ListTeams(userId, "", "", "")
+		log.Printf("DeleteAll: Found %d accessible teams", len(accessibleTeams))
+		deletedTeams := 0
+		for _, id := range accessibleTeams {
+			t, err := tStore.LoadTeam(id)
+			if err != nil {
+				log.Printf("DeleteAll: Error loading team %s: %v", id, err)
+				continue
+			}
+			if t.OwnerID == userId {
+				if err := tStore.DeleteTeam(id); err == nil {
+					registry.DeleteTeam(id)
+					hm.RemoveHub(id, true) // Clear from memory
+					deletedTeams++
+				} else {
+					log.Printf("Error deleting team %s: %v", id, err)
+				}
+			} else {
+				log.Printf("DeleteAll: Skipping team %s (Owner: %s)", id, t.OwnerID)
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Deleted %d games and %d teams", deletedGames, deletedTeams)
 	})
 
 	mux.HandleFunc("/api/ws", func(w http.ResponseWriter, r *http.Request) {

@@ -35,6 +35,10 @@ export class Router {
             return { view: 'stats', params: {} };
         }
 
+        if (hash === '#profile') {
+            return { view: 'profile', params: {} };
+        }
+
         if (hash.startsWith('#broadcast/')) {
             const gameId = hash.substring(11);
             return { view: 'broadcast', params: { gameId } };

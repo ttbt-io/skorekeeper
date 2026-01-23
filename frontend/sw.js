@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const CACHE_NAME = 'skorekeeper-v0.1.120';
+const CACHE_NAME = 'skorekeeper-v0.1.121';
 const CORE_ASSETS = [
     './',
     './.sso/proxy.mjs',
@@ -20,6 +20,7 @@ const CORE_ASSETS = [
     './controllers/ActiveGameController.js',
     './controllers/AppController.js',
     './controllers/DashboardController.js',
+    './controllers/ProfileController.js',
     './controllers/TeamController.js',
     './css/style.css',
     './game/csoManager.js',
@@ -46,6 +47,7 @@ const CORE_ASSETS = [
     './reducer.js',
     './renderers/csoRenderer.js',
     './renderers/dashboardRenderer.js',
+    './renderers/profileRenderer.js',
     './renderers/scoresheetRenderer.js',
     './renderers/statsRenderer.js',
     './renderers/teamsRenderer.js',
