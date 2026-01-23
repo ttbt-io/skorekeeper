@@ -15,7 +15,17 @@
 import { AppController } from './controllers/AppController.js';
 import { modalConfirm } from './ui/modalPrompt.js';
 
-let newVersion = false;
+let updateConfirmed = false;
+
+let bc;
+if ('BroadcastChannel' in window) {
+    bc = new BroadcastChannel('skorekeeper');
+    bc.onmessage = e => {
+        if (e.data === 'reload') {
+            window.location.reload();
+        }
+    };
+}
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -40,7 +50,10 @@ if ('serviceWorker' in navigator) {
     // Handle controller change (reload the page)
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (newVersion && !refreshing) {
+        if (updateConfirmed && !refreshing) {
+            if (bc) {
+                bc.postMessage('reload');
+            }
             refreshing = true;
             window.location.reload();
         }
@@ -72,7 +85,7 @@ function promptForUpdate(worker) {
         cancelText: 'Later',
     }).then((confirmed) => {
         if (confirmed) {
-            newVersion = true;
+            updateConfirmed = true;
             worker.postMessage({ type: 'SKIP_WAITING' });
         }
     });
