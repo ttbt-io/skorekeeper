@@ -460,6 +460,7 @@ func (f *FSM) applyDeleteGame(id string, index uint64) error {
 		return err
 	}
 	f.r.DeleteGame(id)
+	f.hm.RemoveHub(id, false)
 	return nil
 }
 
@@ -499,6 +500,32 @@ func (f *FSM) applyDeleteTeam(id string, index uint64) error {
 		return err
 	}
 	f.r.DeleteTeam(id)
+	f.hm.RemoveHub(id, true)
+	return nil
+}
+
+func (f *FSM) applyDeleteAllUser(userId string, index uint64) error {
+	// 1. Delete Games
+	// Registry.ListGames uses ReadLock, so it's safe to use for lookup.
+	// We iterate all games accessible to user, then check ownership.
+	// Note: In Raft, every node has the same Registry state (eventually).
+	// ListGames returns ID list.
+	gameIds := f.r.ListGames(userId, "", "", "")
+	for _, id := range gameIds {
+		g, err := f.gs.LoadGame(id)
+		if err == nil && g.OwnerID == userId {
+			f.applyDeleteGame(id, index)
+		}
+	}
+
+	// 2. Delete Teams
+	teamIds := f.r.ListTeams(userId, "", "", "")
+	for _, id := range teamIds {
+		t, err := f.ts.LoadTeam(id)
+		if err == nil && t.OwnerID == userId {
+			f.applyDeleteTeam(id, index)
+		}
+	}
 	return nil
 }
 
@@ -564,7 +591,7 @@ func (f *FSM) ApplyBatch(logs []*raft.Log) []interface{} {
 		case CmdSaveTeam, CmdDeleteTeam:
 			key = "team:" + cmd.ID
 			isTeam = true
-		case CmdNodeMeta, CmdNodeLeft, CmdUpdateAccessPolicy, CmdMetricsUpdate:
+		case CmdNodeMeta, CmdNodeLeft, CmdUpdateAccessPolicy, CmdMetricsUpdate, CmdDeleteAllUser:
 			key = "sys:global"
 			isSystem = true
 		default:
@@ -654,6 +681,11 @@ func (f *FSM) applyCommand(cmd RaftCommand, index uint64) interface{} {
 		return f.applySaveTeam(cmd.ID, *cmd.TeamData, index)
 	case CmdDeleteTeam:
 		return f.applyDeleteTeam(cmd.ID, index)
+	case CmdDeleteAllUser:
+		if cmd.Action == nil || cmd.Action.UserID == "" {
+			return fmt.Errorf("missing user id for delete all")
+		}
+		return f.applyDeleteAllUser(cmd.Action.UserID, index)
 	case CmdNodeMeta:
 		if cmd.NodeMeta == nil {
 			return fmt.Errorf("missing node meta")

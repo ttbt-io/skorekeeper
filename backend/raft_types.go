@@ -31,6 +31,7 @@ const (
 	CmdNodeLeft           CommandType = "NODE_LEFT"
 	CmdUpdateAccessPolicy CommandType = "UPDATE_ACCESS_POLICY"
 	CmdMetricsUpdate      CommandType = "METRICS_UPDATE"
+	CmdDeleteAllUser      CommandType = "DELETE_ALL_USER"
 )
 
 // RaftCommand is a unified structure for all Raft log entries.

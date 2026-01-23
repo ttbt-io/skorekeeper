@@ -99,7 +99,7 @@ func WaitAnyVisible(sel string, match *string, timeout time.Duration) chromedp.A
 // OpenSidebar clicks the hamburger menu to open the sidebar.
 func OpenSidebar(ctx context.Context) error {
 	var buttonSel string
-	if err := chromedp.Run(ctx, WaitAnyVisible(`#btn-menu-dashboard, #btn-menu-scoresheet, #btn-menu-teams`, &buttonSel, 5*time.Second)); err != nil {
+	if err := chromedp.Run(ctx, WaitAnyVisible(`#btn-menu-dashboard, #btn-menu-scoresheet, #btn-menu-teams, #btn-menu-stats, #btn-menu-profile`, &buttonSel, 5*time.Second)); err != nil {
 		return err
 	}
 	log.Printf("OpenSidebar found %s", buttonSel)
@@ -108,7 +108,11 @@ func OpenSidebar(ctx context.Context) error {
 		return err
 	}
 	log.Print("OpenSidebar waiting for #app-sidebar")
-	return chromedp.Run(ctx, chromedp.WaitVisible(`#app-sidebar`))
+	if err := chromedp.Run(ctx, chromedp.WaitVisible(`#app-sidebar`)); err != nil {
+		return err
+	}
+	// Ensure sidebar is actually on screen (transform removed)
+	return chromedp.Run(ctx, chromedp.WaitNotPresent(`#app-sidebar.-translate-x-full`))
 }
 
 // Login performs the login flow: Open sidebar, click Login, wait for auth.

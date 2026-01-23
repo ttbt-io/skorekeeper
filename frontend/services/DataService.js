@@ -101,4 +101,74 @@ export class DataService {
             }
         }
     }
+
+    /**
+     * Deletes all local data (IndexedDB and localStorage).
+     */
+    async deleteAllLocalData() {
+        // Clear IndexedDB
+        await this.db.deleteDatabase();
+
+        // Clear LocalStorage (preserve identity)
+        const keysToKeep = ['scorekeeper_local_id'];
+        Object.keys(localStorage).forEach(key => {
+            if (!keysToKeep.includes(key)) {
+                localStorage.removeItem(key);
+            }
+        });
+    }
+
+    /**
+     * Deletes all remote data for the authenticated user.
+     * @returns {Promise<boolean>} True if successful.
+     */
+    async deleteAllRemoteData() {
+        const response = await fetch('/api/delete-all', {
+            method: 'POST',
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to delete remote data: ${response.statusText}`);
+        }
+        return true;
+    }
+
+    /**
+     * Gets storage statistics (local counts and remote counts).
+     * @returns {Promise<object>} { local: { games: number, teams: number }, remote: { games: number|null, teams: number|null } }
+     */
+    async getStorageStats() {
+        // Local Stats
+        const localGames = await this.db.getAllGames();
+        const localTeams = await this.db.getAllTeams();
+
+        const stats = {
+            local: {
+                games: localGames.length,
+                teams: localTeams.length,
+            },
+            remote: {
+                games: null,
+                teams: null,
+            },
+        };
+
+        // Remote Stats (if logged in)
+        // We use /api/me which returns quota info including usage
+        if (this.auth.getUser()) {
+            try {
+                const res = await fetch('/api/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.quotas) {
+                        stats.remote.games = data.quotas.gamesUsed || 0;
+                        stats.remote.teams = data.quotas.teamsUsed || 0;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to fetch remote stats:', e);
+            }
+        }
+
+        return stats;
+    }
 }
