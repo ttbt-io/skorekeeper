@@ -53,6 +53,7 @@ type Registry struct {
 
 	// GC
 	stopChan chan struct{}
+	stopOnce sync.Once
 }
 
 // NewRegistry creates a new Registry.
@@ -103,7 +104,9 @@ func (r *Registry) StartGC() {
 
 // StopGC stops the background tombstone garbage collector.
 func (r *Registry) StopGC() {
-	close(r.stopChan)
+	r.stopOnce.Do(func() {
+		close(r.stopChan)
+	})
 }
 
 // PurgeOldTombstones permanently deletes expired tombstones from disk.
