@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/ttbt-io/skorekeeper/backend"
 )
 
@@ -39,6 +40,13 @@ func TestOfflineCreation(t *testing.T) {
 
 	dataDir := t.TempDir()
 
+	// Generate Master Key
+	mk, err := crypto.CreateMasterKey()
+	if err != nil {
+		t.Fatalf("Failed to create master key: %v", err)
+	}
+	t.Cleanup(mk.Wipe)
+
 	// Start standalone
 	standaloneL, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -47,21 +55,25 @@ func TestOfflineCreation(t *testing.T) {
 	standalonePort := standaloneL.Addr().(*net.TCPAddr).Port
 	standaloneURL := fmt.Sprintf("https://localhost:%d", standalonePort)
 
-	s := storage.New(dataDir, nil)
+	s := storage.New(dataDir, mk)
 	gStore := backend.NewGameStore(dataDir, s)
 	tStore := backend.NewTeamStore(dataDir, s)
-	reg := backend.NewRegistry(gStore, tStore)
+	uStore := backend.NewUserIndexStore(dataDir, s, mk)
+	reg := backend.NewRegistry(gStore, tStore, uStore, true)
 
 	opts := backend.Options{
-		Addr:        standaloneURL,
-		Listener:    standaloneL,
-		Cert:        cert,
-		UseMockAuth: true,
-		Debug:       true,
-		GameStore:   gStore,
-		TeamStore:   tStore,
-		Registry:    reg,
-		DataDir:     dataDir,
+		Addr:           standaloneURL,
+		Listener:       standaloneL,
+		Cert:           cert,
+		UseMockAuth:    true,
+		Debug:          true,
+		GameStore:      gStore,
+		TeamStore:      tStore,
+		UserIndexStore: uStore,
+		Storage:        s,
+		MasterKey:      mk,
+		Registry:       reg,
+		DataDir:        dataDir,
 	}
 
 	server, err := backend.StartServer(opts)
@@ -150,10 +162,11 @@ func TestOfflineCreation(t *testing.T) {
 	rmChan1 := make(chan *backend.RaftManager, 1)
 
 	// Re-use Stores (pointing to same DataDir)
-	s1 := storage.New(dataDir, nil)
+	s1 := storage.New(dataDir, mk)
 	gStore1 := backend.NewGameStore(dataDir, s1)
 	tStore1 := backend.NewTeamStore(dataDir, s1)
-	reg1 := backend.NewRegistry(gStore1, tStore1)
+	uStore1 := backend.NewUserIndexStore(dataDir, s1, mk)
+	reg1 := backend.NewRegistry(gStore1, tStore1, uStore1, true)
 
 	opts1 := backend.Options{
 		Addr:             url1,
@@ -165,6 +178,9 @@ func TestOfflineCreation(t *testing.T) {
 		Debug:            true,
 		GameStore:        gStore1,
 		TeamStore:        tStore1,
+		UserIndexStore:   uStore1,
+		Storage:          s1,
+		MasterKey:        mk,
 		Registry:         reg1,
 		RaftEnabled:      true,
 		RaftBind:         raftBind1,
@@ -222,10 +238,11 @@ func TestOfflineCreation(t *testing.T) {
 
 	rmChan2 := make(chan *backend.RaftManager, 1)
 
-	s2 := storage.New(dataDir2, nil)
+	s2 := storage.New(dataDir2, mk)
 	gStore2 := backend.NewGameStore(dataDir2, s2)
 	tStore2 := backend.NewTeamStore(dataDir2, s2)
-	reg2 := backend.NewRegistry(gStore2, tStore2)
+	uStore2 := backend.NewUserIndexStore(dataDir2, s2, mk)
+	reg2 := backend.NewRegistry(gStore2, tStore2, uStore2, true)
 
 	opts2 := backend.Options{
 		Addr:             url2,
@@ -237,6 +254,9 @@ func TestOfflineCreation(t *testing.T) {
 		Debug:            true,
 		GameStore:        gStore2,
 		TeamStore:        tStore2,
+		UserIndexStore:   uStore2,
+		Storage:          s2,
+		MasterKey:        mk,
 		Registry:         reg2,
 		RaftEnabled:      true,
 		RaftBind:         raftBind2,

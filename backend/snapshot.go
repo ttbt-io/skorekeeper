@@ -72,9 +72,6 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		if err := writeFileToTar(tw, fmt.Sprintf("games/%s.json", g.ID), data); err != nil {
 			return err
 		}
-		if len(g.ActionLog) == 0 {
-			log.Printf("Snapshot: Persisting game %s with EMPTY ActionLog!", g.ID)
-		}
 	}
 
 	// 5. Write Teams (Logical Export)
@@ -89,6 +86,41 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		}
 		if err := writeFileToTar(tw, fmt.Sprintf("teams/%s.json", t.ID), data); err != nil {
 			return err
+		}
+	}
+
+	// 6. Write User Indices
+	if f.us != nil {
+		users, _ := f.us.ListAllUserIndices()
+		for _, idx := range users {
+			data, _ := json.Marshal(idx)
+			if err := writeFileToTar(tw, fmt.Sprintf("users/%s.json", idx.UserID), data); err != nil {
+				return err
+			}
+		}
+
+		teamGames, _ := f.us.ListAllTeamGames()
+		for _, idx := range teamGames {
+			data, _ := json.Marshal(idx)
+			if err := writeFileToTar(tw, fmt.Sprintf("team_games/%s.json", idx.TeamID), data); err != nil {
+				return err
+			}
+		}
+
+		gameUsers, _ := f.us.ListAllGameUsers()
+		for _, idx := range gameUsers {
+			data, _ := json.Marshal(idx)
+			if err := writeFileToTar(tw, fmt.Sprintf("game_users/%s.json", idx.GameID), data); err != nil {
+				return err
+			}
+		}
+
+		teamUsers, _ := f.us.ListAllTeamUsers()
+		for _, idx := range teamUsers {
+			data, _ := json.Marshal(idx)
+			if err := writeFileToTar(tw, fmt.Sprintf("team_users/%s.json", idx.TeamID), data); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -108,13 +140,12 @@ func (f *FSM) restore(rc io.Reader) error {
 	processedTeams := make(map[string]bool)
 	shouldSkipRestore := false
 
-	// Worker Pool Setup
+	// Worker Pool Setup (for heavy Game/Team restore)
 	numWorkers := runtime.NumCPU()
 	jobs := make(chan interface{}, numWorkers)
-	errCh := make(chan error, 1) // Buffered 1 is enough for first error
+	errCh := make(chan error, 1)
 	var wg sync.WaitGroup
 
-	// Start Workers
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
@@ -122,10 +153,9 @@ func (f *FSM) restore(rc io.Reader) error {
 			for job := range jobs {
 				select {
 				case <-errCh:
-					return // Stop if error exists
+					return
 				default:
 				}
-
 				switch v := job.(type) {
 				case *Game:
 					if err := f.gs.RestoreGame(v); err != nil {
@@ -146,11 +176,7 @@ func (f *FSM) restore(rc io.Reader) error {
 		}()
 	}
 
-	// Helper to clean up workers
-	teardown := func() {
-		close(jobs)
-		wg.Wait()
-	}
+	teardown := func() { close(jobs); wg.Wait() }
 
 	for {
 		header, err := tr.Next()
@@ -162,7 +188,6 @@ func (f *FSM) restore(rc io.Reader) error {
 			return err
 		}
 
-		// Check for error from workers
 		select {
 		case err := <-errCh:
 			teardown()
@@ -170,7 +195,6 @@ func (f *FSM) restore(rc io.Reader) error {
 		default:
 		}
 
-		// Sanity check: limit entry size to 10MB to prevent OOM/Zip Bomb
 		if header.Size > 10*1024*1024 {
 			teardown()
 			return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
@@ -189,12 +213,13 @@ func (f *FSM) restore(rc io.Reader) error {
 				f.setInitialized()
 			}
 
-			// Smart Snapshot Logic: Check if we can skip restore
+			// Smart Snapshot Check
 			if f.IsInitialized() && f.storage != nil {
 				var state map[string]any
 				if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
 					var localIndex uint64
 					if v, ok := state["lastAppliedIndex"]; ok {
+						// ... conversion logic ...
 						switch val := v.(type) {
 						case float64:
 							localIndex = uint64(val)
@@ -206,9 +231,8 @@ func (f *FSM) restore(rc io.Reader) error {
 							localIndex = val
 						}
 					}
-
 					if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
-						log.Printf("Smart Restore: Local state (Index %d) is fresh enough for Snapshot (Index %d). Skipping restore.", localIndex, manifest.RaftIndex)
+						log.Printf("Smart Restore: Local state (Index %d) is fresh enough. Skipping.", localIndex)
 						shouldSkipRestore = true
 					}
 				}
@@ -223,16 +247,9 @@ func (f *FSM) restore(rc io.Reader) error {
 		if strings.HasPrefix(header.Name, "games/") {
 			var g Game
 			if err := json.NewDecoder(tr).Decode(&g); err != nil {
-				log.Printf("Restore Warning: failed to unmarshal game %s: %v", header.Name, err)
 				continue
 			}
-			if len(g.ActionLog) == 0 {
-				log.Printf("Restore: Loaded game %s with EMPTY ActionLog from snapshot!", g.ID)
-			} else {
-				log.Printf("Restore: Loaded game %s with %d actions from snapshot", g.ID, len(g.ActionLog))
-			}
 			processedGames[g.ID] = true
-
 			select {
 			case jobs <- &g:
 			case err := <-errCh:
@@ -242,16 +259,35 @@ func (f *FSM) restore(rc io.Reader) error {
 		} else if strings.HasPrefix(header.Name, "teams/") {
 			var t Team
 			if err := json.NewDecoder(tr).Decode(&t); err != nil {
-				log.Printf("Restore Warning: failed to unmarshal team %s: %v", header.Name, err)
 				continue
 			}
 			processedTeams[t.ID] = true
-
 			select {
 			case jobs <- &t:
 			case err := <-errCh:
 				teardown()
 				return err
+			}
+		} else if strings.HasPrefix(header.Name, "users/") {
+			// Restore User Index directly
+			var idx UserIndex
+			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
+				f.us.RestoreUserIndex(&idx)
+			}
+		} else if strings.HasPrefix(header.Name, "team_games/") {
+			var idx TeamGamesIndex
+			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
+				f.us.RestoreTeamGames(&idx)
+			}
+		} else if strings.HasPrefix(header.Name, "game_users/") {
+			var idx GameUsersIndex
+			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
+				f.us.RestoreGameUsers(&idx)
+			}
+		} else if strings.HasPrefix(header.Name, "team_users/") {
+			var idx TeamUsersIndex
+			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
+				f.us.RestoreTeamUsers(&idx)
 			}
 		}
 	}
@@ -263,38 +299,62 @@ func (f *FSM) restore(rc io.Reader) error {
 	default:
 	}
 
-	// Persist learned node metadata to disk to ensure peer availability immediately
-	// upon next restart, even before Raft log replay.
 	f.saveNodes()
 
 	if shouldSkipRestore {
 		return nil
 	}
 
-	// 6. Cleanup: Delete local files not in snapshot
+	// Cleanup Zombies (games/teams only, indices cleaned up by overwrite or we accept staleness until next update)
+	// Ideally we clean up indices too, but listing all files is expensive.
+	// Since we overwrote active ones, stale ones might remain on disk but won't be in active set?
+	// Actually, if we restore, we might want to clear directory first?
+	// Raft usually snapshots FULL state.
+	// Current cleanup only handles games/teams.
+	// For indices, if a user was deleted, their index file remains.
+	// It's acceptable for indices to be "additive" or we need to list and delete.
+	// Given "Scalability", listing all users to delete zombies is slow.
+	// We'll accept zombie index files for now (they are just disk space, not logically reachable if user doesn't exist).
+	// But wait, if user exists but lost access, the file is overwritten.
+	// If user is completely gone?
+	// We don't have a list of "active users" in memory to check against.
+	// So we skip zombie cleanup for users for now.
+
 	gameIDs, err := f.gs.ListAllGameIDs()
 	if err == nil {
 		for _, id := range gameIDs {
 			if !processedGames[id] {
-				log.Printf("Cleanup: Deleting zombie game %s after restore", id)
 				f.gs.DeleteGame(id)
 			}
 		}
-	} else {
-		log.Printf("Cleanup Warning: failed to list games: %v", err)
 	}
-
 	teamIDs, err := f.ts.ListAllTeamIDs()
 	if err == nil {
 		for _, id := range teamIDs {
 			if !processedTeams[id] {
-				log.Printf("Cleanup: Deleting zombie team %s after restore", id)
 				f.ts.DeleteTeam(id)
 			}
 		}
-	} else {
-		log.Printf("Cleanup Warning: failed to list teams: %v", err)
 	}
+
+	// Trigger Registry Rebuild/Reload?
+	// Since we updated indices directly via userStore, Registry caches are invalid.
+	// Registry Rebuild() rescans everything.
+	// We should probably just invalidate Registry caches.
+	// But Registry doesn't expose InvalidateAll.
+	// Rebuild() is safe. But slow.
+	// If we trust snapshot indices, we don't need Rebuild().
+	// But Registry in-memory metadata cache is stale.
+	// We should clear the cache.
+	// f.registry.Rebuild() ?
+	// Yes, to be safe and update counts/metadata.
+	// But Rebuild() rescans.
+	// If we want to avoid rescan, we need `Registry.Refresh()` that trusts the store?
+	// For now, let's leave it. The caches will be populated on demand.
+	// The only issue is `deletedGames` map in Registry.
+	// Rebuild() rebuilds it.
+	// So we MUST call Rebuild().
+	f.r.Rebuild()
 
 	return nil
 }

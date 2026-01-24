@@ -45,10 +45,11 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
-	r := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tmpDir, st, nil)
+	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st)
+	fsm := NewFSM(gs, ts, r, hm, st, us)
 	fsm.rm = &RaftManager{} // Enable Raft mode (Delayed persistence)
 
 	// 1. Create Data (In Memory Only)
@@ -102,8 +103,9 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	st2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, st2)
 	ts2 := NewTeamStore(tmpDir2, st2)
-	r2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, r2, hm, st2)
+	us2 := NewUserIndexStore(tmpDir2, st2, nil)
+	r2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, r2, hm, st2, us2)
 
 	// Feed the tarball to Restore
 	reader := bytes.NewReader(sink.Bytes())
@@ -173,7 +175,8 @@ func TestPersistence_CrashRecovery_LogReplay(t *testing.T) {
 	// On restart, we load from disk (Index 10).
 	// Raft Log has entry 11. Raft calls Apply(11).
 
-	fsm := NewFSM(gsDisk, nil, nil, nil, st)
+	usDisk := NewUserIndexStore(tmpDir, st, nil)
+	fsm := NewFSM(gsDisk, nil, nil, nil, st, usDisk)
 
 	// Mock the Apply payload for Action 11
 	// We'll just manually trigger what ApplyAction does: SaveGameInMemory

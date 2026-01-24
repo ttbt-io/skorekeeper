@@ -78,7 +78,8 @@ func BenchmarkRaftScaling(b *testing.B) {
 			s := storage.New(dir, nil)
 			gs := NewGameStore(dir, s)
 			ts := NewTeamStore(dir, s)
-			reg := NewRegistry(gs, ts)
+			us := NewUserIndexStore(dir, s, nil)
+			reg := NewRegistry(gs, ts, us, true)
 
 			// Access something to ensure lazy loading/indexing is complete if applicable
 			games := reg.ListGames("bench@benchmark.com", "", "", "")
@@ -105,14 +106,15 @@ func BenchmarkRaftScaling(b *testing.B) {
 		rs := storage.New(raftDir, nil)
 		gs := NewGameStore(dataDir, s)
 		ts := NewTeamStore(dataDir, s)
-		reg := NewRegistry(gs, ts)
+		us := NewUserIndexStore(dataDir, s, nil)
+		reg := NewRegistry(gs, ts, us, true)
 		hm := NewHubManager()
 
 		var fsm *FSM
 		if existingFSM != nil {
 			fsm = existingFSM
 		} else {
-			fsm = NewFSM(gs, ts, reg, hm, rs)
+			fsm = NewFSM(gs, ts, reg, hm, rs, us)
 		}
 		rm := NewRaftManager(raftDir, bind, bind, clusterAddr, clusterAddr, "bench-secret", nil, fsm)
 		rm.LogOutput = io.Discard // Discount log I/O overhead

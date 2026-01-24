@@ -97,6 +97,7 @@ type Options struct {
 	Storage          *storage.Storage
 	MasterKey        crypto.MasterKey
 	Registry         *Registry
+	UserIndexStore   *UserIndexStore
 	Listener         net.Listener
 
 	// Raft Options
@@ -118,6 +119,8 @@ type Options struct {
 	BootstrapAdmin string
 
 	MinifyMode bool
+
+	ForceRebuild bool
 }
 
 //go:embed cluster_dashboard.html
@@ -247,7 +250,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 	}
 
 	if opts.Storage == nil {
-		opts.Storage = storage.New(opts.DataDir, nil)
+		opts.Storage = storage.New(opts.DataDir, opts.MasterKey)
 	}
 
 	store := opts.GameStore
@@ -259,9 +262,14 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		tStore = NewTeamStore(opts.DataDir, opts.Storage)
 	}
 
+	userStore := opts.UserIndexStore
+	if userStore == nil {
+		userStore = NewUserIndexStore(opts.DataDir, opts.Storage, opts.MasterKey)
+	}
+
 	registry := opts.Registry
 	if registry == nil {
-		registry = NewRegistry(store, tStore)
+		registry = NewRegistry(store, tStore, userStore, opts.ForceRebuild)
 	}
 
 	accessControl := NewAccessControl(registry, opts.BootstrapAdmin)
@@ -278,7 +286,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 				log.Fatalf("Failed to create Raft data directory: %v", err)
 			}
 			raftStorage := storage.New(raftDataDir, opts.MasterKey)
-			fsm := NewFSM(store, tStore, registry, hm, raftStorage)
+			fsm := NewFSM(store, tStore, registry, hm, raftStorage, userStore)
 
 			raftMgr = NewRaftManager(raftDataDir, opts.RaftBind, opts.RaftAdvertise, opts.ClusterAdvertise, opts.ClusterAddr, opts.RaftSecret, opts.MasterKey, fsm)
 			raftMgr.UseProductionTimeouts = opts.UseProductionTimeouts

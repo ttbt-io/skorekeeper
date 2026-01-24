@@ -85,9 +85,10 @@ func TestRaftTLSConfig(t *testing.T) {
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
-	reg := NewRegistry(gStore, tStore)
+	us := NewUserIndexStore(tempDir, s, nil)
+	reg := NewRegistry(gStore, tStore, us, true)
 	hm := NewHubManager()
-	fsm := NewFSM(gStore, tStore, reg, hm, s)
+	fsm := NewFSM(gStore, tStore, reg, hm, s, us)
 
 	// Use random port
 	rm := NewRaftManager(tempDir, "127.0.0.1:0", "", "http://localhost", "127.0.0.1:0", "secret", nil, fsm)
@@ -159,8 +160,9 @@ func TestForwardRequestToLeader(t *testing.T) {
 	s1 := storage.New(dir1, nil)
 	gStore1 := NewGameStore(dir1, s1)
 	tStore1 := NewTeamStore(dir1, s1)
-	reg1 := NewRegistry(gStore1, tStore1)
-	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), s1)
+	us1 := NewUserIndexStore(dir1, s1, nil)
+	reg1 := NewRegistry(gStore1, tStore1, us1, true)
+	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), s1, us1)
 
 	// Use leaderAddr for BOTH Raft and ClusterHTTP for simplicity, or separate?
 	// Start() uses Bind for Raft, ClusterAddr for HTTP. They must be different ports usually?
@@ -195,8 +197,9 @@ func TestForwardRequestToLeader(t *testing.T) {
 	s2 := storage.New(dir2, nil)
 	gStore2 := NewGameStore(dir2, s2)
 	tStore2 := NewTeamStore(dir2, s2)
-	reg2 := NewRegistry(gStore2, tStore2)
-	fsm2 := NewFSM(gStore2, tStore2, reg2, NewHubManager(), s2)
+	us2 := NewUserIndexStore(dir2, s2, nil)
+	reg2 := NewRegistry(gStore2, tStore2, us2, true)
+	fsm2 := NewFSM(gStore2, tStore2, reg2, NewHubManager(), s2, us2)
 
 	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerAddr, followerAddr, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {
@@ -262,8 +265,9 @@ func TestJoinNonVoter(t *testing.T) {
 	s := storage.New(dir, nil)
 	gStore := NewGameStore(dir, s)
 	tStore := NewTeamStore(dir, s)
-	reg := NewRegistry(gStore, tStore)
-	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), s)
+	us := NewUserIndexStore(dir, s, nil)
+	reg := NewRegistry(gStore, tStore, us, true)
+	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), s, us)
 
 	r1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := r1.Addr().String()
@@ -348,7 +352,8 @@ func TestForwardAppRequest(t *testing.T) {
 	// Minimal deps
 	gStore1 := NewGameStore(dir1, s1)
 	tStore1 := NewTeamStore(dir1, s1)
-	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1), NewHubManager(), s1)
+	us1 := NewUserIndexStore(dir1, s1, nil)
+	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1, us1, true), NewHubManager(), s1, us1)
 
 	// Mock App Handler on Leader
 	appHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +395,8 @@ func TestForwardAppRequest(t *testing.T) {
 	s2 := storage.New(dir2, nil)
 	gStore2 := NewGameStore(dir2, s2)
 	tStore2 := NewTeamStore(dir2, s2)
-	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2), NewHubManager(), s2)
+	us2 := NewUserIndexStore(dir2, s2, nil)
+	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2, us2, true), NewHubManager(), s2, us2)
 
 	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerHTTP, followerHTTP, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {

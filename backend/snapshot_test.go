@@ -30,8 +30,9 @@ func TestFSMSnapshot(t *testing.T) {
 	s := storage.New(dataDir, nil)
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
-	reg := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, reg, nil, s)
+	us := NewUserIndexStore(dataDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, reg, nil, s, us)
 
 	// 1. Add some data
 	gameId := "game-1"
@@ -57,8 +58,9 @@ func TestFSMSnapshot(t *testing.T) {
 	s2 := storage.New(dataDir2, nil)
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
-	reg2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2)
+	us2 := NewUserIndexStore(dataDir2, s2, nil)
+	reg2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
 
 	if err := fsm2.restore(io.NopCloser(&buf)); err != nil {
 		t.Fatalf("Restore failed: %v", err)

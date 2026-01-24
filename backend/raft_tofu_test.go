@@ -48,8 +48,9 @@ func TestRaftTOFU(t *testing.T) {
 	rs1 := storage.New(raftDir1, nil)
 	gs1 := NewGameStore(dataDir1, s1)
 	ts1 := NewTeamStore(dataDir1, s1)
-	reg1 := NewRegistry(gs1, ts1)
-	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), rs1)
+	us1 := NewUserIndexStore(dataDir1, s1, nil)
+	reg1 := NewRegistry(gs1, ts1, us1, true)
+	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), rs1, us1)
 	rm1 := NewRaftManager(raftDir1, bind1, bind1, cluster1, cluster1, "secret", nil, fsm1)
 
 	var tofuCount1 atomic.Int32
@@ -76,8 +77,9 @@ func TestRaftTOFU(t *testing.T) {
 	rs2 := storage.New(raftDir2, nil)
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
-	reg2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), rs2)
+	us2 := NewUserIndexStore(dataDir2, s2, nil)
+	reg2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), rs2, us2)
 	rm2 := NewRaftManager(raftDir2, bind2, bind2, cluster2, cluster2, "secret", nil, fsm2)
 
 	var tofuCount2 atomic.Int32
@@ -118,9 +120,10 @@ func TestRaftTOFU(t *testing.T) {
 	// New RaftManager instance with same directories
 	gs2b := NewGameStore(dataDir2, s2)
 	ts2b := NewTeamStore(dataDir2, s2)
-	reg2b := NewRegistry(gs2b, ts2b)
+	us2b := NewUserIndexStore(dataDir2, s2, nil)
+	reg2b := NewRegistry(gs2b, ts2b, us2b, true)
 	rs2b := storage.New(raftDir2, nil)
-	fsm2b := NewFSM(gs2b, ts2b, reg2b, NewHubManager(), rs2b)
+	fsm2b := NewFSM(gs2b, ts2b, reg2b, NewHubManager(), rs2b, us2b)
 	if !fsm2b.IsInitialized() {
 		t.Error("FSM should be initialized after restart")
 	}
@@ -177,7 +180,8 @@ func TestRaftTOFU(t *testing.T) {
 	tofuCount1.Store(0)
 
 	rs1b := storage.New(raftDir1, nil)
-	fsm1b := NewFSM(gs1, ts1, reg1, NewHubManager(), rs1b)
+	us1b := NewUserIndexStore(dataDir1, s1, nil)
+	fsm1b := NewFSM(gs1, ts1, reg1, NewHubManager(), rs1b, us1b)
 	rm1b := NewRaftManager(raftDir1, bind1, bind1, cluster1, cluster1, "secret", nil, fsm1b)
 	rm1b.tofuCallback = func(nodeID string) {
 		t.Logf("Node 1 (Restarted): TOFU accepted for node %s", nodeID)

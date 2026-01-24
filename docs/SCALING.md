@@ -33,7 +33,7 @@ The application stores games as individual JSON files.
 
 The `Registry` and `FSM` keep metadata and active games in memory.
 
-*   **Registry Index:** Mapping 100,000 users to their games takes ~50MB.
+*   **Registry Index:** In-memory footprint is bounded by fixed-size LRU caches (approx. 5–10MB). The bulk of user-to-game mappings (unlimited users) resides on disk and is loaded on-demand.
 *   **Active Game Objects:** Keeping 5,000 "active" games in the FSM memory (to avoid disk hits during live scoring) takes ~500MB.
 *   **Total Profile:** Under heavy load (5k games, 100k spectators), the backend process will likely hover around **4GB–8GB of RSS memory.**
 

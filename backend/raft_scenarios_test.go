@@ -60,8 +60,9 @@ func TestRaftScenarios(t *testing.T) {
 		s := storage.New(dir, nil)
 		gs := NewGameStore(dir, s)
 		ts := NewTeamStore(dir, s)
-		r := NewRegistry(gs, ts)
-		fsm := NewFSM(gs, ts, r, NewHubManager(), s)
+		us := NewUserIndexStore(dir, s, nil)
+		r := NewRegistry(gs, ts, us, true)
+		fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 
 		rm := NewRaftManager(dir, raftAddr, raftAddr, httpAddr, httpAddr, secret, nil, fsm)
 

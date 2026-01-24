@@ -20,7 +20,8 @@ func TestPaginationAndSorting(t *testing.T) {
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
-	reg := NewRegistry(gStore, tStore)
+	us := NewUserIndexStore(tempDir, s, nil)
+	reg := NewRegistry(gStore, tStore, us, true)
 
 	_, handler := NewServerHandler(Options{
 		GameStore:   gStore,

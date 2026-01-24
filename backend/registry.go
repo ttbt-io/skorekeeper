@@ -16,11 +16,13 @@ package backend
 
 import (
 	"log"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ttbt-io/skorekeeper/backend/search"
 )
 
@@ -28,55 +30,55 @@ const tombstoneTTL = 30 * 24 * time.Hour
 
 // Registry manages the global index of games and teams for all users.
 // It allows efficient lookup of accessible entities without scanning all files.
+// It relies on UserIndexStore for persistent, map-free indexing.
 type Registry struct {
 	gameStore *GameStore
 	teamStore *TeamStore
+	userStore *UserIndexStore
 
 	mu sync.RWMutex
-	// Maps for efficient discovery
-	// UserID -> Set of Game IDs they can access
-	userGames map[string]map[string]bool
-	// UserID -> Set of Team IDs they can access
-	userTeams map[string]map[string]bool
-	// GameID -> OwnerID (for fast path lookup)
-	gameOwners map[string]string
-	// TeamID -> OwnerID
-	teamOwners map[string]string
-	// TeamID -> Set of Team members (all roles)
-	teamMembers map[string]map[string]bool
-	// TeamID -> Set of Game IDs referencing it
-	teamGames map[string]map[string]bool
 
-	// Metadata Cache for Sorting/Filtering
-	gameMetadata map[string]GameMetadata
-	teamMetadata map[string]TeamMetadata
+	// Metadata Cache for Sorting/Filtering (LRU)
+	// Also acts as Tombstone cache (Status="deleted")
+	gameMetadata *lru.Cache[string, GameMetadata]
+	teamMetadata *lru.Cache[string, TeamMetadata]
 
-	// Deleted Tombstones
-	deletedGames map[string]int64
-	deletedTeams map[string]int64
+	// Global Counts
+	gameCount int
+	teamCount int
 
 	// Access Policy Cache
 	accessPolicy *UserAccessPolicy
 }
 
-// NewRegistry creates a new Registry and rebuilds the index.
-func NewRegistry(gs *GameStore, ts *TeamStore) *Registry {
+// NewRegistry creates a new Registry.
+// If forceRebuild is true, it scans all files to rebuild indices.
+// Otherwise, it trusts the persisted indices and just counts files for stats.
+func NewRegistry(gs *GameStore, ts *TeamStore, us *UserIndexStore, forceRebuild bool) *Registry {
+	gmCache, _ := lru.New[string, GameMetadata](5000)
+	tmCache, _ := lru.New[string, TeamMetadata](2000)
+
 	r := &Registry{
 		gameStore:    gs,
 		teamStore:    ts,
-		userGames:    make(map[string]map[string]bool),
-		userTeams:    make(map[string]map[string]bool),
-		gameOwners:   make(map[string]string),
-		teamOwners:   make(map[string]string),
-		teamMembers:  make(map[string]map[string]bool),
-		teamGames:    make(map[string]map[string]bool),
-		gameMetadata: make(map[string]GameMetadata),
-		teamMetadata: make(map[string]TeamMetadata),
-		deletedGames: make(map[string]int64),
-		deletedTeams: make(map[string]int64),
+		userStore:    us,
+		gameMetadata: gmCache,
+		teamMetadata: tmCache,
 	}
-	// Note: We don't load policy here; FSM will push it via UpdateAccessPolicy on startup/restore.
-	r.Rebuild()
+
+	if forceRebuild {
+		r.Rebuild()
+	} else {
+		// Fast Path: Count files (Total Objects)
+		if ids, err := gs.ListAllGameIDs(); err == nil {
+			r.gameCount = len(ids)
+		}
+		if ids, err := ts.ListAllTeamIDs(); err == nil {
+			r.teamCount = len(ids)
+		}
+		log.Printf("Registry: Fast startup. Found %d games, %d teams.", r.gameCount, r.teamCount)
+	}
+
 	return r
 }
 
@@ -94,53 +96,20 @@ func (r *Registry) GetAccessPolicy() *UserAccessPolicy {
 	return r.accessPolicy
 }
 
+// Flush persists the registry state (indices).
+func (r *Registry) Flush() error {
+	// 1. Flush indices
+	return r.userStore.FlushAll()
+}
+
 // Rebuild reconstructs the entire index by scanning the underlying stores.
 func (r *Registry) Rebuild() {
 	log.Println("Registry: Rebuild started...")
 
-	// Use local maps to build state atomically
-	userGames := make(map[string]map[string]bool)
-	userTeams := make(map[string]map[string]bool)
-	gameOwners := make(map[string]string)
-	teamOwners := make(map[string]string)
-	teamMembers := make(map[string]map[string]bool)
-	teamGames := make(map[string]map[string]bool)
-	gameMetadata := make(map[string]GameMetadata)
-	teamMetadata := make(map[string]TeamMetadata)
-	deletedGames := make(map[string]int64)
-	deletedTeams := make(map[string]int64)
-
-	now := time.Now()
-
-	// Helper closures
-	addUserGame := func(userId, gameId string) {
-		if userGames[userId] == nil {
-			userGames[userId] = make(map[string]bool)
-		}
-		userGames[userId][gameId] = true
-	}
-
-	addUserTeam := func(userId, teamId string) {
-		if userTeams[userId] == nil {
-			userTeams[userId] = make(map[string]bool)
-		}
-		userTeams[userId][teamId] = true
-	}
-
-	addTeamGamesToIndex := func(teamId, gameId string) {
-		if teamId == "" {
-			return
-		}
-		if teamGames[teamId] == nil {
-			teamGames[teamId] = make(map[string]bool)
-		}
-		teamGames[teamId][gameId] = true
-
-		members := teamMembers[teamId]
-		for u := range members {
-			addUserGame(u, gameId)
-		}
-	}
+	r.mu.Lock()
+	r.gameCount = 0
+	r.teamCount = 0
+	r.mu.Unlock()
 
 	// 1. Index Teams
 	for t, err := range r.teamStore.ListAllTeamMetadata() {
@@ -148,43 +117,7 @@ func (r *Registry) Rebuild() {
 			log.Printf("Registry: Error listing teams: %v", err)
 			break
 		}
-
-		if t.Status == "deleted" {
-			// Garbage Collection
-			deletedTime := time.Unix(0, t.DeletedAt)
-			if now.Sub(deletedTime) > tombstoneTTL {
-				log.Printf("Registry: Purging expired team tombstone %s", t.ID)
-				if err := r.teamStore.PurgeTeam(t.ID); err != nil {
-					log.Printf("Registry: Failed to purge team %s: %v", t.ID, err)
-				}
-				continue
-			}
-			deletedTeams[t.ID] = t.DeletedAt
-			continue
-		}
-
-		// Cache Metadata
-		teamMetadata[t.ID] = t
-
-		// Inlined indexTeamMetadata logic
-		teamOwners[t.ID] = t.OwnerID
-		addUserTeam(t.OwnerID, t.ID)
-
-		members := make(map[string]bool)
-		members[t.OwnerID] = true
-		for _, u := range t.Roles.Admins {
-			addUserTeam(u, t.ID)
-			members[u] = true
-		}
-		for _, u := range t.Roles.Scorekeepers {
-			addUserTeam(u, t.ID)
-			members[u] = true
-		}
-		for _, u := range t.Roles.Spectators {
-			addUserTeam(u, t.ID)
-			members[u] = true
-		}
-		teamMembers[t.ID] = members
+		r.indexTeam(t.ID, t, true)
 	}
 
 	// 2. Index Games
@@ -193,189 +126,702 @@ func (r *Registry) Rebuild() {
 			log.Printf("Registry: Error listing games: %v", err)
 			break
 		}
-
-		if g.Status == "deleted" {
-			// Garbage Collection
-			deletedTime := time.Unix(0, g.DeletedAt)
-			if now.Sub(deletedTime) > tombstoneTTL {
-				log.Printf("Registry: Purging expired game tombstone %s", g.ID)
-				if err := r.gameStore.PurgeGame(g.ID); err != nil {
-					log.Printf("Registry: Failed to purge game %s: %v", g.ID, err)
-				}
-				continue
-			}
-			deletedGames[g.ID] = g.DeletedAt
-			continue
-		}
-
-		// Cache Metadata
-		gameMetadata[g.ID] = g
-
-		// Inlined indexGameMetadata logic
-		gameOwners[g.ID] = g.OwnerID
-		addUserGame(g.OwnerID, g.ID)
-
-		for u := range g.Permissions.Users {
-			addUserGame(u, g.ID)
-		}
-
-		if g.Permissions.Public != "" {
-			addUserGame("", g.ID)
-		}
-
-		addTeamGamesToIndex(g.AwayTeamID, g.ID)
-		addTeamGamesToIndex(g.HomeTeamID, g.ID)
+		r.indexGame(g.ID, g, true)
 	}
 
-	// Swap safely
-	r.mu.Lock()
-	r.userGames = userGames
-	r.userTeams = userTeams
-	r.gameOwners = gameOwners
-	r.teamOwners = teamOwners
-	r.teamMembers = teamMembers
-	r.teamGames = teamGames
-	r.gameMetadata = gameMetadata
-	r.teamMetadata = teamMetadata
-	r.deletedGames = deletedGames
-	r.deletedTeams = deletedTeams
-	r.mu.Unlock()
+	// 3. Persist
+	if err := r.userStore.FlushAll(); err != nil {
+		log.Printf("Registry: Warning: failed to flush user indices: %v", err)
+	}
 
-	log.Printf("Registry: Rebuild complete. Indexed %d games, %d teams, %d deleted games, %d deleted teams.",
-		len(gameOwners), len(teamOwners), len(deletedGames), len(deletedTeams))
+	r.mu.RLock()
+	log.Printf("Registry: Rebuild complete. Indexed %d games, %d teams.", r.gameCount, r.teamCount)
+	r.mu.RUnlock()
 }
 
-// indexTeamMetadata adds a team's ownership and memberships to the index.
-func (r *Registry) indexTeamMetadata(t TeamMetadata) {
+// indexTeam processes a team for indexing (Rebuild/Update).
+func (r *Registry) indexTeam(teamId string, t TeamMetadata, isRebuild bool) {
+	// Cache metadata (even if deleted)
+	r.teamMetadata.Add(teamId, t)
+
 	if t.Status == "deleted" {
-		r.deletedTeams[t.ID] = t.DeletedAt
-		delete(r.teamMetadata, t.ID)
+		// Ensure user indices are cleaned up
+		oldIdx, _ := r.userStore.GetTeamUsers(teamId)
+		for u := range oldIdx.UserIDs {
+			r.updateUserTeamAccess(u, teamId, AccessNone)
+		}
+		r.userStore.DeleteTeamUsers(teamId)
+		// We should also probably delete TeamGamesIndex?
+		// indexTeam is called during Rebuild.
+		// If it's deleted, we do cleanup.
+		// Rebuild logic iterates ALL teams.
+		// If status is deleted, we cleanup.
+		// But indexTeam doesn't touch TeamGamesIndex directly (addTeamGame does).
+		// Wait, DeleteTeam calls DeleteTeamGames.
+		// If indexTeam is called with deleted status (e.g. from Rebuild), should it delete TeamGames?
+		// Rebuild scans all files. If it finds a deleted team, it should ensure index is gone.
+		// Yes.
+		r.userStore.DeleteTeamGames(teamId)
 		return
 	}
-	// Ensure removed from deleted set if it was there (undelete?)
-	delete(r.deletedTeams, t.ID)
-	r.teamMetadata[t.ID] = t
 
-	r.teamOwners[t.ID] = t.OwnerID
-	r.addUserTeam(t.OwnerID, t.ID)
-
-	// Index Roles
-	members := make(map[string]bool)
-	members[t.OwnerID] = true
+	// Update TeamUsersIndex
+	newMembers := make(map[string]bool)
+	newMembers[t.OwnerID] = true
 	for _, u := range t.Roles.Admins {
-		r.addUserTeam(u, t.ID)
-		members[u] = true
+		newMembers[u] = true
 	}
 	for _, u := range t.Roles.Scorekeepers {
-		r.addUserTeam(u, t.ID)
-		members[u] = true
+		newMembers[u] = true
 	}
 	for _, u := range t.Roles.Spectators {
-		r.addUserTeam(u, t.ID)
-		members[u] = true
+		newMembers[u] = true
 	}
-	r.teamMembers[t.ID] = members
+
+	oldIdx, _ := r.userStore.GetTeamUsers(teamId)
+	isNew := len(oldIdx.UserIDs) == 0
+
+	// Identify Removed
+	for u := range oldIdx.UserIDs {
+		if !newMembers[u] {
+			r.updateUserTeamAccess(u, teamId, AccessNone)
+		}
+	}
+
+	// Identify Added/Updated
+	getLevel := func(u string) AccessLevel {
+		if u == t.OwnerID {
+			return AccessAdmin
+		}
+		for _, a := range t.Roles.Admins {
+			if a == u {
+				return AccessAdmin
+			}
+		}
+		for _, a := range t.Roles.Scorekeepers {
+			if a == u {
+				return AccessWrite
+			}
+		}
+		for _, a := range t.Roles.Spectators {
+			if a == u {
+				return AccessRead
+			}
+		}
+		return AccessNone
+	}
+
+	for u := range newMembers {
+		level := getLevel(u)
+		r.updateUserTeamAccess(u, teamId, level)
+	}
+
+	if !maps.Equal(oldIdx.UserIDs, newMembers) {
+		oldIdx.UserIDs = newMembers
+		r.userStore.SetTeamUsers(oldIdx)
+	}
+
+	if isNew || isRebuild {
+		r.mu.Lock()
+		r.teamCount++
+		r.mu.Unlock()
+	}
 }
 
-// indexGameMetadata adds a game's ownership and permissions to the index.
-func (r *Registry) indexGameMetadata(g GameMetadata) {
+// indexGame processes a game for indexing (Rebuild/Update).
+func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
+	// Cache metadata (even if deleted)
+	r.gameMetadata.Add(gameId, g)
+
 	if g.Status == "deleted" {
-		r.deletedGames[g.ID] = g.DeletedAt
-		delete(r.gameMetadata, g.ID)
+		// Ensure user indices are cleaned up
+		oldIdx, _ := r.userStore.GetGameUsers(gameId)
+		for u := range oldIdx.UserIDs {
+			r.updateUserGameAccess(u, gameId, AccessNone)
+		}
+		r.userStore.DeleteGameUsers(gameId)
 		return
 	}
-	delete(r.deletedGames, g.ID)
-	r.gameMetadata[g.ID] = g
 
-	r.gameOwners[g.ID] = g.OwnerID
-	r.addUserGame(g.OwnerID, g.ID)
-
-	// Index Ad-hoc Users
+	// Update GameUsersIndex
+	newUsers := make(map[string]bool)
+	newUsers[g.OwnerID] = true
 	for u := range g.Permissions.Users {
-		r.addUserGame(u, g.ID)
+		newUsers[u] = true
 	}
-
-	// Index Public Access
 	if g.Permissions.Public != "" {
-		r.addUserGame("", g.ID)
+		newUsers[""] = true
 	}
 
-	// Index users who have access via linked teams
-	r.addTeamGamesToIndex(g.AwayTeamID, g.ID)
-	r.addTeamGamesToIndex(g.HomeTeamID, g.ID)
-}
+	oldIdx, _ := r.userStore.GetGameUsers(gameId)
+	isNew := len(oldIdx.UserIDs) == 0
 
-// indexTeam adds a team's ownership and memberships to the index.
-// Must be called with r.mu locked.
-func (r *Registry) indexTeam(t Team) {
-	r.indexTeamMetadata(TeamMetadata{
-		ID:        t.ID,
-		Name:      t.Name,
-		OwnerID:   t.OwnerID,
-		Roles:     t.Roles,
-		UpdatedAt: t.UpdatedAt,
-		Status:    t.Status,
-		DeletedAt: t.DeletedAt,
-	})
-}
-
-// indexGame adds a game's ownership and permissions to the index.
-// Must be called with r.mu locked.
-func (r *Registry) indexGame(g Game) {
-	r.indexGameMetadata(GameMetadata{
-		ID:            g.ID,
-		SchemaVersion: g.SchemaVersion,
-		Date:          g.Date,
-		Location:      g.Location,
-		Event:         g.Event,
-		Away:          g.Away,
-		Home:          g.Home,
-		OwnerID:       g.OwnerID,
-		Permissions:   g.Permissions,
-		AwayTeamID:    g.AwayTeamID,
-		HomeTeamID:    g.HomeTeamID,
-		Status:        g.Status,
-		DeletedAt:     g.DeletedAt,
-	})
-}
-
-func (r *Registry) addUserGame(userId, gameId string) {
-	if r.userGames[userId] == nil {
-		r.userGames[userId] = make(map[string]bool)
+	// Removed
+	for u := range oldIdx.UserIDs {
+		if !newUsers[u] {
+			r.updateUserGameAccess(u, gameId, AccessNone)
+		}
 	}
-	r.userGames[userId][gameId] = true
-}
 
-func (r *Registry) addUserTeam(userId, teamId string) {
-	if r.userTeams[userId] == nil {
-		r.userTeams[userId] = make(map[string]bool)
+	// Added/Updated
+	getLevel := func(u string) AccessLevel {
+		if u == g.OwnerID {
+			return AccessAdmin
+		}
+		role, ok := g.Permissions.Users[u]
+		if ok {
+			switch role {
+			case "admin":
+				return AccessAdmin
+			case "write":
+				return AccessWrite
+			case "read":
+				return AccessRead
+			}
+		}
+		if g.Permissions.Public != "" {
+			switch g.Permissions.Public {
+			case "write":
+				return AccessWrite
+			case "read":
+				return AccessRead
+			}
+		}
+		return AccessNone
 	}
-	r.userTeams[userId][teamId] = true
+
+	for u := range newUsers {
+		level := getLevel(u)
+		r.updateUserGameAccess(u, gameId, level)
+	}
+
+	if !maps.Equal(oldIdx.UserIDs, newUsers) {
+		oldIdx.UserIDs = newUsers
+		r.userStore.SetGameUsers(oldIdx)
+	}
+
+	// Update TeamGamesIndex
+	r.addTeamGame(g.AwayTeamID, gameId, g)
+	r.addTeamGame(g.HomeTeamID, gameId, g)
+
+	if isNew || isRebuild {
+		r.mu.Lock()
+		r.gameCount++
+		r.mu.Unlock()
+	}
 }
 
-func (r *Registry) addTeamGamesToIndex(teamId, gameId string) {
+func (r *Registry) updateUserTeamAccess(userId, teamId string, level AccessLevel) {
+	idx, _ := r.userStore.GetUserIndex(userId)
+	changed := false
+	if level == AccessNone {
+		if _, ok := idx.TeamAccess[teamId]; ok {
+			delete(idx.TeamAccess, teamId)
+			changed = true
+		}
+	} else {
+		if idx.TeamAccess[teamId] != level {
+			idx.TeamAccess[teamId] = level
+			changed = true
+		}
+	}
+	if changed {
+		r.userStore.SetUserIndex(idx)
+	}
+}
+
+func (r *Registry) updateUserGameAccess(userId, gameId string, level AccessLevel) {
+	idx, _ := r.userStore.GetUserIndex(userId)
+	changed := false
+	if level == AccessNone {
+		if _, ok := idx.GameAccess[gameId]; ok {
+			delete(idx.GameAccess, gameId)
+			changed = true
+		}
+	} else {
+		if idx.GameAccess[gameId] != level {
+			idx.GameAccess[gameId] = level
+			changed = true
+		}
+	}
+	if changed {
+		r.userStore.SetUserIndex(idx)
+	}
+}
+
+func (r *Registry) addTeamGame(teamId, gameId string, gMeta GameMetadata) {
 	if teamId == "" {
 		return
 	}
-	if r.teamGames[teamId] == nil {
-		r.teamGames[teamId] = make(map[string]bool)
-	}
-	r.teamGames[teamId][gameId] = true
+	idx, _ := r.userStore.GetTeamGames(teamId)
 
-	members := r.teamMembers[teamId]
-	for u := range members {
-		r.addUserGame(u, gameId)
+	// Check change
+	if !idx.GameIDs[gameId] {
+		idx.GameIDs[gameId] = true
+		r.userStore.SetTeamGames(idx)
+	}
+
+	// Update Members
+	tuIdx, _ := r.userStore.GetTeamUsers(teamId)
+
+	// Construct partial game for permission check
+	g := Game{
+		ID:          gMeta.ID,
+		OwnerID:     gMeta.OwnerID,
+		Permissions: gMeta.Permissions,
+		AwayTeamID:  gMeta.AwayTeamID,
+		HomeTeamID:  gMeta.HomeTeamID,
+	}
+
+	for u := range tuIdx.UserIDs {
+		level := GetGameAccess(u, g, r.teamStore)
+		r.updateUserGameAccess(u, gameId, level)
 	}
 }
 
-// containsLower checks if s (case-insensitive) contains substrLower (already lowercased).
+func (r *Registry) UpdateTeam(t Team) {
+	oldTeamUsers, _ := r.userStore.GetTeamUsers(t.ID)
+	oldMembers := make(map[string]bool)
+	for u := range oldTeamUsers.UserIDs {
+		oldMembers[u] = true
+	}
+
+	r.indexTeam(t.ID, TeamMetadata{
+		ID: t.ID, Name: t.Name, OwnerID: t.OwnerID, Roles: t.Roles,
+		UpdatedAt: t.UpdatedAt, Status: t.Status, DeletedAt: t.DeletedAt,
+	}, false)
+
+	newTeamUsers, _ := r.userStore.GetTeamUsers(t.ID)
+	removedUsers := make([]string, 0)
+	for u := range oldMembers {
+		if !newTeamUsers.UserIDs[u] {
+			removedUsers = append(removedUsers, u)
+		}
+	}
+
+	linkedGamesIdx, _ := r.userStore.GetTeamGames(t.ID)
+	for gId := range linkedGamesIdx.GameIDs {
+		g, err := r.gameStore.LoadGame(gId)
+		if err != nil {
+			continue
+		}
+		for _, u := range removedUsers {
+			level := GetGameAccess(u, *g, r.teamStore)
+			r.updateUserGameAccess(u, gId, level)
+		}
+		r.indexGame(gId, *g.Metadata(), false)
+	}
+}
+
+func (r *Registry) UpdateGame(g Game) {
+	r.indexGame(g.ID, *g.Metadata(), false)
+}
+
+func (r *Registry) DeleteGame(gameId string) {
+	r.markGameDeleted(gameId, time.Now().UnixNano())
+	guIdx, _ := r.userStore.GetGameUsers(gameId)
+	for u := range guIdx.UserIDs {
+		r.updateUserGameAccess(u, gameId, AccessNone)
+	}
+	r.userStore.DeleteGameUsers(gameId)
+}
+
+func (r *Registry) DeleteTeam(teamId string) {
+	r.markTeamDeleted(teamId, time.Now().UnixNano())
+	tuIdx, _ := r.userStore.GetTeamUsers(teamId)
+	for u := range tuIdx.UserIDs {
+		r.updateUserTeamAccess(u, teamId, AccessNone)
+	}
+	r.userStore.DeleteTeamUsers(teamId)
+
+	tgIdx, _ := r.userStore.GetTeamGames(teamId)
+	for gId := range tgIdx.GameIDs {
+		g, err := r.gameStore.LoadGame(gId)
+		if err != nil {
+			continue
+		}
+		r.indexGame(gId, *g.Metadata(), false)
+	}
+	r.userStore.DeleteTeamGames(teamId)
+}
+
+func (r *Registry) markGameDeleted(id string, ts int64) {
+	r.mu.Lock()
+	r.gameCount--
+	r.mu.Unlock()
+
+	// Cache tombstone
+	r.gameMetadata.Add(id, GameMetadata{
+		ID: id, Status: "deleted", DeletedAt: ts,
+	})
+}
+
+func (r *Registry) markTeamDeleted(id string, ts int64) {
+	r.mu.Lock()
+	r.teamCount--
+	r.mu.Unlock()
+
+	r.teamMetadata.Add(id, TeamMetadata{
+		ID: id, Status: "deleted", DeletedAt: ts,
+	})
+}
+
+func (r *Registry) IsGameDeleted(id string) bool {
+	if m, ok := r.gameMetadata.Get(id); ok {
+		return m.Status == "deleted"
+	}
+	g, err := r.gameStore.LoadGame(id)
+	if err == nil {
+		r.gameMetadata.Add(id, *g.Metadata())
+		return g.Status == "deleted"
+	}
+	return false
+}
+
+func (r *Registry) IsTeamDeleted(id string) bool {
+	if m, ok := r.teamMetadata.Get(id); ok {
+		return m.Status == "deleted"
+	}
+	t, err := r.teamStore.LoadTeam(id)
+	if err == nil {
+		m := TeamMetadata{ID: t.ID, Status: t.Status, DeletedAt: t.DeletedAt}
+		r.teamMetadata.Add(id, m)
+		return t.Status == "deleted"
+	}
+	return false
+}
+
+func (r *Registry) HasGameAccess(userId, gameId string) bool {
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err == nil {
+		if idx.GameAccess[gameId] >= AccessRead {
+			return true
+		}
+	}
+	pIdx, err := r.userStore.GetUserIndex("")
+	if err == nil {
+		if pIdx.GameAccess[gameId] >= AccessRead {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Registry) HasTeamAccess(userId, teamId string) bool {
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err == nil {
+		if idx.TeamAccess[teamId] >= AccessRead {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Registry) GameExists(id string) bool {
+	if m, ok := r.gameMetadata.Get(id); ok {
+		return m.Status != "deleted"
+	}
+	g, err := r.gameStore.LoadGame(id)
+	return err == nil && g.Status != "deleted"
+}
+
+func (r *Registry) TeamExists(id string) bool {
+	if m, ok := r.teamMetadata.Get(id); ok {
+		return m.Status != "deleted"
+	}
+	t, err := r.teamStore.LoadTeam(id)
+	return err == nil && t.Status != "deleted"
+}
+
+func (r *Registry) CountOwnedGames(userId string) int {
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for gId, level := range idx.GameAccess {
+		if level < AccessAdmin {
+			continue
+		}
+		if m, ok := r.gameMetadata.Get(gId); ok {
+			if m.OwnerID == userId && m.Status != "deleted" {
+				count++
+			}
+		} else {
+			if g, err := r.gameStore.LoadGame(gId); err == nil && g.Status != "deleted" {
+				r.gameMetadata.Add(gId, *g.Metadata())
+				if g.OwnerID == userId {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
+func (r *Registry) CountOwnedTeams(userId string) int {
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for tId, level := range idx.TeamAccess {
+		if level < AccessAdmin {
+			continue
+		}
+		if m, ok := r.teamMetadata.Get(tId); ok {
+			if m.OwnerID == userId && m.Status != "deleted" {
+				count++
+			}
+		} else {
+			if t, err := r.teamStore.LoadTeam(tId); err == nil && t.Status != "deleted" {
+				m := TeamMetadata{ID: t.ID, Name: t.Name, OwnerID: t.OwnerID, Status: t.Status}
+				r.teamMetadata.Add(tId, m)
+				if t.OwnerID == userId {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
+func (r *Registry) CountTotalGames() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.gameCount
+}
+
+func (r *Registry) CountTotalTeams() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.teamCount
+}
+
+func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
+	// Defaults
+	if sortBy == "" {
+		sortBy = "date"
+	}
+	if order == "" {
+		if sortBy == "date" {
+			order = "desc"
+		} else {
+			order = "asc"
+		}
+	}
+
+	q := search.Parse(query)
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		if f.Key != "date" {
+			q.Filters[i].Value = strings.ToLower(f.Value)
+		}
+	}
+
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err != nil {
+		return []string{}
+	}
+
+	var ids []string
+	getMeta := func(id string) (GameMetadata, bool) {
+		if m, ok := r.gameMetadata.Get(id); ok {
+			return m, true
+		}
+		g, err := r.gameStore.LoadGame(id)
+		if err != nil {
+			return GameMetadata{}, false
+		}
+		m := *g.Metadata()
+		r.gameMetadata.Add(id, m)
+		return m, true
+	}
+
+	for id := range idx.GameAccess {
+		meta, ok := getMeta(id)
+		if !ok || meta.Status == "deleted" || !matchesGame(meta, q) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if userId != "" {
+		pIdx, err := r.userStore.GetUserIndex("")
+		if err == nil {
+			for id := range pIdx.GameAccess {
+				if _, ok := idx.GameAccess[id]; ok {
+					continue
+				}
+				meta, ok := getMeta(id)
+				if !ok || meta.Status == "deleted" || !matchesGame(meta, q) {
+					continue
+				}
+				ids = append(ids, id)
+			}
+		}
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		id1, id2 := ids[i], ids[j]
+		m1, ok1 := getMeta(id1)
+		m2, ok2 := getMeta(id2)
+		if !ok1 || !ok2 {
+			if order == "desc" {
+				return id1 > id2
+			}
+			return id1 < id2
+		}
+		var less bool
+		switch sortBy {
+		case "date":
+			if m1.Date != m2.Date {
+				less = m1.Date < m2.Date
+			} else {
+				less = id1 < id2
+			}
+		case "event":
+			if m1.Event != m2.Event {
+				less = m1.Event < m2.Event
+			} else {
+				less = id1 < id2
+			}
+		case "location":
+			if m1.Location != m2.Location {
+				less = m1.Location < m2.Location
+			} else {
+				less = id1 < id2
+			}
+		default:
+			less = id1 < id2
+		}
+		if order == "desc" {
+			switch sortBy {
+			case "date":
+				if m1.Date != m2.Date {
+					return m1.Date > m2.Date
+				}
+				return id1 > id2
+			case "event":
+				if m1.Event != m2.Event {
+					return m1.Event > m2.Event
+				}
+				return id1 > id2
+			case "location":
+				if m1.Location != m2.Location {
+					return m1.Location > m2.Location
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
+		}
+		return less
+	})
+	return ids
+}
+
+func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
+	// Defaults
+	if sortBy == "" {
+		sortBy = "name"
+	}
+	if order == "" {
+		order = "asc"
+	}
+
+	q := search.Parse(query)
+	for i, t := range q.FreeText {
+		q.FreeText[i] = strings.ToLower(t)
+	}
+	for i, f := range q.Filters {
+		q.Filters[i].Value = strings.ToLower(f.Value)
+	}
+
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err != nil {
+		return []string{}
+	}
+
+	var ids []string
+	getMeta := func(id string) (TeamMetadata, bool) {
+		if m, ok := r.teamMetadata.Get(id); ok {
+			return m, true
+		}
+		t, err := r.teamStore.LoadTeam(id)
+		if err != nil {
+			return TeamMetadata{}, false
+		}
+		m := TeamMetadata{ID: t.ID, Name: t.Name, OwnerID: t.OwnerID, Roles: t.Roles, UpdatedAt: t.UpdatedAt, Status: t.Status, DeletedAt: t.DeletedAt}
+		r.teamMetadata.Add(id, m)
+		return m, true
+	}
+
+	for id := range idx.TeamAccess {
+		meta, ok := getMeta(id)
+		if !ok || meta.Status == "deleted" || !matchesTeam(meta, q) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		id1, id2 := ids[i], ids[j]
+		m1, ok1 := getMeta(id1)
+		m2, ok2 := getMeta(id2)
+		if !ok1 || !ok2 {
+			if order == "desc" {
+				return id1 > id2
+			}
+			return id1 < id2
+		}
+		var less bool
+		switch sortBy {
+		case "name":
+			if m1.Name != m2.Name {
+				less = m1.Name < m2.Name
+			} else {
+				less = id1 < id2
+			}
+		case "updated":
+			if m1.UpdatedAt != m2.UpdatedAt {
+				less = m1.UpdatedAt < m2.UpdatedAt
+			} else {
+				less = id1 < id2
+			}
+		default:
+			less = id1 < id2
+		}
+		if order == "desc" {
+			switch sortBy {
+			case "name":
+				if m1.Name != m2.Name {
+					return m1.Name > m2.Name
+				}
+				return id1 > id2
+			case "updated":
+				if m1.UpdatedAt != m2.UpdatedAt {
+					return m1.UpdatedAt > m2.UpdatedAt
+				}
+				return id1 > id2
+			default:
+				return id1 > id2
+			}
+		}
+		return less
+	})
+	return ids
+}
+
+// --- Search Helpers ---
+
 func containsLower(s, substrLower string) bool {
 	return strings.Contains(strings.ToLower(s), substrLower)
 }
 
 func matchesGame(m GameMetadata, q search.Query) bool {
-	// 1. Free Text (Must match ANY field)
-	// Assumes q.FreeText tokens are already lowercased
 	for _, token := range q.FreeText {
 		match := containsLower(m.Event, token) ||
 			containsLower(m.Location, token) ||
@@ -385,10 +831,7 @@ func matchesGame(m GameMetadata, q search.Query) bool {
 			return false
 		}
 	}
-
-	// 2. Structured Filters (Must match ALL)
 	for _, f := range q.Filters {
-		// Assumes f.Value is already lowercased for string fields
 		switch f.Key {
 		case "event":
 			if !containsLower(m.Event, f.Value) {
@@ -412,18 +855,15 @@ func matchesGame(m GameMetadata, q search.Query) bool {
 			}
 		}
 	}
-
 	return true
 }
 
 func matchesTeam(m TeamMetadata, q search.Query) bool {
-	// 1. Free Text
 	for _, token := range q.FreeText {
 		if !containsLower(m.Name, token) {
 			return false
 		}
 	}
-	// 2. Filters
 	for _, f := range q.Filters {
 		switch f.Key {
 		case "name":
@@ -448,440 +888,8 @@ func checkDateFilter(dateVal string, f search.Filter) bool {
 	case search.OpLessOrEqual:
 		return dateVal <= f.Value
 	case search.OpRange:
-		// Inclusive Range: "2025-01" -> "2025-01~" (ASCII ~ is > digits)
-		// This ensures 2025-01-31 <= 2025-01~ is true
 		maxVal := f.MaxValue + "~"
 		return dateVal >= f.Value && dateVal <= maxVal
 	}
 	return true
-}
-
-// ListGames returns the IDs of all games accessible by the user, sorted and filtered.
-func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	q := search.Parse(query)
-	// Optimization: Pre-lowercase tokens
-	for i, t := range q.FreeText {
-		q.FreeText[i] = strings.ToLower(t)
-	}
-	for i, f := range q.Filters {
-		if f.Key != "date" { // Date is case-sensitive/numeric
-			q.Filters[i].Value = strings.ToLower(f.Value)
-		}
-	}
-
-	var ids []string
-	for id := range r.userGames[userId] {
-		meta, ok := r.gameMetadata[id]
-		if !ok {
-			continue
-		}
-		if !matchesGame(meta, q) {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	// Sort
-	// Default: Date Desc
-	if sortBy == "" {
-		sortBy = "date"
-	}
-	if order == "" {
-		if sortBy == "date" {
-			order = "desc"
-		} else {
-			order = "asc"
-		}
-	}
-
-	sort.Slice(ids, func(i, j int) bool {
-		id1, id2 := ids[i], ids[j]
-		m1, ok1 := r.gameMetadata[id1]
-		m2, ok2 := r.gameMetadata[id2]
-
-		if !ok1 || !ok2 {
-			if order == "desc" {
-				return id1 > id2
-			}
-			return id1 < id2
-		}
-
-		var less bool
-		switch sortBy {
-		case "date":
-			if m1.Date != m2.Date {
-				less = m1.Date < m2.Date
-			} else {
-				less = id1 < id2
-			}
-		case "event":
-			if m1.Event != m2.Event {
-				less = m1.Event < m2.Event
-			} else {
-				less = id1 < id2
-			}
-		case "location":
-			if m1.Location != m2.Location {
-				less = m1.Location < m2.Location
-			} else {
-				less = id1 < id2
-			}
-		default:
-			less = id1 < id2
-		}
-
-		if order == "desc" {
-			// To maintain strict weak ordering for descending sort,
-			// we must check equality first or invert the specific comparison logic.
-			// Re-running comparison with inverted logic is safest for Go's sort.Slice.
-			switch sortBy {
-			case "date":
-				if m1.Date != m2.Date {
-					return m1.Date > m2.Date
-				}
-				return id1 > id2
-			case "event":
-				if m1.Event != m2.Event {
-					return m1.Event > m2.Event
-				}
-				return id1 > id2
-			case "location":
-				if m1.Location != m2.Location {
-					return m1.Location > m2.Location
-				}
-				return id1 > id2
-			default:
-				return id1 > id2
-			}
-		}
-		return less
-	})
-
-	return ids
-}
-
-// ListTeams returns the IDs of all teams accessible by the user, sorted and filtered.
-func (r *Registry) ListTeams(userId, sortBy, order, query string) []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	q := search.Parse(query)
-	// Optimization: Pre-lowercase tokens
-	for i, t := range q.FreeText {
-		q.FreeText[i] = strings.ToLower(t)
-	}
-	for i, f := range q.Filters {
-		q.Filters[i].Value = strings.ToLower(f.Value)
-	}
-
-	var ids []string
-	for id := range r.userTeams[userId] {
-		meta, ok := r.teamMetadata[id]
-		if !ok {
-			continue
-		}
-		if !matchesTeam(meta, q) {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	// Sort
-	// Default: Name Asc
-	if sortBy == "" {
-		sortBy = "name"
-	}
-	if order == "" {
-		order = "asc"
-	}
-
-	sort.Slice(ids, func(i, j int) bool {
-		id1, id2 := ids[i], ids[j]
-		m1, ok1 := r.teamMetadata[id1]
-		m2, ok2 := r.teamMetadata[id2]
-
-		if !ok1 || !ok2 {
-			if order == "desc" {
-				return id1 > id2
-			}
-			return id1 < id2
-		}
-
-		var less bool
-		switch sortBy {
-		case "name":
-			if m1.Name != m2.Name {
-				less = m1.Name < m2.Name
-			} else {
-				less = id1 < id2
-			}
-		case "updated":
-			if m1.UpdatedAt != m2.UpdatedAt {
-				less = m1.UpdatedAt < m2.UpdatedAt
-			} else {
-				less = id1 < id2
-			}
-		default:
-			less = id1 < id2
-		}
-
-		if order == "desc" {
-			switch sortBy {
-			case "name":
-				if m1.Name != m2.Name {
-					return m1.Name > m2.Name
-				}
-				return id1 > id2
-			case "updated":
-				if m1.UpdatedAt != m2.UpdatedAt {
-					return m1.UpdatedAt > m2.UpdatedAt
-				}
-				return id1 > id2
-			default:
-				return id1 > id2
-			}
-		}
-		return less
-	})
-
-	return ids
-}
-
-// UpdateTeam re-indexes a specific team and affected games.
-func (r *Registry) UpdateTeam(t Team) {
-	r.mu.Lock()
-	// 1. Identify users who were in the team before but might be removed now
-	oldMembers := make(map[string]bool)
-	if m, ok := r.teamMembers[t.ID]; ok {
-		for u := range m {
-			oldMembers[u] = true
-		}
-	}
-
-	// 2. Re-index the team (this updates r.teamMembers[t.ID] with current members)
-	r.indexTeam(t)
-
-	newMembers := r.teamMembers[t.ID]
-
-	// 3. Find users who were REMOVED
-	removedUsers := make([]string, 0)
-	for u := range oldMembers {
-		if !newMembers[u] {
-			removedUsers = append(removedUsers, u)
-		}
-	}
-
-	affectedGames := make([]string, 0)
-	for gId := range r.teamGames[t.ID] {
-		affectedGames = append(affectedGames, gId)
-	}
-	r.mu.Unlock()
-
-	// 4. For removed users, we must re-evaluate their access to all games linked to this team.
-	// If they no longer have access via other means, remove them from userGames map.
-	for _, gId := range affectedGames {
-		// Load each affected game ONCE
-		g, err := r.gameStore.LoadGame(gId)
-		if err != nil {
-			continue
-		}
-
-		r.mu.Lock()
-		for _, u := range removedUsers {
-			stillHasAccess := false
-			if normalizeEmail(g.OwnerID) == u {
-				stillHasAccess = true
-			} else if g.Permissions.Users != nil {
-				for gu, role := range g.Permissions.Users {
-					if normalizeEmail(gu) == u && role != "" {
-						stillHasAccess = true
-						break
-					}
-				}
-			}
-
-			if !stillHasAccess {
-				// Check OTHER teams linked to this game
-				otherTeams := []string{g.AwayTeamID, g.HomeTeamID}
-				for _, otId := range otherTeams {
-					if otId == "" || otId == t.ID {
-						continue
-					}
-					if members, ok := r.teamMembers[otId]; ok && members[u] {
-						stillHasAccess = true
-						break
-					}
-				}
-			}
-
-			if !stillHasAccess {
-				if r.userGames[u] != nil {
-					delete(r.userGames[u], gId)
-				}
-			}
-		}
-		r.mu.Unlock()
-	}
-
-	// 5. Cleanup userTeams for removed users
-	for _, u := range removedUsers {
-		r.mu.Lock()
-		if r.userTeams[u] != nil {
-			delete(r.userTeams[u], t.ID)
-		}
-		r.mu.Unlock()
-	}
-
-	// 6. Re-index all games that use this team to ensure NEW members gain access
-	for _, gId := range affectedGames {
-		g, err := r.gameStore.LoadGame(gId)
-		if err != nil {
-			continue
-		}
-		r.mu.Lock()
-		r.indexGame(*g)
-		r.mu.Unlock()
-	}
-}
-
-// UpdateGame re-indexes a specific game.
-func (r *Registry) UpdateGame(g Game) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.indexGame(g)
-}
-
-// DeleteGame removes a game from the index and marks it as deleted.
-func (r *Registry) DeleteGame(gameId string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.deletedGames[gameId] = time.Now().UnixNano()
-	delete(r.gameMetadata, gameId)
-
-	delete(r.gameOwners, gameId)
-	for _, games := range r.userGames {
-		delete(games, gameId)
-	}
-	for _, games := range r.teamGames {
-		delete(games, gameId)
-	}
-}
-
-// DeleteTeam removes a team from the index and marks it as deleted.
-func (r *Registry) DeleteTeam(teamId string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.deletedTeams[teamId] = time.Now().UnixNano()
-	delete(r.teamMetadata, teamId)
-
-	delete(r.teamOwners, teamId)
-	delete(r.teamMembers, teamId)
-	delete(r.teamGames, teamId)
-	for _, teams := range r.userTeams {
-		delete(teams, teamId)
-	}
-}
-
-// IsGameDeleted checks if a game ID has a deletion tombstone.
-func (r *Registry) IsGameDeleted(gameId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.deletedGames[gameId]
-	return ok
-}
-
-// IsTeamDeleted checks if a team ID has a deletion tombstone.
-func (r *Registry) IsTeamDeleted(teamId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.deletedTeams[teamId]
-	return ok
-}
-
-// HasGameAccess checks if the user has read access to the game.
-func (r *Registry) HasGameAccess(userId, gameId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if games, ok := r.userGames[userId]; ok && games[gameId] {
-		return true
-	}
-	// Also check public access
-	if games, ok := r.userGames[""]; ok {
-		return games[gameId]
-	}
-	return false
-}
-
-// HasTeamAccess checks if the user has read access to the team.
-func (r *Registry) HasTeamAccess(userId, teamId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if teams, ok := r.userTeams[userId]; ok {
-		return teams[teamId]
-	}
-	return false
-}
-
-// GameExists checks if a game ID is known to the registry.
-func (r *Registry) GameExists(gameId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.gameOwners[gameId]
-	return ok
-}
-
-// TeamExists checks if a team ID is known to the registry.
-func (r *Registry) TeamExists(teamId string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.teamOwners[teamId]
-	return ok
-}
-
-// CountOwnedGames returns the number of games owned by the user.
-func (r *Registry) CountOwnedGames(userId string) int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	count := 0
-	// Iterate only over games the user can access to find ones they own
-	for gId := range r.userGames[userId] {
-		if r.gameOwners[gId] == userId {
-			count++
-		}
-	}
-	return count
-}
-
-// CountOwnedTeams returns the number of teams owned by the user.
-func (r *Registry) CountOwnedTeams(userId string) int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	count := 0
-	for tId := range r.userTeams[userId] {
-		if r.teamOwners[tId] == userId {
-			count++
-		}
-	}
-	return count
-}
-
-// CountTotalGames returns the total number of non-deleted games in the registry.
-func (r *Registry) CountTotalGames() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.gameMetadata)
-}
-
-// CountTotalTeams returns the total number of non-deleted teams in the registry.
-func (r *Registry) CountTotalTeams() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.teamMetadata)
 }

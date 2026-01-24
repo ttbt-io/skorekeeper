@@ -34,12 +34,13 @@ func TestRaftHandlersDirect(t *testing.T) {
 	s := storage.New(dir, nil)
 	gs := NewGameStore(dir, s)
 	ts := NewTeamStore(dir, s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(dir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 
 	// Create RaftManager without starting Raft (mocking Raft if needed, but for handlers we just need validation logic first)
 	rm := &RaftManager{
 		Secret: "secret",
-		FSM:    NewFSM(gs, ts, reg, nil, s),
+		FSM:    NewFSM(gs, ts, reg, nil, s, us),
 	}
 
 	// 1. handleStatus (Direct)

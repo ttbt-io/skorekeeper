@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/ttbt-io/skorekeeper/backend"
@@ -47,10 +48,19 @@ func startRaftCluster(t *testing.T) (leaderURL string, followerURL string, secre
 
 	for i := 0; i < nodeCount; i++ {
 		dataDir := t.TempDir()
-		s := storage.New(dataDir, nil)
+
+		// Generate Master Key
+		mk, err := crypto.CreateMasterKey()
+		if err != nil {
+			t.Fatalf("Failed to create master key: %v", err)
+		}
+		t.Cleanup(mk.Wipe)
+
+		s := storage.New(dataDir, mk)
 		gStore := backend.NewGameStore(dataDir, s)
 		tStore := backend.NewTeamStore(dataDir, s)
-		reg := backend.NewRegistry(gStore, tStore)
+		uStore := backend.NewUserIndexStore(dataDir, s, mk)
+		reg := backend.NewRegistry(gStore, tStore, uStore, true)
 
 		l, err := net.Listen("tcp", "0.0.0.0:0")
 		if err != nil {
@@ -88,6 +98,9 @@ func startRaftCluster(t *testing.T) (leaderURL string, followerURL string, secre
 			Debug:            true,
 			GameStore:        gStore,
 			TeamStore:        tStore,
+			UserIndexStore:   uStore,
+			Storage:          s,
+			MasterKey:        mk,
 			Registry:         reg,
 			RaftEnabled:      true,
 			RaftBind:         raftBind,
