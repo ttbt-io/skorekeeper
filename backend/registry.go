@@ -115,10 +115,8 @@ func (r *Registry) Flush() error {
 func (r *Registry) Rebuild() {
 	log.Println("Registry: Rebuild started...")
 
-	r.mu.Lock()
-	r.gameCount = 0
-	r.teamCount = 0
-	r.mu.Unlock()
+	var localGameCount int
+	var localTeamCount int
 
 	// 1. Index Teams
 	for t, err := range r.teamStore.ListAllTeamMetadata() {
@@ -126,7 +124,9 @@ func (r *Registry) Rebuild() {
 			log.Printf("Registry: Error listing teams: %v", err)
 			break
 		}
-		r.indexTeam(t.ID, t, true)
+		if r.indexTeam(t.ID, t, true) {
+			localTeamCount++
+		}
 	}
 
 	// 2. Index Games
@@ -135,10 +135,18 @@ func (r *Registry) Rebuild() {
 			log.Printf("Registry: Error listing games: %v", err)
 			break
 		}
-		r.indexGame(g.ID, g, true)
+		if r.indexGame(g.ID, g, true) {
+			localGameCount++
+		}
 	}
 
-	// 3. Persist
+	// 3. Update Global Counts
+	r.mu.Lock()
+	r.gameCount = localGameCount
+	r.teamCount = localTeamCount
+	r.mu.Unlock()
+
+	// 4. Persist
 	if err := r.userStore.FlushAll(); err != nil {
 		log.Printf("Registry: Warning: failed to flush user indices: %v", err)
 	}
@@ -149,7 +157,8 @@ func (r *Registry) Rebuild() {
 }
 
 // indexTeam processes a team for indexing (Rebuild/Update).
-func (r *Registry) indexTeam(teamId string, t TeamMetadata, isRebuild bool) {
+// Returns true if the team was indexed (i.e. not deleted).
+func (r *Registry) indexTeam(teamId string, t TeamMetadata, isRebuild bool) bool {
 	// Cache metadata (even if deleted)
 	r.teamMetadata.Add(teamId, t)
 
@@ -160,18 +169,8 @@ func (r *Registry) indexTeam(teamId string, t TeamMetadata, isRebuild bool) {
 			r.updateUserTeamAccess(u, teamId, AccessNone)
 		}
 		r.userStore.DeleteTeamUsers(teamId)
-		// We should also probably delete TeamGamesIndex?
-		// indexTeam is called during Rebuild.
-		// If it's deleted, we do cleanup.
-		// Rebuild logic iterates ALL teams.
-		// If status is deleted, we cleanup.
-		// But indexTeam doesn't touch TeamGamesIndex directly (addTeamGame does).
-		// Wait, DeleteTeam calls DeleteTeamGames.
-		// If indexTeam is called with deleted status (e.g. from Rebuild), should it delete TeamGames?
-		// Rebuild scans all files. If it finds a deleted team, it should ensure index is gone.
-		// Yes.
 		r.userStore.DeleteTeamGames(teamId)
-		return
+		return false
 	}
 
 	// Update TeamUsersIndex
@@ -230,15 +229,17 @@ func (r *Registry) indexTeam(teamId string, t TeamMetadata, isRebuild bool) {
 		r.userStore.SetTeamUsers(oldIdx)
 	}
 
-	if isNew || isRebuild {
+	if isNew && !isRebuild {
 		r.mu.Lock()
 		r.teamCount++
 		r.mu.Unlock()
 	}
+	return true
 }
 
 // indexGame processes a game for indexing (Rebuild/Update).
-func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
+// Returns true if the game was indexed (i.e. not deleted).
+func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) bool {
 	// Cache metadata (even if deleted)
 	r.gameMetadata.Add(gameId, g)
 
@@ -249,7 +250,7 @@ func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
 			r.updateUserGameAccess(u, gameId, AccessNone)
 		}
 		r.userStore.DeleteGameUsers(gameId)
-		return
+		return false
 	}
 
 	// Update GameUsersIndex (Direct Access Only)
@@ -313,11 +314,12 @@ func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
 	r.addTeamGame(g.AwayTeamID, gameId)
 	r.addTeamGame(g.HomeTeamID, gameId)
 
-	if isNew || isRebuild {
+	if isNew && !isRebuild {
 		r.mu.Lock()
 		r.gameCount++
 		r.mu.Unlock()
 	}
+	return true
 }
 
 func (r *Registry) updateUserTeamAccess(userId, teamId string, level AccessLevel) {
