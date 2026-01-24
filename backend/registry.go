@@ -70,16 +70,25 @@ func NewRegistry(gs *GameStore, ts *TeamStore, us *UserIndexStore, forceRebuild 
 		r.Rebuild()
 	} else {
 		// Fast Path: Count files (Total Objects)
-		if ids, err := gs.ListAllGameIDs(); err == nil {
-			r.gameCount = len(ids)
-		}
-		if ids, err := ts.ListAllTeamIDs(); err == nil {
-			r.teamCount = len(ids)
-		}
+		r.RefreshCounts()
 		log.Printf("Registry: Fast startup. Found %d games, %d teams.", r.gameCount, r.teamCount)
 	}
 
 	return r
+}
+
+// RefreshCounts updates the global game and team counts by listing files.
+// This is a fast operation that avoids full scanning.
+func (r *Registry) RefreshCounts() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if ids, err := r.gameStore.ListAllGameIDs(); err == nil {
+		r.gameCount = len(ids)
+	}
+	if ids, err := r.teamStore.ListAllTeamIDs(); err == nil {
+		r.teamCount = len(ids)
+	}
 }
 
 // UpdateAccessPolicy updates the cached access policy.
@@ -243,7 +252,7 @@ func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
 		return
 	}
 
-	// Update GameUsersIndex
+	// Update GameUsersIndex (Direct Access Only)
 	newUsers := make(map[string]bool)
 	newUsers[g.OwnerID] = true
 	for u := range g.Permissions.Users {
@@ -256,14 +265,14 @@ func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
 	oldIdx, _ := r.userStore.GetGameUsers(gameId)
 	isNew := len(oldIdx.UserIDs) == 0
 
-	// Removed
+	// Removed (Direct)
 	for u := range oldIdx.UserIDs {
 		if !newUsers[u] {
 			r.updateUserGameAccess(u, gameId, AccessNone)
 		}
 	}
 
-	// Added/Updated
+	// Added/Updated (Direct)
 	getLevel := func(u string) AccessLevel {
 		if u == g.OwnerID {
 			return AccessAdmin
@@ -301,8 +310,8 @@ func (r *Registry) indexGame(gameId string, g GameMetadata, isRebuild bool) {
 	}
 
 	// Update TeamGamesIndex
-	r.addTeamGame(g.AwayTeamID, gameId, g)
-	r.addTeamGame(g.HomeTeamID, gameId, g)
+	r.addTeamGame(g.AwayTeamID, gameId)
+	r.addTeamGame(g.HomeTeamID, gameId)
 
 	if isNew || isRebuild {
 		r.mu.Lock()
@@ -349,7 +358,7 @@ func (r *Registry) updateUserGameAccess(userId, gameId string, level AccessLevel
 	}
 }
 
-func (r *Registry) addTeamGame(teamId, gameId string, gMeta GameMetadata) {
+func (r *Registry) addTeamGame(teamId, gameId string) {
 	if teamId == "" {
 		return
 	}
@@ -360,57 +369,13 @@ func (r *Registry) addTeamGame(teamId, gameId string, gMeta GameMetadata) {
 		idx.GameIDs[gameId] = true
 		r.userStore.SetTeamGames(idx)
 	}
-
-	// Update Members
-	tuIdx, _ := r.userStore.GetTeamUsers(teamId)
-
-	// Construct partial game for permission check
-	g := Game{
-		ID:          gMeta.ID,
-		OwnerID:     gMeta.OwnerID,
-		Permissions: gMeta.Permissions,
-		AwayTeamID:  gMeta.AwayTeamID,
-		HomeTeamID:  gMeta.HomeTeamID,
-	}
-
-	for u := range tuIdx.UserIDs {
-		level := GetGameAccess(u, g, r.teamStore)
-		r.updateUserGameAccess(u, gameId, level)
-	}
 }
 
 func (r *Registry) UpdateTeam(t Team) {
-	oldTeamUsers, _ := r.userStore.GetTeamUsers(t.ID)
-	oldMembers := make(map[string]bool)
-	for u := range oldTeamUsers.UserIDs {
-		oldMembers[u] = true
-	}
-
 	r.indexTeam(t.ID, TeamMetadata{
 		ID: t.ID, Name: t.Name, OwnerID: t.OwnerID, Roles: t.Roles,
 		UpdatedAt: t.UpdatedAt, Status: t.Status, DeletedAt: t.DeletedAt,
 	}, false)
-
-	newTeamUsers, _ := r.userStore.GetTeamUsers(t.ID)
-	removedUsers := make([]string, 0)
-	for u := range oldMembers {
-		if !newTeamUsers.UserIDs[u] {
-			removedUsers = append(removedUsers, u)
-		}
-	}
-
-	linkedGamesIdx, _ := r.userStore.GetTeamGames(t.ID)
-	for gId := range linkedGamesIdx.GameIDs {
-		g, err := r.gameStore.LoadGame(gId)
-		if err != nil {
-			continue
-		}
-		for _, u := range removedUsers {
-			level := GetGameAccess(u, *g, r.teamStore)
-			r.updateUserGameAccess(u, gId, level)
-		}
-		r.indexGame(gId, *g.Metadata(), false)
-	}
 }
 
 func (r *Registry) UpdateGame(g Game) {
@@ -433,19 +398,13 @@ func (r *Registry) DeleteTeam(teamId string) {
 		r.updateUserTeamAccess(u, teamId, AccessNone)
 	}
 	r.userStore.DeleteTeamUsers(teamId)
-
-	tgIdx, _ := r.userStore.GetTeamGames(teamId)
-	for gId := range tgIdx.GameIDs {
-		g, err := r.gameStore.LoadGame(gId)
-		if err != nil {
-			continue
-		}
-		r.indexGame(gId, *g.Metadata(), false)
-	}
 	r.userStore.DeleteTeamGames(teamId)
 }
 
 func (r *Registry) markGameDeleted(id string, ts int64) {
+	if r.IsGameDeleted(id) {
+		return
+	}
 	r.mu.Lock()
 	r.gameCount--
 	r.mu.Unlock()
@@ -457,6 +416,9 @@ func (r *Registry) markGameDeleted(id string, ts int64) {
 }
 
 func (r *Registry) markTeamDeleted(id string, ts int64) {
+	if r.IsTeamDeleted(id) {
+		return
+	}
 	r.mu.Lock()
 	r.teamCount--
 	r.mu.Unlock()
@@ -484,7 +446,10 @@ func (r *Registry) IsTeamDeleted(id string) bool {
 	}
 	t, err := r.teamStore.LoadTeam(id)
 	if err == nil {
-		m := TeamMetadata{ID: t.ID, Status: t.Status, DeletedAt: t.DeletedAt}
+		m := TeamMetadata{
+			ID: t.ID, Name: t.Name, OwnerID: t.OwnerID, Roles: t.Roles,
+			UpdatedAt: t.UpdatedAt, Status: t.Status, DeletedAt: t.DeletedAt,
+		}
 		r.teamMetadata.Add(id, m)
 		return t.Status == "deleted"
 	}
@@ -492,12 +457,25 @@ func (r *Registry) IsTeamDeleted(id string) bool {
 }
 
 func (r *Registry) HasGameAccess(userId, gameId string) bool {
+	if r.IsGameDeleted(gameId) {
+		return false
+	}
+
 	idx, err := r.userStore.GetUserIndex(userId)
 	if err == nil {
 		if idx.GameAccess[gameId] >= AccessRead {
 			return true
 		}
+		// Check team access
+		for teamId := range idx.TeamAccess {
+			tg, _ := r.userStore.GetTeamGames(teamId)
+			if tg.GameIDs[gameId] {
+				return true
+			}
+		}
 	}
+
+	// Public access
 	pIdx, err := r.userStore.GetUserIndex("")
 	if err == nil {
 		if pIdx.GameAccess[gameId] >= AccessRead {
@@ -505,6 +483,48 @@ func (r *Registry) HasGameAccess(userId, gameId string) bool {
 		}
 	}
 	return false
+}
+
+// GetAccessLevel calculates the effective access level for a user on a game
+// using indexed metadata without loading the full game object.
+func (r *Registry) GetAccessLevel(userId, gameId string) AccessLevel {
+	if r.IsGameDeleted(gameId) {
+		return AccessNone
+	}
+
+	idx, err := r.userStore.GetUserIndex(userId)
+	if err != nil {
+		return AccessNone
+	}
+
+	level := AccessNone
+	if l, ok := idx.GameAccess[gameId]; ok {
+		level = l
+	}
+
+	// Check team access (inheritance)
+	for teamId, teamLevel := range idx.TeamAccess {
+		tg, _ := r.userStore.GetTeamGames(teamId)
+		if tg.GameIDs[gameId] {
+			if teamLevel > level {
+				level = teamLevel
+			}
+		}
+	}
+
+	// Public access fallback
+	if level < AccessRead {
+		pIdx, err := r.userStore.GetUserIndex("")
+		if err == nil {
+			if l, ok := pIdx.GameAccess[gameId]; ok {
+				if l > level {
+					level = l
+				}
+			}
+		}
+	}
+
+	return level
 }
 
 func (r *Registry) HasTeamAccess(userId, teamId string) bool {
@@ -640,19 +660,37 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 		return m, true
 	}
 
+	seen := make(map[string]bool)
 	for id := range idx.GameAccess {
 		meta, ok := getMeta(id)
 		if !ok || meta.Status == "deleted" || !matchesGame(meta, q) {
 			continue
 		}
 		ids = append(ids, id)
+		seen[id] = true
+	}
+
+	// Add team games
+	for teamId := range idx.TeamAccess {
+		tg, _ := r.userStore.GetTeamGames(teamId)
+		for id := range tg.GameIDs {
+			if seen[id] {
+				continue
+			}
+			meta, ok := getMeta(id)
+			if !ok || meta.Status == "deleted" || !matchesGame(meta, q) {
+				continue
+			}
+			ids = append(ids, id)
+			seen[id] = true
+		}
 	}
 
 	if userId != "" {
 		pIdx, err := r.userStore.GetUserIndex("")
 		if err == nil {
 			for id := range pIdx.GameAccess {
-				if _, ok := idx.GameAccess[id]; ok {
+				if seen[id] {
 					continue
 				}
 				meta, ok := getMeta(id)
@@ -660,6 +698,7 @@ func (r *Registry) ListGames(userId, sortBy, order, query string) []string {
 					continue
 				}
 				ids = append(ids, id)
+				seen[id] = true
 			}
 		}
 	}

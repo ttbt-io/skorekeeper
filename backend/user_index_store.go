@@ -209,7 +209,11 @@ func (s *UserIndexStore) DeleteUserIndex(userId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	return os.Remove(filepath.Join(s.DataDir, path))
+	err := os.Remove(filepath.Join(s.DataDir, path))
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // --- Team Games Index Methods ---
@@ -248,7 +252,11 @@ func (s *UserIndexStore) DeleteTeamGames(teamId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	return os.Remove(filepath.Join(s.DataDir, path))
+	err := os.Remove(filepath.Join(s.DataDir, path))
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // --- Game Users Index Methods ---
@@ -287,7 +295,11 @@ func (s *UserIndexStore) DeleteGameUsers(gameId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	return os.Remove(filepath.Join(s.DataDir, path))
+	err := os.Remove(filepath.Join(s.DataDir, path))
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // --- Team Users Index Methods ---
@@ -326,7 +338,11 @@ func (s *UserIndexStore) DeleteTeamUsers(teamId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	return os.Remove(filepath.Join(s.DataDir, path))
+	err := os.Remove(filepath.Join(s.DataDir, path))
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // --- Persistence Methods ---
@@ -557,40 +573,169 @@ func (s *UserIndexStore) InvalidateGameUsers(id string) { s.gameUserCache.Remove
 func (s *UserIndexStore) InvalidateTeamUsers(id string) { s.teamUserCache.Remove(id) }
 
 // --- Snapshot Helpers ---
-// (Simplified ListAll implementation: just scan directories)
 
 func (s *UserIndexStore) ListAllUserIndices() ([]*UserIndex, error) {
-	return listAll[*UserIndex](s, "users")
-}
-func (s *UserIndexStore) ListAllTeamGames() ([]*TeamGamesIndex, error) {
-	return listAll[*TeamGamesIndex](s, "team_games")
-}
-func (s *UserIndexStore) ListAllGameUsers() ([]*GameUsersIndex, error) {
-	return listAll[*GameUsersIndex](s, "game_users")
-}
-func (s *UserIndexStore) ListAllTeamUsers() ([]*TeamUsersIndex, error) {
-	return listAll[*TeamUsersIndex](s, "team_users")
+	return s.ListAllUserIndicesWithDirty()
 }
 
-func listAll[T any](s *UserIndexStore, dirName string) ([]T, error) {
-	dir := filepath.Join(s.DataDir, dirName)
+func (s *UserIndexStore) ListAllUserIndicesWithDirty() ([]*UserIndex, error) {
+	s.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(s.dirtyU))
+	for k := range s.dirtyU {
+		dirtySet[k] = true
+	}
+	s.dirtyMu.Unlock()
+
+	// 1. Scan Disk
+	dir := filepath.Join(s.DataDir, "users")
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	var res []T
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
+
+	resMap := make(map[string]*UserIndex)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			var idx UserIndex
+			if err := s.storage.ReadDataFile(filepath.Join("users", e.Name()), &idx); err == nil {
+				resMap[idx.UserID] = &idx
+			}
 		}
-		path := filepath.Join(dirName, e.Name())
-		var item T
-		if err := s.storage.ReadDataFile(path, &item); err == nil {
-			res = append(res, item)
+	}
+
+	// 2. Merge Dirty
+	for id := range dirtySet {
+		if val, ok := s.userCache.Peek(id); ok {
+			resMap[id] = val
 		}
+	}
+
+	res := make([]*UserIndex, 0, len(resMap))
+	for _, v := range resMap {
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+func (s *UserIndexStore) ListAllTeamGames() ([]*TeamGamesIndex, error) {
+	s.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(s.dirtyTG))
+	for k := range s.dirtyTG {
+		dirtySet[k] = true
+	}
+	s.dirtyMu.Unlock()
+
+	dir := filepath.Join(s.DataDir, "team_games")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	resMap := make(map[string]*TeamGamesIndex)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			var idx TeamGamesIndex
+			if err := s.storage.ReadDataFile(filepath.Join("team_games", e.Name()), &idx); err == nil {
+				resMap[idx.TeamID] = &idx
+			}
+		}
+	}
+
+	for id := range dirtySet {
+		if val, ok := s.teamGameCache.Peek(id); ok {
+			resMap[id] = val
+		}
+	}
+
+	res := make([]*TeamGamesIndex, 0, len(resMap))
+	for _, v := range resMap {
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+func (s *UserIndexStore) ListAllGameUsers() ([]*GameUsersIndex, error) {
+	s.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(s.dirtyGU))
+	for k := range s.dirtyGU {
+		dirtySet[k] = true
+	}
+	s.dirtyMu.Unlock()
+
+	dir := filepath.Join(s.DataDir, "game_users")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	resMap := make(map[string]*GameUsersIndex)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			var idx GameUsersIndex
+			if err := s.storage.ReadDataFile(filepath.Join("game_users", e.Name()), &idx); err == nil {
+				resMap[idx.GameID] = &idx
+			}
+		}
+	}
+
+	for id := range dirtySet {
+		if val, ok := s.gameUserCache.Peek(id); ok {
+			resMap[id] = val
+		}
+	}
+
+	res := make([]*GameUsersIndex, 0, len(resMap))
+	for _, v := range resMap {
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+func (s *UserIndexStore) ListAllTeamUsers() ([]*TeamUsersIndex, error) {
+	s.dirtyMu.Lock()
+	dirtySet := make(map[string]bool, len(s.dirtyTU))
+	for k := range s.dirtyTU {
+		dirtySet[k] = true
+	}
+	s.dirtyMu.Unlock()
+
+	dir := filepath.Join(s.DataDir, "team_users")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	resMap := make(map[string]*TeamUsersIndex)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			var idx TeamUsersIndex
+			if err := s.storage.ReadDataFile(filepath.Join("team_users", e.Name()), &idx); err == nil {
+				resMap[idx.TeamID] = &idx
+			}
+		}
+	}
+
+	for id := range dirtySet {
+		if val, ok := s.teamUserCache.Peek(id); ok {
+			resMap[id] = val
+		}
+	}
+
+	res := make([]*TeamUsersIndex, 0, len(resMap))
+	for _, v := range resMap {
+		res = append(res, v)
 	}
 	return res, nil
 }

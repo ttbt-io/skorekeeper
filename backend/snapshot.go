@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -94,7 +95,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		users, _ := f.us.ListAllUserIndices()
 		for _, idx := range users {
 			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("users/%s.json", idx.UserID), data); err != nil {
+			if err := writeFileToTar(tw, fmt.Sprintf("users/%s.json", url.PathEscape(idx.UserID)), data); err != nil {
 				return err
 			}
 		}
@@ -102,7 +103,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		teamGames, _ := f.us.ListAllTeamGames()
 		for _, idx := range teamGames {
 			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("team_games/%s.json", idx.TeamID), data); err != nil {
+			if err := writeFileToTar(tw, fmt.Sprintf("team_games/%s.json", url.PathEscape(idx.TeamID)), data); err != nil {
 				return err
 			}
 		}
@@ -110,7 +111,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		gameUsers, _ := f.us.ListAllGameUsers()
 		for _, idx := range gameUsers {
 			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("game_users/%s.json", idx.GameID), data); err != nil {
+			if err := writeFileToTar(tw, fmt.Sprintf("game_users/%s.json", url.PathEscape(idx.GameID)), data); err != nil {
 				return err
 			}
 		}
@@ -118,7 +119,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		teamUsers, _ := f.us.ListAllTeamUsers()
 		for _, idx := range teamUsers {
 			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("team_users/%s.json", idx.TeamID), data); err != nil {
+			if err := writeFileToTar(tw, fmt.Sprintf("team_users/%s.json", url.PathEscape(idx.TeamID)), data); err != nil {
 				return err
 			}
 		}
@@ -337,24 +338,11 @@ func (f *FSM) restore(rc io.Reader) error {
 		}
 	}
 
-	// Trigger Registry Rebuild/Reload?
-	// Since we updated indices directly via userStore, Registry caches are invalid.
-	// Registry Rebuild() rescans everything.
-	// We should probably just invalidate Registry caches.
-	// But Registry doesn't expose InvalidateAll.
-	// Rebuild() is safe. But slow.
-	// If we trust snapshot indices, we don't need Rebuild().
-	// But Registry in-memory metadata cache is stale.
-	// We should clear the cache.
-	// f.registry.Rebuild() ?
-	// Yes, to be safe and update counts/metadata.
-	// But Rebuild() rescans.
-	// If we want to avoid rescan, we need `Registry.Refresh()` that trusts the store?
-	// For now, let's leave it. The caches will be populated on demand.
-	// The only issue is `deletedGames` map in Registry.
-	// Rebuild() rebuilds it.
-	// So we MUST call Rebuild().
-	f.r.Rebuild()
+	// Re-initialize the registry to use the restored on-disk indices
+	// without performing a full, expensive rebuild.
+	// We just refresh the file counts so stats are correct.
+	// The existing Registry instance is preserved, keeping external references valid.
+	f.r.RefreshCounts()
 
 	return nil
 }
