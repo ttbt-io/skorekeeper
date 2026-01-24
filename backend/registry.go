@@ -404,9 +404,11 @@ func (r *Registry) DeleteTeam(teamId string) {
 }
 
 func (r *Registry) markGameDeleted(id string, ts int64) {
-	if r.IsGameDeleted(id) {
+	// Use Peek to check cache without updating LRU order or hitting disk.
+	if m, ok := r.gameMetadata.Peek(id); ok && m.Status == "deleted" {
 		return
 	}
+
 	r.mu.Lock()
 	r.gameCount--
 	r.mu.Unlock()
@@ -418,9 +420,11 @@ func (r *Registry) markGameDeleted(id string, ts int64) {
 }
 
 func (r *Registry) markTeamDeleted(id string, ts int64) {
-	if r.IsTeamDeleted(id) {
+	// Use Peek to check cache without updating LRU order or hitting disk.
+	if m, ok := r.teamMetadata.Peek(id); ok && m.Status == "deleted" {
 		return
 	}
+
 	r.mu.Lock()
 	r.teamCount--
 	r.mu.Unlock()

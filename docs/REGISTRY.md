@@ -9,43 +9,38 @@ The Registry utilizes a **Disk-Based User Index** strategy to manage user permis
 *   **Scalability**: Supports an unlimited number of users and teams; memory usage is bounded by LRU cache sizes.
 *   **Persistence**: All indices are persisted to disk using authenticated encryption, ensuring data survival across restarts.
 *   **Performance**: Frequently accessed indices are cached in memory (LRU) to maintain sub-millisecond lookup times for active users.
+*   **Runtime Inheritance**: Team-based game access is resolved at runtime by intersecting user team membership with team-linked games, ensuring that updating a team's roster is an $O(members)$ operation regardless of the number of games.
 
 ## 2. Store Component: `UserIndexStore`
 
 The `UserIndexStore` is the unified persistence layer responsible for managing user access indices and team-game relationships.
 
 *   **File Paths**:
-    *   User Index: `data/users/<hash>.json`
-    *   Team Games Index: `data/team_games/<hash>.json`
-    *   Game Users Index: `data/game_users/<hash>.json`
-    *   Team Users Index: `data/team_users/<hash>.json`
-*   **Hash Algorithm**:
-    *   `hex.EncodeToString(masterKey.Hash(key))` (HMAC-SHA256 equivalent with MasterKey)
+    *   User Index: `data/users/<url_escaped_email>.json`
+    *   Team Games Index: `data/team_games/<team_id>.json`
+    *   Game Users Index: `data/game_users/<game_id>.json`
+    *   Team Users Index: `data/team_users/<team_id>.json`
 *   **Data Structures**:
     ```go
     type UserIndex struct {
         UserID      string                 `json:"userId"`
-        GameAccess  map[string]AccessLevel `json:"gameAccess"` // GameID -> AccessLevel
-        TeamAccess  map[string]AccessLevel `json:"teamAccess"` // TeamID -> AccessLevel
-        LastUpdated int64                  `json:"lastUpdated"`
+        GameAccess  map[string]AccessLevel `json:"gameAccess"` // Direct Game Access
+        TeamAccess  map[string]AccessLevel `json:"teamAccess"` // Team Membership
     }
 
     type TeamGamesIndex struct {
         TeamID      string          `json:"teamId"`
         GameIDs     map[string]bool `json:"gameIds"`
-        LastUpdated int64           `json:"lastUpdated"`
     }
 
     type GameUsersIndex struct {
         GameID      string          `json:"gameId"`
-        UserIDs     map[string]bool `json:"userIds"`
-        LastUpdated int64           `json:"lastUpdated"`
+        UserIDs     map[string]bool `json:"userIds"` // Direct access users
     }
 
     type TeamUsersIndex struct {
         TeamID      string          `json:"teamId"`
         UserIDs     map[string]bool `json:"userIds"`
-        LastUpdated int64           `json:"lastUpdated"`
     }
     ```
 *   **Caching Strategy (LRU)**:
@@ -55,46 +50,52 @@ The `UserIndexStore` is the unified persistence layer responsible for managing u
     *   **Team-Users Cache**: 500 items.
 *   **Write-Behind Persistence**:
     *   Updates are applied immediately to the in-memory cache and marked as "dirty".
-    *   `Flush()` (called during snapshots or shutdown) writes all dirty entries to disk.
+    *   `FlushAll()` (called during snapshots or shutdown) writes all dirty entries to disk.
     *   Cache eviction triggers an automatic save of the evicted item if it is dirty.
 
 ## 3. Registry Architecture
 
-The `Registry` acts as the high-level interface for querying and modifying these indices. It does not hold any source of truth for relationships in memory, delegating entirely to `UserIndexStore`.
+The `Registry` acts as the high-level interface for querying and modifying these indices. It delegates index management entirely to `UserIndexStore` and maintains its own LRU cache for entity metadata.
 
 ### Logic Flow
 
-#### Reading (`ListGames`, `ListTeams`, `CountOwned...`)
-1.  **Load Index**: Calls `UserIndexStore.GetUserIndex(userId)`, which checks the LRU cache before hitting disk.
-2.  **Iterate IDs**: Loops through `GameIDs` or `TeamIDs` in the returned index.
-3.  **Ownership Check**: Uses the stored `AccessLevel` in `UserIndex` to determine ownership without a global lookup map.
-4.  **Fetch Metadata**: Resolves entity metadata (Name, Date) using the Registry's internal metadata cache (LRU) or loading from the respective stores (`GameStore`, `TeamStore`).
+#### Reading (`ListGames`, `HasGameAccess`, `GetAccessLevel`)
+1.  **Load Direct Index**: Calls `UserIndexStore.GetUserIndex(userId)` to get direct game access and team memberships.
+2.  **Resolve Inheritance**: For every team the user belongs to, it loads the `TeamGamesIndex` to check if the target game is linked to that team.
+3.  **Calculate Effective Level**: Returns the highest access level found among direct access and all team-inherited paths.
+4.  **Fetch Metadata**: Resolves entity metadata (Name, Date) using the Registry's internal metadata cache (5,000 games, 2,000 teams) or loading from the respective stores (`GameStore`, `TeamStore`).
 
-#### Writing (`UpdateGame`, `JoinTeam`)
-1.  **Update Indices**:
-    *   Modifies the `UserIndex` for all affected users (e.g., adding a game to a user's list).
-    *   Modifies `GameUsersIndex` or `TeamGamesIndex` to maintain the reverse mappings.
-    *   Calls `UserIndexStore.Set...` to update the cache and mark as dirty.
-2.  **Update Metadata**: Updates the Registry's metadata cache to reflect changes (e.g., new game name).
+#### Writing (`UpdateTeam`, `UpdateGame`)
+1.  **Team Update**:
+    *   Determines new members and their roles.
+    *   Identifies removed members and removes the team from their `UserIndex`.
+    *   Updates the `UserIndex` for all current members to reflect their membership.
+    *   Updates `TeamUsersIndex` for the team.
+2.  **Game Update**:
+    *   Updates direct access in `UserIndex` for all users listed in the game permissions.
+    *   Updates `GameUsersIndex` for the game.
+    *   Links the game to the Home and Away teams in their respective `TeamGamesIndex`.
 
 #### Deleting
-1.  **Cleanup**: Removes entries from all relevant indices (`UserIndex`, `TeamGamesIndex`, etc.).
-2.  **Tombstones**: Uses in-memory tombstones (temporarily) to filter out deleted items from concurrent reads until the cache settles.
+1.  **Game Deletion**:
+    *   Marks game as "deleted" in metadata cache (tombstone).
+    *   Removes game from the `UserIndex` of all users who had direct access.
+    *   Deletes the `GameUsersIndex`.
+    *   *Note*: The game remains in `TeamGamesIndex` files but is filtered out at runtime by the deletion check.
+2.  **Team Deletion**:
+    *   Marks team as "deleted" in metadata cache.
+    *   Removes team membership from the `UserIndex` of all members.
+    *   Deletes `TeamUsersIndex` and `TeamGamesIndex`.
 
-## 4. Persistence: Registry State
+## 4. Startup and Rebuild
 
-To avoid the O(N) cost of rebuilding indices on every startup, the Registry persists a lightweight state file `registry.state`.
+To ensure high performance and consistency, the Registry supports two startup paths:
 
-*   **File Path**: `data/registry.state`
-*   **Content**:
-    ```json
-    {
-        "gameCount": 123,
-        "teamCount": 45,
-        "clean": true
-    }
-    ```
-*   **Startup Logic**:
-    1.  Checks for `registry.state`.
-    2.  If `clean: true`, it trusts the persisted indices and skips a full scan.
-    3.  If missing or `clean: false` (indicating a crash), it performs a full **Rebuild**, scanning all Game and Team files to regenerate the indices, ensuring consistency.
+*   **Fast Path (Normal)**:
+    *   Counts total games and teams by listing files in `data/games` and `data/teams`.
+    *   Trusts the persisted indices in `data/users`, `data/team_games`, etc.
+*   **Rebuild Path (Recovery/Force)**:
+    *   Triggered if indices are missing or consistency is in question.
+    *   Scans all Game and Team files.
+    *   Regenerates all indices from scratch.
+    *   Optimized to use local counters and a single lock to avoid contention during large reconstructions.
