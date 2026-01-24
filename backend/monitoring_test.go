@@ -343,7 +343,7 @@ func TestLeaderGap_Restart(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		_, handler := NewServerHandler(opts)
+		_, _, handler := NewServerHandler(opts)
 		ts := httptest.NewServer(handler)
 
 		var rm *RaftManager

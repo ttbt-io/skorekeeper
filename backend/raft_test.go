@@ -64,7 +64,7 @@ func TestRaftSingleNode(t *testing.T) {
 		UseMockAuth:      true,
 	}
 
-	_, handler := NewServerHandler(opts)
+	_, _, handler := NewServerHandler(opts)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

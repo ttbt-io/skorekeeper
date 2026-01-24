@@ -43,7 +43,7 @@ func TestWebSocket(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,

@@ -217,7 +217,7 @@ func startCluster(t *testing.T, count int, dataDirs []string, raftPorts, cluster
 			UseMockAuth:      true,
 		}
 
-		_, handler := NewServerHandler(opts)
+		_, _, handler := NewServerHandler(opts)
 		server := httptest.NewServer(handler)
 		servers[i] = server
 

@@ -145,11 +145,16 @@ const (
 type Server struct {
 	httpServer *http.Server
 	raftMgr    *RaftManager
+	registry   *Registry
 }
 
 // Shutdown gracefully shuts down the server and Raft node.
 func (s *Server) Shutdown(ctx context.Context) error {
 	var errs []string
+
+	if s.registry != nil {
+		s.registry.StopGC()
+	}
 
 	flush := func() {
 		if s.raftMgr != nil {
@@ -179,7 +184,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // StartServer starts the web server and registers the API handlers.
 func StartServer(opts Options) (*Server, error) {
-	raftMgr, handler := NewServerHandler(opts)
+	raftMgr, registry, handler := NewServerHandler(opts)
 
 	if raftMgr != nil {
 		// Wait for Raft to replay log and catch up to ensure data consistency
@@ -239,12 +244,13 @@ func StartServer(opts Options) (*Server, error) {
 	return &Server{
 			httpServer: httpServer,
 			raftMgr:    raftMgr,
+			registry:   registry,
 		},
 		nil
 }
 
 // NewServerHandler creates and configures the HTTP handler for the server.
-func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
+func NewServerHandler(opts Options) (*RaftManager, *Registry, http.Handler) {
 	if opts.DataDir == "" {
 		opts.DataDir = "data"
 	}
@@ -1520,7 +1526,7 @@ func NewServerHandler(opts Options) (*RaftManager, http.Handler) {
 		}
 	}
 
-	return raftMgr, handler
+	return raftMgr, registry, handler
 }
 
 // cacheControlMiddleware adds Cache-Control headers optimized for PWA reliability behind a proxy.

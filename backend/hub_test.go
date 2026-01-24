@@ -49,7 +49,7 @@ func TestHubConcurrency(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -259,7 +259,7 @@ func TestIdempotency(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -335,7 +335,7 @@ func TestBootstrapRace(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -415,7 +415,7 @@ func TestMixedTraffic(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -519,7 +519,7 @@ func TestTeamHubConcurrency(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -577,7 +577,7 @@ func TestStaleCacheRecovery(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,

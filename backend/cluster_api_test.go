@@ -63,7 +63,7 @@ func TestClusterAPI(t *testing.T) {
 		RaftManagerChan:  rmChan,
 	}
 
-	_, handler := NewServerHandler(opts)
+	_, _, handler := NewServerHandler(opts)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

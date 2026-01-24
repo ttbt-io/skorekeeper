@@ -27,6 +27,7 @@ import (
 )
 
 const tombstoneTTL = 30 * 24 * time.Hour
+const gcInterval = 12 * time.Hour
 
 // Registry manages the global index of games and teams for all users.
 // It allows efficient lookup of accessible entities without scanning all files.
@@ -49,6 +50,9 @@ type Registry struct {
 
 	// Access Policy Cache
 	accessPolicy *UserAccessPolicy
+
+	// GC
+	stopChan chan struct{}
 }
 
 // NewRegistry creates a new Registry.
@@ -64,6 +68,7 @@ func NewRegistry(gs *GameStore, ts *TeamStore, us *UserIndexStore, forceRebuild 
 		userStore:    us,
 		gameMetadata: gmCache,
 		teamMetadata: tmCache,
+		stopChan:     make(chan struct{}),
 	}
 
 	if forceRebuild {
@@ -74,7 +79,63 @@ func NewRegistry(gs *GameStore, ts *TeamStore, us *UserIndexStore, forceRebuild 
 		log.Printf("Registry: Fast startup. Found %d games, %d teams.", r.gameCount, r.teamCount)
 	}
 
+	r.StartGC()
+
 	return r
+}
+
+// StartGC starts the background tombstone garbage collector.
+func (r *Registry) StartGC() {
+	go func() {
+		ticker := time.NewTicker(gcInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				r.PurgeOldTombstones()
+			case <-r.stopChan:
+				return
+			}
+		}
+	}()
+}
+
+// StopGC stops the background tombstone garbage collector.
+func (r *Registry) StopGC() {
+	close(r.stopChan)
+}
+
+// PurgeOldTombstones permanently deletes expired tombstones from disk.
+func (r *Registry) PurgeOldTombstones() {
+	log.Println("Registry: Garbage collection of expired tombstones started...")
+	now := time.Now().UnixNano()
+	cutoff := now - tombstoneTTL.Nanoseconds()
+
+	var purgedTeams int
+	var purgedGames int
+
+	// 1. GC Teams
+	for t, err := range r.teamStore.ListAllTeamMetadata() {
+		if err == nil && t.Status == "deleted" && t.DeletedAt > 0 && t.DeletedAt < cutoff {
+			if err := r.teamStore.PurgeTeam(t.ID); err == nil {
+				purgedTeams++
+			}
+		}
+	}
+
+	// 2. GC Games
+	for g, err := range r.gameStore.ListAllGameMetadata() {
+		if err == nil && g.Status == "deleted" && g.DeletedAt > 0 && g.DeletedAt < cutoff {
+			if err := r.gameStore.PurgeGame(g.ID); err == nil {
+				purgedGames++
+			}
+		}
+	}
+
+	if purgedTeams > 0 || purgedGames > 0 {
+		log.Printf("Registry: GC complete. Purged %d games, %d teams.", purgedGames, purgedTeams)
+	}
 }
 
 // RefreshCounts updates the global game and team counts by listing files.
@@ -118,11 +179,18 @@ func (r *Registry) Rebuild() {
 	var localGameCount int
 	var localTeamCount int
 
+	now := time.Now().UnixNano()
+	cutoff := now - tombstoneTTL.Nanoseconds()
+
 	// 1. Index Teams
 	for t, err := range r.teamStore.ListAllTeamMetadata() {
 		if err != nil {
 			log.Printf("Registry: Error listing teams: %v", err)
 			break
+		}
+		if t.Status == "deleted" && t.DeletedAt > 0 && t.DeletedAt < cutoff {
+			r.teamStore.PurgeTeam(t.ID)
+			continue
 		}
 		if r.indexTeam(t.ID, t, true) {
 			localTeamCount++
@@ -134,6 +202,10 @@ func (r *Registry) Rebuild() {
 		if err != nil {
 			log.Printf("Registry: Error listing games: %v", err)
 			break
+		}
+		if g.Status == "deleted" && g.DeletedAt > 0 && g.DeletedAt < cutoff {
+			r.gameStore.PurgeGame(g.ID)
+			continue
 		}
 		if r.indexGame(g.ID, g, true) {
 			localGameCount++

@@ -141,7 +141,7 @@ func TestHTTPHandlers(t *testing.T) {
 	reg := NewRegistry(gStore, tStore, us, true)
 
 	// Setup Handler using the factory function
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:      gStore,
 		TeamStore:      tStore,
 		Storage:        s,
@@ -501,7 +501,7 @@ func TestHTTPHandlers(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		// Use a handler with UseMockAuth enabled
-		_, mockAuthHandler := NewServerHandler(Options{
+		_, _, mockAuthHandler := NewServerHandler(Options{
 			GameStore:   gStore,
 			TeamStore:   tStore,
 			Storage:     s,
@@ -529,7 +529,7 @@ func TestHTTPHandlers(t *testing.T) {
 	// Test SSO Status Handler
 	t.Run("SSOStatusHandler", func(t *testing.T) {
 		// Enabled via UseMockAuth: true
-		_, mockAuthHandler := NewServerHandler(Options{
+		_, _, mockAuthHandler := NewServerHandler(Options{
 			GameStore:   gStore,
 			TeamStore:   tStore,
 			Storage:     s,
@@ -563,7 +563,7 @@ func TestHTTPHandlers(t *testing.T) {
 
 	// Test SSO Logout Handler
 	t.Run("SSOLogoutHandler", func(t *testing.T) {
-		_, mockAuthHandler := NewServerHandler(Options{UseMockAuth: true})
+		_, _, mockAuthHandler := NewServerHandler(Options{UseMockAuth: true})
 		req := httptest.NewRequest("POST", "/.sso/logout", nil)
 		w := httptest.NewRecorder()
 		mockAuthHandler.ServeHTTP(w, req)
@@ -592,7 +592,7 @@ func TestHTTPHandlers(t *testing.T) {
 		// Ensure Raft is explicitly disabled for this test case
 		optsDisabledRaft := Options{UseMockAuth: true, Debug: true, DataDir: t.TempDir(), RaftEnabled: false}
 		var handlerDisabledRaft http.Handler
-		_, handlerDisabledRaft = NewServerHandler(optsDisabledRaft)
+		_, _, handlerDisabledRaft = NewServerHandler(optsDisabledRaft)
 
 		req := httptest.NewRequest("GET", "/api/cluster/status", nil)
 		w := httptest.NewRecorder()
@@ -631,7 +631,7 @@ func TestHTTPHandlers(t *testing.T) {
 		}
 
 		var raftHandler http.Handler
-		_, raftHandler = NewServerHandler(opts)
+		_, _, raftHandler = NewServerHandler(opts)
 		select {
 		case <-rmChan:
 		case <-time.After(5 * time.Second):
@@ -688,7 +688,7 @@ func TestDataDirConfig(t *testing.T) {
 	// Setup Handler with a specific DataDir
 	s := storage.New(tempDir, nil)
 	us := NewUserIndexStore(tempDir, s, nil)
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		DataDir:        tempDir,
 		Storage:        s,
 		UserIndexStore: us,
@@ -737,7 +737,7 @@ func TestConcurrentSaves(t *testing.T) {
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 
-	_, handler := NewServerHandler(Options{
+	_, _, handler := NewServerHandler(Options{
 		GameStore:   gStore,
 		TeamStore:   tStore,
 		Storage:     s,
