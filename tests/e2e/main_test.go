@@ -749,7 +749,7 @@ func TestScoresheetInteractions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Dropped 3rd Strike workflow",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(13)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(15)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-ball`),
 		chromedp.Click(`#btn-strike`),
@@ -815,7 +815,7 @@ func TestScoresheetInteractions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Forced Advance (Walk) - Needs a runner on base",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(14)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(16)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-ball`),
 		chromedp.Click(`#btn-ball`),
@@ -829,19 +829,19 @@ func TestScoresheetInteractions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Inning End (3 Outs) - Using Inning 5 (Col 5) to ensure clean state",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(16)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(18)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-show-bip`),
 		chromedp.Click(`#btn-cancel-bip`),
 		chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`),
 		waitUntilDisplayNone(`#cso-modal`),
 
-		chromedp.Click(`#scoresheet-grid > div:nth-child(26)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(30)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`),
 		waitUntilDisplayNone(`#cso-modal`),
 
-		chromedp.Click(`#scoresheet-grid > div:nth-child(36)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(40)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`), chromedp.Click(`#btn-strike`),
 		waitUntilDisplayNone(`#cso-modal`),
@@ -892,7 +892,7 @@ func TestRunnerActions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Batter 1: Single",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(12)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(14)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-show-bip`),
 		chromedp.WaitVisible(`#cso-bip-view`),
@@ -901,7 +901,7 @@ func TestRunnerActions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Batter 2: Strikeout",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(22)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(26)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.Click(`#btn-strike`),
 		chromedp.Click(`#btn-strike`),
@@ -910,7 +910,7 @@ func TestRunnerActions(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Batter 3: Check Runner Actions",
-		chromedp.Click(`#scoresheet-grid > div:nth-child(32)`),
+		chromedp.Click(`#scoresheet-grid > div:nth-child(38)`),
 		chromedp.WaitVisible(`#cso-modal`),
 		chromedp.WaitVisible(`.ghost-runner[data-base-idx="0"]`),
 

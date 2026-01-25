@@ -406,7 +406,7 @@ func TestGameScenario2(t *testing.T) {
 	runStep("Top 3: #7 1B",
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			// Scroll to center using JS
-			if err := chromedp.Evaluate(`document.querySelector('#scoresheet-grid > div:nth-child(32)').scrollIntoView({block: 'center'})`, nil).Do(ctx); err != nil {
+			if err := chromedp.Evaluate(`document.querySelector('#scoresheet-grid > div:nth-child(36)').scrollIntoView({block: 'center'})`, nil).Do(ctx); err != nil {
 				// Ignore scroll error
 			}
 			if err := SelectCell(ctx, 7, 3); err != nil {

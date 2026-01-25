@@ -84,8 +84,8 @@ func TestColumnManagement(t *testing.T) {
 
 	// Initial State
 	initialCols := countColumns(ctx)
-	if initialCols != 5 {
-		t.Errorf("Expected 5 initial columns, got %d", initialCols)
+	if initialCols != 7 {
+		t.Errorf("Expected 7 initial columns, got %d", initialCols)
 	}
 
 	// --- TEST 1: Per-Team Addition ---
@@ -116,17 +116,17 @@ func TestColumnManagement(t *testing.T) {
 		t.Fatalf("Failed to add column: %v", err)
 	}
 
-	// Verify Away has 6 columns
-	if n := countColumns(ctx); n != 6 {
+	// Verify Away has 8 columns
+	if n := countColumns(ctx); n != 8 {
 		t.Errorf("Expected Away to have 6 columns, got %d", n)
 	}
 
-	// Verify Home still has 5
+	// Verify Home still has 7
 	t.Log("Switching to Home to verify column count")
 	if err := switchTeam(ctx, "home"); err != nil {
 		t.Fatalf("Failed to switch to home: %v", err)
 	}
-	if n := countColumns(ctx); n != 5 {
+	if n := countColumns(ctx); n != 7 {
 		t.Errorf("Expected Home to have 5 columns, got %d", n)
 	}
 
@@ -162,7 +162,7 @@ func TestColumnManagement(t *testing.T) {
 	}
 
 	// Verify Away has 5 columns (removed 1)
-	if n := countColumns(ctx); n != 5 {
+	if n := countColumns(ctx); n != 7 {
 		t.Errorf("Expected Away to have 5 columns after removal, got %d", n)
 	}
 
@@ -171,7 +171,7 @@ func TestColumnManagement(t *testing.T) {
 	if err := switchTeam(ctx, "home"); err != nil {
 		t.Fatalf("Failed to switch to home: %v", err)
 	}
-	if n := countColumns(ctx); n != 5 {
+	if n := countColumns(ctx); n != 7 {
 		t.Errorf("Expected Home to have 5 columns, got %d", n)
 	}
 	// Verify header is '1' (col-1-0)
@@ -215,8 +215,8 @@ func TestColumnManagement(t *testing.T) {
 		t.Fatalf("Failed to click Remove Column: %v", err)
 	}
 
-	// Count should remain 5
-	if n := countColumns(ctx); n != 5 {
+	// Count should remain 7
+	if n := countColumns(ctx); n != 7 {
 		t.Errorf("Expected column count to remain 5 (Last Column Constraint), got %d", n)
 	} else {
 		t.Log("Verified Last Column Constraint: Column not removed.")
@@ -290,8 +290,8 @@ func TestColumnManagement(t *testing.T) {
 		t.Fatalf("Failed to click Remove Column: %v", err)
 	}
 
-	// Count should remain 6
-	if n := countColumns(ctx); n != 6 {
+	// Count should remain 8
+	if n := countColumns(ctx); n != 8 {
 		t.Errorf("Expected column count to remain 6 (Data Constraint), got %d", n)
 	} else {
 		t.Log("Verified Data Constraint: Column not removed.")

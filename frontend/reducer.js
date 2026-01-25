@@ -861,7 +861,7 @@ function applyGameStart(state, payload) {
 
     // Initialize Columns
     newState.columns = [];
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 7; i++) {
         newState.columns.push({ inning: i, id: `col-${i}-0` });
     }
 
