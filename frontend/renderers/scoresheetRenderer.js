@@ -96,19 +96,37 @@ export class ScoresheetRenderer {
         corner.textContent = 'BATTER';
         this.gridContainer.appendChild(corner);
 
-        visibleColumns.forEach((c) => {
+        // Group visible columns by inning
+        const inningGroups = [];
+        visibleColumns.forEach(col => {
+            const lastGroup = inningGroups[inningGroups.length - 1];
+            if (lastGroup && lastGroup[0].inning === col.inning) {
+                lastGroup.push(col);
+            } else {
+                inningGroups.push([col]);
+            }
+        });
+
+        inningGroups.forEach((group) => {
             const h = document.createElement('div');
             h.className = 'grid-header';
+            if (group.length > 1) {
+                h.style.gridColumn = `span ${group.length}`;
+            }
+
+            // Use the last column in the group for interactions (e.g. Remove Column targets the last one)
+            const targetCol = group[group.length - 1];
+
             if (!isPrint) {
                 h.className += ' cursor-pointer hover:bg-gray-200';
-                h.onclick = e => this.callbacks.onColumnContextMenu(e, c.id, c.inning);
+                h.onclick = e => this.callbacks.onColumnContextMenu(e, targetCol.id, targetCol.inning);
                 h.oncontextmenu = (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     h.onclick(e);
                 };
             }
-            h.textContent = c.inning;
+            h.textContent = targetCol.inning;
             this.gridContainer.appendChild(h);
         });
 

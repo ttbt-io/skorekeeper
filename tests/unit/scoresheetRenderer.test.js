@@ -204,4 +204,28 @@ describe('ScoresheetRenderer', () => {
         expect(printContainer.textContent).toContain('Away');
         expect(printContainer.textContent).toContain('Home');
     });
+
+    test('renderGrid() spans headers for multiple columns in same inning', () => {
+        const gameWithMultiCols = {
+            ...mockGame,
+            columns: [
+                { id: 'c1', inning: 1 },
+                { id: 'c2', inning: 1 }, // Same inning
+                { id: 'c3', inning: 2 },
+            ],
+        };
+        renderer.renderGrid(gameWithMultiCols, 'away', mockStats, null);
+
+        // Headers: BATTER, 1 (span 2), 2, AB, R, H, RBI
+        const headers = gridContainer.querySelectorAll('.grid-header');
+        // Index 0: BATTER
+        // Index 1: Inning 1 (should span 2)
+        // Index 2: Inning 2
+
+        expect(headers[1].textContent).toBe('1');
+        expect(headers[1].style.gridColumn).toBe('span 2');
+
+        expect(headers[2].textContent).toBe('2');
+        expect(headers[2].style.gridColumn).toBe('');
+    });
 });

@@ -67,7 +67,7 @@ func TestColumnManagement(t *testing.T) {
 	countColumns := func(ctx context.Context) int {
 		var n int
 		if err := chromedp.Run(ctx,
-			chromedp.Evaluate(`document.querySelectorAll('.grid-header.cursor-pointer').length`, &n),
+			chromedp.Evaluate(`document.querySelectorAll('.grid-cell[data-player-idx="0"]:not(.stats-cell)').length`, &n),
 		); err != nil {
 			t.Fatalf("Failed to count columns: %v", err)
 		}
@@ -248,13 +248,23 @@ func TestColumnManagement(t *testing.T) {
 		t.Fatalf("Failed to add column back: %v", err)
 	}
 
-	// Away now has 6 columns. col-1-1 (index 0) and col-1-2 (index 1).
+	// Away now has 2 columns for Inning 1.
 
-	// Add data to col-1-2 (index 1)
-	t.Log("Adding data to col-1-2")
+	// Add data to the last column of Inning 1
+	t.Log("Adding data to the new column")
+	var newColId string
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`(() => {
+			const cells = document.querySelectorAll('.grid-cell[data-player-idx="0"]:not(.stats-cell)');
+			return cells[1].dataset.colId; // Index 1 is the second column of Inning 1
+		})()`, &newColId),
+	); err != nil {
+		t.Fatalf("Failed to resolve new column ID: %v", err)
+	}
+
 	if err := chromedp.Run(ctx,
 		// Click cell in second column
-		chromedp.Click(`.grid-cell[data-col-id="col-1-2"][data-player-idx="0"]`, chromedp.ByQuery),
+		chromedp.Click(`.grid-cell[data-col-id="`+newColId+`"][data-player-idx="0"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#cso-modal", chromedp.ByID),
 		chromedp.Click("#btn-ball", chromedp.ByID),
 		chromedp.Click("#btn-close-cso", chromedp.ByID),
@@ -264,14 +274,13 @@ func TestColumnManagement(t *testing.T) {
 		t.Fatalf("Failed to add data to new column: %v", err)
 	}
 
-	// Attempt to remove col-1-2 (which has data)
-	t.Log("Attempting to remove col-1-2 which has data")
+	// Attempt to remove the column (which has data)
+	t.Log("Attempting to remove column with data")
 	if err := chromedp.Run(ctx,
 		chromedp.Evaluate(`{
 			const headers = document.querySelectorAll('.grid-header.cursor-pointer');
-			if (headers.length > 1) {
-				headers[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
-			}
+			// Inning 1 is header 0
+			headers[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
 		}`, nil),
 		chromedp.WaitVisible("#column-context-menu", chromedp.ByID),
 		chromedp.Sleep(200*time.Millisecond),
