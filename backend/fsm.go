@@ -39,6 +39,7 @@ var ErrConflict = errors.New("conflict detected")
 type FSM struct {
 	gs          *GameStore
 	ts          *TeamStore
+	us          *UserIndexStore
 	r           *Registry
 	hm          *HubManager
 	storage     *storage.Storage
@@ -53,10 +54,11 @@ type FSM struct {
 }
 
 // NewFSM creates a new FSM.
-func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storage.Storage) *FSM {
+func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storage.Storage, us *UserIndexStore) *FSM {
 	f := &FSM{
 		gs:      gs,
 		ts:      ts,
+		us:      us,
 		r:       r,
 		hm:      hm,
 		storage: s,
@@ -1015,6 +1017,10 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		log.Printf("FSM Snapshot Error: flushing teams failed: %v", err)
 		return nil, err
 	}
+	if err := f.us.FlushAll(); err != nil {
+		log.Printf("FSM Snapshot Error: flushing user indices failed: %v", err)
+		return nil, err
+	}
 
 	if f.rm != nil {
 		if err := f.rm.RotateLogKey(); err != nil {
@@ -1047,8 +1053,6 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	if err := f.restore(rc); err != nil {
 		return err
 	}
-	// Re-build registry after restoration
-	f.r.Rebuild()
 	// Restore Metrics
 	if f.storage != nil {
 		var m MetricsStore
@@ -1069,6 +1073,9 @@ func (f *FSM) FlushAll() error {
 		return err
 	}
 	if err := f.ts.FlushAll(); err != nil {
+		return err
+	}
+	if err := f.us.FlushAll(); err != nil {
 		return err
 	}
 	return nil

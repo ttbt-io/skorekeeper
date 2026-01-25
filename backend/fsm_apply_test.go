@@ -30,9 +30,10 @@ func TestFSMApply(t *testing.T) {
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tempDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
-	fsm := NewFSM(gs, ts, reg, hm, s)
+	fsm := NewFSM(gs, ts, reg, hm, s, us)
 
 	// 1. SaveGame
 	game := Game{ID: "game-fsm", SchemaVersion: SchemaVersionV3, OwnerID: "owner@example.com"}

@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -85,11 +86,19 @@ func startTestServerWithFlags(t *testing.T, flags []string) string {
 		// Unique temp dir for each node
 		dataDir := t.TempDir()
 
+		// Generate Master Key
+		mk, err := crypto.CreateMasterKey()
+		if err != nil {
+			t.Fatalf("Failed to create master key: %v", err)
+		}
+		t.Cleanup(mk.Wipe)
+
 		// Independent Stores for each node
-		s := storage.New(dataDir, nil)
+		s := storage.New(dataDir, mk)
 		gStore := backend.NewGameStore(dataDir, s)
 		tStore := backend.NewTeamStore(dataDir, s)
-		reg := backend.NewRegistry(gStore, tStore)
+		uStore := backend.NewUserIndexStore(dataDir, s, mk)
+		reg := backend.NewRegistry(gStore, tStore, uStore, true)
 
 		// Listen on a random free port on all interfaces (IPv4 forced)
 		l, err := net.Listen("tcp", "0.0.0.0:0")
@@ -128,6 +137,9 @@ func startTestServerWithFlags(t *testing.T, flags []string) string {
 			Debug:            true,
 			GameStore:        gStore,
 			TeamStore:        tStore,
+			UserIndexStore:   uStore,
+			Storage:          s,
+			MasterKey:        mk,
 			Registry:         reg,
 			RaftEnabled:      true,
 			RaftBind:         raftBind,

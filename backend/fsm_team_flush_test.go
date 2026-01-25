@@ -19,10 +19,11 @@ func TestFSM_SaveTeam_DelayedPersistence(t *testing.T) {
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
-	r := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tmpDir, st, nil)
+	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st)
+	fsm := NewFSM(gs, ts, r, hm, st, us)
 	fsm.rm = &RaftManager{} // Mock Raft mode
 
 	teamId := "test-team-fsm"

@@ -146,8 +146,9 @@ func TestFSMMetricsPersistence(t *testing.T) {
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, NewHubManager(), s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 
 	// Apply Metrics Update
 	payload := &MetricsPayload{
@@ -219,8 +220,9 @@ func TestFSM_ApplyBatch_Metrics(t *testing.T) {
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, NewHubManager(), s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 
 	// Construct CmdMetricsUpdate
 	payload := &MetricsPayload{
@@ -303,7 +305,8 @@ func TestLeaderGap_Restart(t *testing.T) {
 		s := storage.New(dataDir, nil)
 		gStore := NewGameStore(dataDir, s)
 		tStore := NewTeamStore(dataDir, s)
-		reg := NewRegistry(gStore, tStore)
+		us := NewUserIndexStore(dataDir, s, nil)
+		reg := NewRegistry(gStore, tStore, us, true)
 		rmChan := make(chan *RaftManager, 1)
 
 		opts := Options{
@@ -340,7 +343,7 @@ func TestLeaderGap_Restart(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		_, handler := NewServerHandler(opts)
+		_, _, handler := NewServerHandler(opts)
 		ts := httptest.NewServer(handler)
 
 		var rm *RaftManager
@@ -445,8 +448,9 @@ func TestLeaderGap_SelfClobber(t *testing.T) {
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, NewHubManager(), s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 
 	now := time.Now()
 	oldTs := now.Add(-60 * time.Second).Unix()

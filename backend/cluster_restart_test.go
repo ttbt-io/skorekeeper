@@ -195,7 +195,8 @@ func startCluster(t *testing.T, count int, dataDirs []string, raftPorts, cluster
 		s := storage.New(dataDirs[i], nil)
 		gStore := NewGameStore(dataDirs[i], s)
 		tStore := NewTeamStore(dataDirs[i], s)
-		reg := NewRegistry(gStore, tStore)
+		us := NewUserIndexStore(dataDirs[i], s, nil)
+		reg := NewRegistry(gStore, tStore, us, true)
 
 		rmChan := make(chan *RaftManager, 1)
 
@@ -216,7 +217,7 @@ func startCluster(t *testing.T, count int, dataDirs []string, raftPorts, cluster
 			UseMockAuth:      true,
 		}
 
-		_, handler := NewServerHandler(opts)
+		_, _, handler := NewServerHandler(opts)
 		server := httptest.NewServer(handler)
 		servers[i] = server
 

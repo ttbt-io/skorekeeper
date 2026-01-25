@@ -41,8 +41,9 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	s1 := storage.New(dir1, nil)
 	gs1 := NewGameStore(dir1, s1)
 	ts1 := NewTeamStore(dir1, s1)
-	reg1 := NewRegistry(gs1, ts1)
-	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), s1)
+	us1 := NewUserIndexStore(dir1, s1, nil)
+	reg1 := NewRegistry(gs1, ts1, us1, true)
+	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), s1, us1)
 
 	rm1 := NewRaftManager(dir1, leaderRaft, leaderRaft, leaderCluster, leaderCluster, "secret", nil, fsm1)
 	if err := rm1.Start(true); err != nil {
@@ -67,8 +68,9 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	s2 := storage.New(dir2, nil)
 	gs2 := NewGameStore(dir2, s2)
 	ts2 := NewTeamStore(dir2, s2)
-	reg2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), s2)
+	us2 := NewUserIndexStore(dir2, s2, nil)
+	reg2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), s2, us2)
 
 	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerCluster, followerCluster, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {

@@ -43,7 +43,8 @@ func TestClusterAPI(t *testing.T) {
 	s := storage.New(dir, nil)
 	gs := NewGameStore(dir, s)
 	ts := NewTeamStore(dir, s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(dir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	rmChan := make(chan *RaftManager, 1)
 
 	opts := Options{
@@ -62,7 +63,7 @@ func TestClusterAPI(t *testing.T) {
 		RaftManagerChan:  rmChan,
 	}
 
-	_, handler := NewServerHandler(opts)
+	_, _, handler := NewServerHandler(opts)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

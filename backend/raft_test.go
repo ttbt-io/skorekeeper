@@ -41,7 +41,8 @@ func TestRaftSingleNode(t *testing.T) {
 	s := storage.New(dataDir, nil)
 	gStore := NewGameStore(dataDir, s)
 	tStore := NewTeamStore(dataDir, s)
-	reg := NewRegistry(gStore, tStore)
+	us := NewUserIndexStore(dataDir, s, nil)
+	reg := NewRegistry(gStore, tStore, us, true)
 
 	// Channel to capture RaftManager
 	rmChan := make(chan *RaftManager, 1)
@@ -63,7 +64,7 @@ func TestRaftSingleNode(t *testing.T) {
 		UseMockAuth:      true,
 	}
 
-	_, handler := NewServerHandler(opts)
+	_, _, handler := NewServerHandler(opts)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -140,9 +141,10 @@ func TestRaftGetters(t *testing.T) {
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tempDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
-	fsm := NewFSM(gs, ts, reg, hm, s)
+	fsm := NewFSM(gs, ts, reg, hm, s, us)
 
 	if fsm.GetHubManager() != hm {
 		t.Error("GetHubManager mismatch")

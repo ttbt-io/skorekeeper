@@ -16,13 +16,18 @@ package backend
 
 import (
 	"testing"
+
+	"github.com/c2FmZQ/storage"
 )
 
 func TestAccessControl(t *testing.T) {
 	// Setup Mocks
-	gs := NewGameStore(t.TempDir(), nil)
-	ts := NewTeamStore(t.TempDir(), nil)
-	reg := NewRegistry(gs, ts)
+	tmpDir := t.TempDir()
+	s := storage.New(tmpDir, nil)
+	gs := NewGameStore(tmpDir, s)
+	ts := NewTeamStore(tmpDir, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	ac := NewAccessControl(reg, "bootstrap@admin.com")
 
 	// Test 1: No Policy (Default Allow)
@@ -111,9 +116,12 @@ func TestAccessControl(t *testing.T) {
 }
 
 func TestGetUserQuotas(t *testing.T) {
-	gs := NewGameStore(t.TempDir(), nil)
-	ts := NewTeamStore(t.TempDir(), nil)
-	reg := NewRegistry(gs, ts)
+	tmpDir := t.TempDir()
+	s := storage.New(tmpDir, nil)
+	gs := NewGameStore(tmpDir, s)
+	ts := NewTeamStore(tmpDir, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	ac := NewAccessControl(reg, "admin@test.com")
 
 	policy := &UserAccessPolicy{
@@ -139,9 +147,12 @@ func TestGetUserQuotas(t *testing.T) {
 }
 
 func TestCheckTeamQuota(t *testing.T) {
-	gs := NewGameStore(t.TempDir(), nil)
-	ts := NewTeamStore(t.TempDir(), nil)
-	reg := NewRegistry(gs, ts)
+	tmpDir := t.TempDir()
+	s := storage.New(tmpDir, nil)
+	gs := NewGameStore(tmpDir, s)
+	ts := NewTeamStore(tmpDir, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	ac := NewAccessControl(reg, "admin@test.com")
 
 	policy := &UserAccessPolicy{

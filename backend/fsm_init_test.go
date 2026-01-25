@@ -29,9 +29,10 @@ func TestFSMInitialization(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "fsm_init_test")
 	defer os.RemoveAll(tempDir)
 	s := storage.New(tempDir, nil)
+	us := NewUserIndexStore(tempDir, s, nil)
 
 	// Create FSM
-	fsm := NewFSM(nil, nil, nil, nil, s)
+	fsm := NewFSM(nil, nil, nil, nil, s, us)
 
 	// Create a mock RaftManager for the FSM to get the selfID
 
@@ -91,9 +92,10 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tempDir, s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 
-	fsm := NewFSM(gs, ts, reg, nil, s)
+	fsm := NewFSM(gs, ts, reg, nil, s, us)
 	fsm.initialized.Store(true)
 	fsm.nodeMap.Store("node-1", &NodeMeta{NodeID: "node-1"})
 
@@ -110,9 +112,10 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 	s2 := storage.New(tempDir2, nil)
 	gs2 := NewGameStore(tempDir2, s2)
 	ts2 := NewTeamStore(tempDir2, s2)
-	reg2 := NewRegistry(gs2, ts2)
+	us2 := NewUserIndexStore(tempDir2, s2, nil)
+	reg2 := NewRegistry(gs2, ts2, us2, true)
 
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2)
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
 	if err := fsm2.Restore(&mockReadCloser{sink.Buffer}); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}

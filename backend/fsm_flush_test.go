@@ -20,10 +20,11 @@ func TestFSM_ApplyAction_DelayedPersistence(t *testing.T) {
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
-	r := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tmpDir, st, nil)
+	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st)
+	fsm := NewFSM(gs, ts, r, hm, st, us)
 	// Mock RaftManager presence to enable delayed writes
 	fsm.rm = &RaftManager{}
 
@@ -120,10 +121,11 @@ func TestFSM_Standalone_ImmediatePersistence(t *testing.T) {
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
-	r := NewRegistry(gs, ts)
+	us := NewUserIndexStore(tmpDir, st, nil)
+	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st)
+	fsm := NewFSM(gs, ts, r, hm, st, us)
 	fsm.rm = nil // Explicitly nil (Standalone mode)
 
 	gameId := "test-game-std"

@@ -32,7 +32,8 @@ func TestConflictResolution_PrefixMatch(t *testing.T) {
 	s := storage.New(t.TempDir(), nil)
 	gs := NewGameStore(t.TempDir(), s)
 	ts := NewTeamStore(t.TempDir(), s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(t.TempDir(), s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
 	// Create Game
@@ -87,7 +88,8 @@ func TestConflictResolution_PartialOverlap(t *testing.T) {
 	s := storage.New(t.TempDir(), nil)
 	gs := NewGameStore(t.TempDir(), s)
 	ts := NewTeamStore(t.TempDir(), s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(t.TempDir(), s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
 	gameID := makeUUID(998)
@@ -138,7 +140,8 @@ func TestConflictResolution_Divergence(t *testing.T) {
 	s := storage.New(t.TempDir(), nil)
 	gs := NewGameStore(t.TempDir(), s)
 	ts := NewTeamStore(t.TempDir(), s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(t.TempDir(), s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
 	gameID := makeUUID(997)
@@ -186,7 +189,8 @@ func TestConflictFix_StaleCache(t *testing.T) {
 	s := storage.New(t.TempDir(), nil)
 	gs := NewGameStore(t.TempDir(), s)
 	ts := NewTeamStore(t.TempDir(), s)
-	reg := NewRegistry(gs, ts)
+	us := NewUserIndexStore(t.TempDir(), s, nil)
+	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
 	gameID := makeUUID(888)

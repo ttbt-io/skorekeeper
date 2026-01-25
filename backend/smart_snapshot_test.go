@@ -14,14 +14,13 @@ import (
 
 func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	// Setup FSM
-	tmpDir, _ := os.MkdirTemp("", "smart_snap_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, nil, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 
 	// verify initial index
 	if fsm.LastAppliedIndex() != 0 {
@@ -97,14 +96,13 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 
 func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// 1. Setup Local State (High Index)
-	tmpDir, _ := os.MkdirTemp("", "smart_snap_skip_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, nil, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 
 	// Set initialized
 	fsm.setInitialized()
@@ -130,8 +128,9 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	s2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
-	r2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, s2)
+	us2 := NewUserIndexStore(tmpDir2, s2, nil)
+	r2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
 
 	// Set Index 100 on FSM2
 	fsm2.lastAppliedIndex.Store(100)
@@ -180,8 +179,9 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	s := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
-	r := NewRegistry(gs, ts)
-	fsm := NewFSM(gs, ts, r, nil, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
+	r := NewRegistry(gs, ts, us, true)
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 
 	// Create Games
 	numGames := 10
@@ -209,8 +209,9 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	s2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
-	r2 := NewRegistry(gs2, ts2)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, s2)
+	us2 := NewUserIndexStore(tmpDir2, s2, nil)
+	r2 := NewRegistry(gs2, ts2, us2, true)
+	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
 
 	// Restore
 	if err := fsm2.Restore(io.NopCloser(&buf)); err != nil {
