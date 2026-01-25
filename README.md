@@ -2,6 +2,8 @@
 
 A high-fidelity Progressive Web Application (PWA) designed for keeping score in Baseball and Softball games. This application replicates the experience of a traditional paper scoresheet while providing the power of digital tracking, including automatic statistics, real-time synchronization, and complete offline capability.
 
+![screenshot](https://skorekeeper.org/assets/website-hero-scorecard.png)
+
 ## Key Features
 
 *   **Digital Scoresheet:** A responsive grid layout that mimics a traditional paper scorebook, optimized for mobile and tablet devices.
