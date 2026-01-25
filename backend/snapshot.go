@@ -272,24 +272,32 @@ func (f *FSM) restore(rc io.Reader) error {
 		} else if strings.HasPrefix(header.Name, "users/") {
 			// Restore User Index directly
 			var idx UserIndex
-			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
-				f.us.RestoreUserIndex(&idx)
+			if err := json.NewDecoder(tr).Decode(&idx); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal user index %s: %v", header.Name, err)
+				continue
 			}
+			f.us.RestoreUserIndex(&idx)
 		} else if strings.HasPrefix(header.Name, "team_games/") {
 			var idx TeamGamesIndex
-			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
-				f.us.RestoreTeamGames(&idx)
+			if err := json.NewDecoder(tr).Decode(&idx); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal team_games index %s: %v", header.Name, err)
+				continue
 			}
+			f.us.RestoreTeamGames(&idx)
 		} else if strings.HasPrefix(header.Name, "game_users/") {
 			var idx GameUsersIndex
-			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
-				f.us.RestoreGameUsers(&idx)
+			if err := json.NewDecoder(tr).Decode(&idx); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal game_users index %s: %v", header.Name, err)
+				continue
 			}
+			f.us.RestoreGameUsers(&idx)
 		} else if strings.HasPrefix(header.Name, "team_users/") {
 			var idx TeamUsersIndex
-			if err := json.NewDecoder(tr).Decode(&idx); err == nil {
-				f.us.RestoreTeamUsers(&idx)
+			if err := json.NewDecoder(tr).Decode(&idx); err != nil {
+				log.Printf("Restore Warning: failed to unmarshal team_users index %s: %v", header.Name, err)
+				continue
 			}
+			f.us.RestoreTeamUsers(&idx)
 		}
 	}
 

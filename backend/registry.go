@@ -120,8 +120,12 @@ func (r *Registry) PurgeOldTombstones() {
 
 	// 1. GC Teams
 	for t, err := range r.teamStore.ListAllTeamMetadata() {
-		if err == nil && t.Status == "deleted" && t.DeletedAt > 0 && t.DeletedAt < cutoff {
-			if err := r.teamStore.PurgeTeam(t.ID); err == nil {
+		if err != nil {
+			log.Printf("Registry GC: error listing teams: %v", err)
+			break
+		}
+		if t.Status == "deleted" && t.DeletedAt > 0 && t.DeletedAt < cutoff {
+			if purgeErr := r.teamStore.PurgeTeam(t.ID); purgeErr == nil {
 				purgedTeams++
 			}
 		}
@@ -129,8 +133,12 @@ func (r *Registry) PurgeOldTombstones() {
 
 	// 2. GC Games
 	for g, err := range r.gameStore.ListAllGameMetadata() {
-		if err == nil && g.Status == "deleted" && g.DeletedAt > 0 && g.DeletedAt < cutoff {
-			if err := r.gameStore.PurgeGame(g.ID); err == nil {
+		if err != nil {
+			log.Printf("Registry GC: error listing games: %v", err)
+			break
+		}
+		if g.Status == "deleted" && g.DeletedAt > 0 && g.DeletedAt < cutoff {
+			if purgeErr := r.gameStore.PurgeGame(g.ID); purgeErr == nil {
 				purgedGames++
 			}
 		}

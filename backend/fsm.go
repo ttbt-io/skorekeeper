@@ -1053,8 +1053,6 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	if err := f.restore(rc); err != nil {
 		return err
 	}
-	// Re-build registry after restoration
-	f.r.Rebuild()
 	// Restore Metrics
 	if f.storage != nil {
 		var m MetricsStore
