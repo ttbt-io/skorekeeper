@@ -119,7 +119,7 @@ func TestGlobalStatsAggregation(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Record 1B for Batter 1 with Location",
-		chromedp.Click("#scoresheet-grid > div:nth-child(12)"), // Row 0, Col 1
+		chromedp.Click("#scoresheet-grid > div:nth-child(14)"), // Row 0, Col 1
 		chromedp.WaitVisible("#cso-modal"),
 		chromedp.Click("#btn-show-bip"),
 		chromedp.WaitVisible("#cso-bip-view"),
@@ -144,7 +144,7 @@ func TestGlobalStatsAggregation(t *testing.T) {
 	)
 
 	runStep(t, ctx, "Record K for Batter 2",
-		chromedp.Click("#scoresheet-grid > div:nth-child(22)"), // Row 1, Col 1
+		chromedp.Click("#scoresheet-grid > div:nth-child(26)"), // Row 1, Col 1
 		chromedp.WaitVisible("#cso-modal"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			for i := 0; i < 3; i++ {

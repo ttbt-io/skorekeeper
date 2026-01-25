@@ -56,7 +56,7 @@ describe('Game Reducer', () => {
 
         expect(newState.id).toBe('game-123');
         expect(newState.away).toBe('Team A');
-        expect(newState.columns.length).toBe(5);
+        expect(newState.columns.length).toBe(7);
         expect(newState.roster.away[0].starter.id).toBe('away-id-0');
         expect(newState.roster.home[8].starter.id).toBe('home-id-8');
     });

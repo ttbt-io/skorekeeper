@@ -102,7 +102,7 @@ func TestPublicSharing(t *testing.T) {
 			return nil
 		}),
 		// Try clicking a cell (should be ignored by UI, but we can verify CSO doesn't appear)
-		chromedp.Click(`#scoresheet-grid > .grid-cell:nth-child(12)`),
+		chromedp.Click(`#scoresheet-grid > .grid-cell:nth-child(14)`),
 		chromedp.Sleep(500*time.Millisecond),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var display string
