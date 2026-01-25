@@ -336,6 +336,8 @@ func (f *FSM) restore(rc io.Reader) error {
 				f.gs.DeleteGame(id)
 			}
 		}
+	} else {
+		log.Printf("Restore Cleanup Warning: failed to list games for zombie cleanup: %v", err)
 	}
 	teamIDs, err := f.ts.ListAllTeamIDs()
 	if err == nil {
@@ -344,6 +346,8 @@ func (f *FSM) restore(rc io.Reader) error {
 				f.ts.DeleteTeam(id)
 			}
 		}
+	} else {
+		log.Printf("Restore Cleanup Warning: failed to list teams for zombie cleanup: %v", err)
 	}
 
 	// Re-initialize the registry to use the restored on-disk indices
