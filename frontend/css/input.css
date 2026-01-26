@@ -40,7 +40,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helve
 .sb-stats { display: flex; background-color: #1f2937; flex-shrink: 0; }
 .sb-stat { width: 35px; text-align: center; border-left: 1px solid #4b5563; font-weight: bold; box-sizing: border-box; }
 .team-switcher { display: flex; padding: 8px; background-color: #1f2937; gap: 8px; }
-.team-tab { flex: 1; padding: 6px; text-align: center; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+.team-tab { flex: 1; padding: 6px; text-align: center; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.85rem; user-select: none; }
 .team-tab.active { background-color: #2563eb; color: white; }
 .team-tab.inactive { background-color: #374151; color: #9ca3af; }
 
