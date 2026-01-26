@@ -3342,8 +3342,9 @@ export class AppController {
             // Update the CSO title to show the NEW player
             const titleEl = document.getElementById('cso-title');
             if (titleEl) {
-                const newPlayer = allPlayers.find(p => p.id === newId);
-                if (newPlayer) {
+                // Fetch directly from the updated roster to ensure we get the correct (potentially new) player
+                if (this.state.activeGame?.roster?.[team]?.[idx]) {
+                    const newPlayer = this.state.activeGame.roster[team][idx].current;
                     titleEl.textContent = `${newPlayer.name} (#${newPlayer.number})`;
                 }
             }
@@ -4540,27 +4541,18 @@ export class AppController {
                 // It's a substitution. Undo it specifically.
                 await this.dispatch({ type: ActionTypes.UNDO, payload: { refId: lastItem.refId } });
 
-                // Remove the marker from the sequence
-                this.state.activeData.pitchSequence.pop();
+                // After undo, the game state is reverted (including roster). Sync the local CSO data.
+                // This relies on the reducer having correctly reverted the state.
+                this.syncActiveData();
+                this.renderCSO();
 
-                // Re-sync activeData from the game state (which has reverted the roster change)
-                // We need to restore the pId to the previous player.
-                // The reducer UNDO logic should have restored the roster.
-                // We just need to ensure activeData.pId matches the roster again.
+                // Also update the CSO title to show the restored player
                 const team = this.state.activeTeam;
                 const b = this.state.activeCtx.b;
-                if (this.state.activeGame?.roster?.[team]?.[b]) {
+                const titleEl = document.getElementById('cso-title');
+                if (titleEl && this.state.activeGame?.roster?.[team]?.[b]) {
                     const restoredPlayer = this.state.activeGame.roster[team][b].current;
-                    this.state.activeData.pId = restoredPlayer.id;
-
-                    await this.saveActiveData();
-                    this.renderCSO();
-
-                    // Also update the CSO title to show the restored player
-                    const titleEl = document.getElementById('cso-title');
-                    if (titleEl) {
-                        titleEl.textContent = `${restoredPlayer.name} (#${restoredPlayer.number})`;
-                    }
+                    titleEl.textContent = `${restoredPlayer.name} (#${restoredPlayer.number})`;
                 }
 
                 return;
