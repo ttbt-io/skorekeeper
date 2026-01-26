@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { ActionTypes } from '../reducer.js';
-import { createElement } from '../utils.js';
+import { createElement, generateUUID } from '../utils.js';
 
 /**
  * Manages player substitutions and player-related context menus.
@@ -93,16 +93,21 @@ export class SubstitutionManager {
         });
     }
 
-    async handleSubstitution(team, rosterIndex, subParams) {
+    async handleSubstitution(team, rosterIndex, subParams, activeCtx = null) {
+        const id = generateUUID();
         const action = {
+            id,
             type: ActionTypes.SUBSTITUTION,
             payload: {
                 team,
                 rosterIndex,
                 subParams,
+                activeCtx,
+                actionId: id,
             },
         };
 
         await this.dispatch(action);
+        return action;
     }
 }

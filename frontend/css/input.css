@@ -121,6 +121,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helve
 .pitch-strike { background-color: #dc2626; }
 .pitch-foul { background-color: #4b5563; }
 .pitch-out { background-color: #ca8a04; }
+.pitch-substitution { background-color: #7e22ce; width: auto; padding: 0 4px; border-radius: 4px; }
 .cycle-btn { background-color: #1f2937; color: white; font-weight: bold; border-radius: 0.5rem; padding: 1rem; border: 2px solid #4b5563; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
 .sub-opt-btn { padding: 0.75rem; border-radius: 0.5rem; background-color: #374151; color: white; text-align: left; border: 1px solid #4b5563; margin-bottom: 0.5rem; }
 .runner-menu-side { position: absolute; top: 0; left: 100%; margin-left: 10px; width: 140px; background: #1f2937; border: 1px solid #facc15; padding: 5px; z-index: 40; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }

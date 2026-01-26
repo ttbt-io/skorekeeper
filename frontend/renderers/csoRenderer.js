@@ -217,12 +217,17 @@ export class CSORenderer {
             pitchSequenceContainer.innerHTML = '';
             (activeData.pitchSequence || []).forEach((p) => {
                 const pitchBadge = document.createElement('div');
-                pitchBadge.className = `pitch-badge pitch-${p.type}`;
-                let label = p.code || (p.type ? p.type[0].toUpperCase() : '?');
-                if (p.type === 'strike') {
-                    label = p.code === PitchCodeCalled ? 'ꓘ' : 'K';
+                if (p.type === 'substitution') {
+                    pitchBadge.className = 'pitch-badge pitch-substitution';
+                    pitchBadge.textContent = 'SUB';
+                } else {
+                    pitchBadge.className = `pitch-badge pitch-${p.type}`;
+                    let label = p.code || (p.type ? p.type[0].toUpperCase() : '?');
+                    if (p.type === 'strike') {
+                        label = p.code === PitchCodeCalled ? 'ꓘ' : 'K';
+                    }
+                    pitchBadge.textContent = label;
                 }
-                pitchBadge.textContent = label;
                 pitchSequenceContainer.appendChild(pitchBadge);
             });
         }

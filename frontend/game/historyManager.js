@@ -380,6 +380,11 @@ export class HistoryManager {
                 }
                 u.resolvedName = name || 'Runner';
             });
+        } else if (action.type === ActionTypes.SUBSTITUTION) {
+            const { team: subTeam, rosterIndex } = payload;
+            if (state.roster[subTeam] && state.roster[subTeam][rosterIndex]) {
+                payload.outgoingName = state.roster[subTeam][rosterIndex].current?.name || 'Unknown';
+            }
         }
     }
 

@@ -583,6 +583,9 @@ describe('AppController', () => {
         document.getElementById('sub-incoming-name').value = 'Sub Player';
         document.getElementById('sub-incoming-pos').value = 'SS';
 
+        // Ensure isLiveCSO is false by setting activeCtx to a different slot
+        app.state.activeCtx = { b: 1, i: 1, col: 'col-1-0' };
+
         jest.spyOn(app, 'saveState').mockResolvedValue(true);
         jest.spyOn(app, 'renderGrid').mockImplementation(() => {
         });
