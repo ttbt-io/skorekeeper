@@ -1030,6 +1030,7 @@ func (rm *RaftManager) forwardRequestToLeader(w http.ResponseWriter, r *http.Req
 	for k, v := range r.Header {
 		req.Header[k] = v
 	}
+	req.Host = r.Host
 
 	// Update X-Raft-Forwarded
 	forwarded := req.Header.Get("X-Raft-Forwarded")
