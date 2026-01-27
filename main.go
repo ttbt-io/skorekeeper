@@ -45,7 +45,7 @@ var (
 	tlsCert          = flag.String("tls-cert", "", "Path to main HTTP TLS certificate")
 	tlsKey           = flag.String("tls-key", "", "Path to main HTTP TLS key")
 	authCookieName   = flag.String("auth-cookie-name", "skorekeeper_auth", "Name of the cookie containing the JWT")
-	authJWKSURL      = flag.String("auth-jwks-url", "", "URL to the JWKS endpoint")
+	authJWKSURL      = flag.String("auth-jwks-url", "", "Comma-separated list of [ISSUER=]URL for JWKS endpoints")
 	bootstrapAdmin   = flag.String("admin", "", "Email of temporary admin user for bootstrapping access policy")
 	minifyMode       = flag.Bool("minify", false, "Serve minified frontend assets from dist/")
 	forceRebuild     = flag.Bool("force-rebuild", false, "Force rebuild of Registry indices on startup")
