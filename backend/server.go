@@ -549,6 +549,7 @@ func NewServerHandler(opts Options) (*RaftManager, *Registry, http.Handler) {
 			Type:    ReqTypeHTTPAction,
 			UserId:  userId,
 			Headers: r.Header,
+			Host:    r.Host,
 			Message: msg,
 			Reply:   reply,
 		}:

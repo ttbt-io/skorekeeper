@@ -99,6 +99,7 @@ type HubRequest struct {
 	Client        *wsClient        // For WS requests
 	UserId        string           // For HTTP requests
 	Headers       http.Header      // For forwarding cookies/auth
+	Host          string           // Original Host header for JWT audience validation
 	Message       Message          // For WS/HTTP requests
 	Payload       []byte           // For HTTP Save/Broadcast
 	SkipBroadcast bool             // For Broadcast (overwrites)
@@ -571,6 +572,7 @@ func (h *Hub) forwardToLeader(req HubRequest) {
 			forwardReq.Header.Set(h, v)
 		}
 	}
+	forwardReq.Host = req.Host
 
 	// Update X-Raft-Forwarded
 	forwarded := forwardReq.Header.Get("X-Raft-Forwarded")

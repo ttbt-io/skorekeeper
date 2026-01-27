@@ -478,6 +478,14 @@ export class SyncManager {
             };
         }
 
+        // Check for max retries
+        if (this.httpRetryCount > 5) {
+            console.error('[SyncManager] Max HTTP retries exceeded. Stopping sync.');
+            this.disconnect(true);
+            this.handleFetchError(new Error('Max retries exceeded'));
+            return;
+        }
+
         try {
             const response = await fetch('/api/action', {
                 method: 'POST',
