@@ -483,12 +483,19 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 					log.Printf("Failed to list games for ingestion: %v", err)
 					break
 				}
+				// Reset LastRaftIndex on disk so the FSM accepts the new log entry
+				g.LastRaftIndex = 0
+				if err := gs.SaveGame(g); err != nil {
+					log.Printf("Failed to reset index for game %s: %v", g.ID, err)
+				}
+
 				data, _ := json.Marshal(g)
 				raw := json.RawMessage(data)
 				cmd := RaftCommand{
 					Type:     CmdSaveGame,
 					ID:       g.ID,
 					GameData: &raw,
+					Force:    true,
 				}
 				if _, err := rm.Propose(cmd); err != nil {
 					log.Printf("Failed to ingest game %s: %v", g.ID, err)
@@ -500,12 +507,19 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 					log.Printf("Failed to list teams for ingestion: %v", err)
 					break
 				}
+				// Reset LastRaftIndex on disk so the FSM accepts the new log entry
+				t.LastRaftIndex = 0
+				if err := ts.SaveTeam(t); err != nil {
+					log.Printf("Failed to reset index for team %s: %v", t.ID, err)
+				}
+
 				data, _ := json.Marshal(t)
 				raw := json.RawMessage(data)
 				cmd := RaftCommand{
 					Type:     CmdSaveTeam,
 					ID:       t.ID,
 					TeamData: &raw,
+					Force:    true,
 				}
 				if _, err := rm.Propose(cmd); err != nil {
 					log.Printf("Failed to ingest team %s: %v", t.ID, err)
