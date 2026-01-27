@@ -203,6 +203,12 @@ export function gameReducer(state, action) {
     if (!newState.actionLog) {
         newState.actionLog = [];
     }
+    if (!newState.events) {
+        newState.events = {};
+    }
+    if (!newState.columns) {
+        newState.columns = [];
+    }
 
     switch (action.type) {
         case ActionTypes.GAME_IMPORT:
@@ -464,7 +470,7 @@ function applyLineupUpdate(state, payload) {
 }
 
 function applySubstitution(state, payload) {
-    const { team, rosterIndex, subParams } = payload;
+    const { team, rosterIndex, subParams, activeCtx } = payload;
     // console.log('DEBUG: applySubstitution', team, rosterIndex, subParams.name);
     // Structural sharing for Roster
     state.roster = { ...state.roster };
@@ -488,6 +494,35 @@ function applySubstitution(state, payload) {
     };
 
     state.roster[team][rosterIndex] = slot;
+
+    // If an activeCtx is provided, also update the corresponding event's pId
+    if (activeCtx) {
+        const key = `${team}-${rosterIndex}-${activeCtx.col}`;
+        if (!state.events[key]) {
+            state.events[key] = {
+                outcome: '',
+                balls: 0,
+                strikes: 0,
+                outNum: 0,
+                paths: [0, 0, 0, 0],
+                pathInfo: ['', '', '', ''],
+                pitchSequence: [],
+                pId: subParams.id,
+            };
+        }
+        state.events[key] = {
+            ...state.events[key],
+            pId: subParams.id,
+            pitchSequence: [
+                ...(state.events[key].pitchSequence || []),
+                {
+                    type: 'substitution',
+                    code: 'SUB',
+                    refId: payload.actionId,
+                },
+            ],
+        };
+    }
 
     return state;
 }

@@ -86,8 +86,10 @@ export class HistoryManager {
                 return;
             }
 
+            // Fix: Resolve activeTeam from either property to support Substitution actions which use 'team'
+            const activeTeam = payload.activeTeam || payload.team;
             let ctxKey = payload.activeCtx
-                ? `${payload.activeCtx.i}-${payload.activeTeam}-${payload.activeCtx.b}-${payload.activeCtx.col}`
+                ? `${payload.activeCtx.i}-${activeTeam}-${payload.activeCtx.b}-${payload.activeCtx.col}`
                 : currentCtxKey;
 
             if (!ctxKey) {
@@ -380,6 +382,11 @@ export class HistoryManager {
                 }
                 u.resolvedName = name || 'Runner';
             });
+        } else if (action.type === ActionTypes.SUBSTITUTION) {
+            const { team: subTeam, rosterIndex } = payload;
+            if (state.roster[subTeam] && state.roster[subTeam][rosterIndex]) {
+                payload.outgoingName = state.roster[subTeam][rosterIndex].current?.name || 'Unknown';
+            }
         }
     }
 

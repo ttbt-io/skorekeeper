@@ -616,8 +616,12 @@ export class NarrativeEngine {
                         break;
                     }
                     case 'SUBSTITUTION': {
-                        const { subParams } = payload;
-                        paBlock.events.push({ type: 'SUB', description: `🔄 Substitution: -> ${subParams.name}` });
+                        const { subParams, outgoingName } = payload;
+                        let desc = `🔄 Substitution: ${subParams.name}`;
+                        if (outgoingName) {
+                            desc += ` replaces ${outgoingName}`;
+                        }
+                        paBlock.events.push({ type: 'SUB', description: desc });
                         break;
                     }
                 }

@@ -3322,9 +3322,33 @@ export class AppController {
         const existing = allPlayers.find(p => p.number == newU && p.name == newN);
         const newId = existing && existing.id ? existing.id : generateUUID();
 
+        // Determine if this substitution matches the currently active CSO context
+        const isLiveCSO = this.state.activeData &&
+            this.state.activeTeam === team &&
+            this.state.activeCtx &&
+            this.state.activeCtx.b === idx;
+
         await this.substitutionManager.handleSubstitution(team, idx, {
             name: newN, number: newU, pos: newP, id: newId,
-        });
+        }, isLiveCSO ? this.state.activeCtx : null);
+
+        // If we are currently editing this slot (CSO is open for this batter),
+        // update the activeData to reflect the substitution inline.
+        if (isLiveCSO) {
+            // Sync local state from the authoritative activeGame (updated by reducer)
+            this.syncActiveData();
+            this.renderCSO();
+
+            // Update the CSO title to show the NEW player
+            const titleEl = document.getElementById('cso-title');
+            if (titleEl) {
+                // Fetch directly from the updated roster to ensure we get the correct (potentially new) player
+                if (this.state.activeGame?.roster?.[team]?.[idx]) {
+                    const newPlayer = this.state.activeGame.roster[team][idx].current;
+                    titleEl.textContent = `${newPlayer.name} (#${newPlayer.number})`;
+                }
+            }
+        }
 
         this.renderGrid();
         this.closeSubstitutionModal();
@@ -3537,6 +3561,14 @@ export class AppController {
         const titleEl = document.getElementById('cso-title');
         if (titleEl) {
             titleEl.textContent = `${player.name} (#${player.number})`;
+            titleEl.style.cursor = 'pointer';
+            titleEl.onclick = (e) => {
+                e.stopPropagation();
+                // If it's the current batter, allow substitution
+                if (team === this.state.activeTeam && b === this.state.activeCtx.b) {
+                    this.openSubstitutionModal(team, b);
+                }
+            };
         }
         titleEl.oncontextmenu = (e) => {
             e.preventDefault();
@@ -4500,6 +4532,31 @@ export class AppController {
     async undoPitch() {
         if (!this.state.activeGame || !this.state.activeCtx) {
             return;
+        }
+
+        // Check if the last item in the pitch sequence is a substitution
+        if (this.state.activeData && this.state.activeData.pitchSequence && this.state.activeData.pitchSequence.length > 0) {
+            const lastItem = this.state.activeData.pitchSequence[this.state.activeData.pitchSequence.length - 1];
+            if (lastItem.type === 'substitution' && lastItem.refId) {
+                // It's a substitution. Undo it specifically.
+                await this.dispatch({ type: ActionTypes.UNDO, payload: { refId: lastItem.refId } });
+
+                // After undo, the game state is reverted (including roster). Sync the local CSO data.
+                // This relies on the reducer having correctly reverted the state.
+                this.syncActiveData();
+                this.renderCSO();
+
+                // Also update the CSO title to show the restored player
+                const team = this.state.activeTeam;
+                const b = this.state.activeCtx.b;
+                const titleEl = document.getElementById('cso-title');
+                if (titleEl && this.state.activeGame?.roster?.[team]?.[b]) {
+                    const restoredPlayer = this.state.activeGame.roster[team][b].current;
+                    titleEl.textContent = `${restoredPlayer.name} (#${restoredPlayer.number})`;
+                }
+
+                return;
+            }
         }
 
         const log = this.state.activeGame.actionLog;
