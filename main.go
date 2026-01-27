@@ -121,6 +121,7 @@ func main() {
 		UseMockAuth:           *useMockAuth,
 		Debug:                 *debugMode,
 		Storage:               store,
+		MasterKey:             masterKey,
 		RaftEnabled:           *raftEnabled,
 		RaftBind:              *raftBind,
 		RaftAdvertise:         *raftAdvertise,

@@ -1128,6 +1128,7 @@ func startServer() string {
 		UseMockAuth: true,
 		Debug:       false,
 		GameStore:   store,
+		MasterKey:   nil,
 	})
 	_, port, _ := net.SplitHostPort(l.Addr().String())
 	return fmt.Sprintf("https://devtest.local:%s", port)
