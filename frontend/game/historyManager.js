@@ -86,8 +86,10 @@ export class HistoryManager {
                 return;
             }
 
+            // Fix: Resolve activeTeam from either property to support Substitution actions which use 'team'
+            const activeTeam = payload.activeTeam || payload.team;
             let ctxKey = payload.activeCtx
-                ? `${payload.activeCtx.i}-${payload.activeTeam}-${payload.activeCtx.b}-${payload.activeCtx.col}`
+                ? `${payload.activeCtx.i}-${activeTeam}-${payload.activeCtx.b}-${payload.activeCtx.col}`
                 : currentCtxKey;
 
             if (!ctxKey) {
