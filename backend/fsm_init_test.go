@@ -17,7 +17,6 @@ package backend
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -26,8 +25,7 @@ import (
 )
 
 func TestFSMInitialization(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "fsm_init_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	us := NewUserIndexStore(tempDir, s, nil)
 
@@ -87,8 +85,7 @@ func TestFSMInitialization(t *testing.T) {
 }
 
 func TestFSMSnapshotInitialization(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "snapshot_init_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
@@ -107,8 +104,7 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 	}
 
 	// Restore
-	tempDir2, _ := os.MkdirTemp("", "snapshot_init_test_2")
-	defer os.RemoveAll(tempDir2)
+	tempDir2 := t.TempDir()
 	s2 := storage.New(tempDir2, nil)
 	gs2 := NewGameStore(tempDir2, s2)
 	ts2 := NewTeamStore(tempDir2, s2)

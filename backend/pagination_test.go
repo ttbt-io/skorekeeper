@@ -4,19 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 )
 
 func TestPaginationAndSorting(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "pagination_sort_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)

@@ -17,7 +17,6 @@ package backend
 import (
 	"encoding/base64"
 	"net"
-	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -33,10 +32,11 @@ func getFreePort() string {
 }
 
 func TestRaftTOFU(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "tofu_test")
-	defer os.RemoveAll(tempDir)
+
+	tempDir := t.TempDir()
 
 	dataDir1 := filepath.Join(tempDir, "node1", "data")
+
 	raftDir1 := filepath.Join(tempDir, "node1", "raft")
 	dataDir2 := filepath.Join(tempDir, "node2", "data")
 	raftDir2 := filepath.Join(tempDir, "node2", "raft")

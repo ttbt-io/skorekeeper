@@ -17,17 +17,15 @@ package backend
 import (
 	"bytes"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 )
 
 func TestFSMSnapshot(t *testing.T) {
-	dataDir, _ := os.MkdirTemp("", "snapshot_test")
-	defer os.RemoveAll(dataDir)
-
+	dataDir := t.TempDir()
 	s := storage.New(dataDir, nil)
+
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, nil)
@@ -51,10 +49,8 @@ func TestFSMSnapshot(t *testing.T) {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
-	// 3. Create new FSM and Restore
-	dataDir2, _ := os.MkdirTemp("", "snapshot_test_2")
-	defer os.RemoveAll(dataDir2)
-
+	// Restore to new dir
+	dataDir2 := t.TempDir()
 	s2 := storage.New(dataDir2, nil)
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)

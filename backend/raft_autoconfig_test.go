@@ -17,7 +17,6 @@ package backend
 import (
 	"encoding/base64"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -26,9 +25,8 @@ import (
 )
 
 func TestNonVoterRemainsNonVoter(t *testing.T) {
-	// 1. Leader Setup
-	dir1, _ := os.MkdirTemp("", "leader")
-	defer os.RemoveAll(dir1)
+	// 1. Setup Leader
+	dir1 := t.TempDir()
 
 	l1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := l1.Addr().String()
@@ -54,8 +52,7 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	waitForLeader(t, []*RaftManager{rm1})
 
 	// 2. Follower Setup
-	dir2, _ := os.MkdirTemp("", "follower")
-	defer os.RemoveAll(dir2)
+	dir2 := t.TempDir()
 
 	l3, _ := net.Listen("tcp", "127.0.0.1:0")
 	followerRaft := l3.Addr().String()

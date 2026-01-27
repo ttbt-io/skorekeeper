@@ -16,7 +16,6 @@ package backend
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -24,9 +23,7 @@ import (
 )
 
 func TestFSMApply(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "fsm_test")
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)

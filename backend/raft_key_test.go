@@ -24,11 +24,7 @@ import (
 )
 
 func TestNodeKeyEncryption(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "nodekey_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	passphrase := "test-passphrase"
 	keyFile := filepath.Join(tempDir, "master.key")
@@ -79,10 +75,10 @@ func TestNodeKeyEncryption(t *testing.T) {
 	}
 
 	// 3. Migration: Start unencrypted, then encrypt
-	tempDir2, _ := os.MkdirTemp("", "nodekey_mig_test")
-	defer os.RemoveAll(tempDir2)
+	tempDir2 := t.TempDir()
 
 	rm3 := &RaftManager{
+
 		DataDir: tempDir2,
 		NodeID:  "test-node",
 		FSM:     &FSM{}, // Mock FSM

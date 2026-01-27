@@ -9,13 +9,9 @@ import (
 )
 
 func TestTeamStore_Flush(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "teamstore_flush_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	ts := NewTeamStore(tmpDir, st)
 
 	teamId := "test-team-1"

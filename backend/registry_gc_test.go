@@ -24,12 +24,7 @@ import (
 )
 
 func TestRegistry_GC(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "registry_gc_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
@@ -104,12 +99,7 @@ func TestRegistry_GC(t *testing.T) {
 }
 
 func TestRegistry_Rebuild_WithGC(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "registry_rebuild_gc_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
@@ -131,7 +121,7 @@ func TestRegistry_Rebuild_WithGC(t *testing.T) {
 	defer r.StopGC()
 
 	// Verify expired is gone
-	_, err = os.Stat(filepath.Join(tempDir, "games", expiredGameID+".json"))
+	_, err := os.Stat(filepath.Join(tempDir, "games", expiredGameID+".json"))
 	if !os.IsNotExist(err) {
 		t.Errorf("Expired game should have been purged during Rebuild")
 	}

@@ -22,12 +22,7 @@ import (
 )
 
 func TestTeamStore(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "teamstore_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	store := NewTeamStore(tempDir, s)
 	teamId := "team-1111-2222-3333"

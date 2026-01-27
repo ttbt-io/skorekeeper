@@ -20,7 +20,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -29,8 +28,7 @@ import (
 
 func TestClusterAPI(t *testing.T) {
 	// Setup 1 Node Cluster
-	dir, _ := os.MkdirTemp("", "raft_api_test")
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	l1, _ := net.Listen("tcp", "127.0.0.1:0")
 	raftBind := l1.Addr().String()

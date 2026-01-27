@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -30,9 +29,7 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 		t.Skip("Skipping large dataset test in short mode")
 	}
 
-	dataDir, _ := os.MkdirTemp("", "snapshot_large_test")
-	defer os.RemoveAll(dataDir)
-
+	dataDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	s := storage.New(dataDir, mk)
 	gs := NewGameStore(dataDir, s)
@@ -70,11 +67,8 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
-	// Restore
-	t.Log("Restoring to new FSM...")
-	dataDir2, _ := os.MkdirTemp("", "snapshot_large_test_2")
-	defer os.RemoveAll(dataDir2)
-
+	// Restore to new dir
+	dataDir2 := t.TempDir()
 	s2 := storage.New(dataDir2, mk)
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)

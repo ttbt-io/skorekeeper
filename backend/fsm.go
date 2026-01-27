@@ -70,6 +70,7 @@ func NewFSM(gs *GameStore, ts *TeamStore, r *Registry, hm *HubManager, s *storag
 			f.initialized.Store(true)
 		}
 		f.loadNodes()
+		f.loadAccessPolicy()
 	}
 	return f
 }
@@ -161,6 +162,20 @@ func (f *FSM) loadNodes() {
 	for k, v := range nodes {
 		f.nodeMap.Store(k, v)
 	}
+}
+
+func (f *FSM) loadAccessPolicy() {
+	if f.storage == nil {
+		return
+	}
+	var policy UserAccessPolicy
+	if err := f.storage.ReadDataFile("sys_access_policy", &policy); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("FSM Error: failed to read sys_access_policy: %v", err)
+		}
+		return
+	}
+	f.r.UpdateAccessPolicy(&policy)
 }
 
 func (f *FSM) saveNodes() {

@@ -1,20 +1,15 @@
 package backend
 
 import (
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 )
 
 func TestGameStore_ListAllGames_IncludesDirty(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gamestore_list_dirty_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	gs := NewGameStore(tmpDir, st)
 
 	// 1. Create a game on DISK (Synchronous save)
@@ -77,13 +72,9 @@ func TestGameStore_ListAllGames_IncludesDirty(t *testing.T) {
 }
 
 func TestTeamStore_ListAllTeams_IncludesDirty(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "teamstore_list_dirty_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	ts := NewTeamStore(tmpDir, st)
 
 	// 1. Create a team on DISK

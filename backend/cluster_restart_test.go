@@ -40,11 +40,7 @@ func TestClusterRestart(t *testing.T) {
 
 	// Pre-allocate dirs and ports
 	for i := 0; i < nodeCount; i++ {
-		dir, err := os.MkdirTemp("", fmt.Sprintf("raft_node_%d", i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 		dataDirs[i] = dir
 
 		// Get free ports

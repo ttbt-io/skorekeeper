@@ -10,13 +10,9 @@ import (
 )
 
 func TestFSM_SaveTeam_DelayedPersistence(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "fsm_team_delayed_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
 	us := NewUserIndexStore(tmpDir, st, nil)

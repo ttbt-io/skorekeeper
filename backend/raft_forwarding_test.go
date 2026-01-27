@@ -21,7 +21,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 )
@@ -33,11 +32,7 @@ func TestRaftForwarding(t *testing.T) {
 	clusterPorts := make([]int, nodeCount)
 
 	for i := 0; i < nodeCount; i++ {
-		dir, err := os.MkdirTemp("", fmt.Sprintf("raft_fwd_%d", i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(dir)
+		dir := t.TempDir()
 		dataDirs[i] = dir
 
 		l1, _ := net.Listen("tcp", "127.0.0.1:0")
