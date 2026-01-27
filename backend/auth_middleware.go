@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 )
 
@@ -32,7 +33,7 @@ func jwtAuthMiddleware(opts Options, next http.Handler) http.Handler {
 	km := NewKeyManager(opts.AuthJWKSURL)
 	if opts.AuthJWKSURL != "" {
 		// Initial fetch
-		km.RefreshAll()
+		km.RefreshAll(context.Background())
 		// Start background refresh
 		go km.StartBackgroundRefresh(context.Background())
 	} else {
@@ -163,17 +164,22 @@ func NewKeyManager(config string) *KeyManager {
 }
 
 // RefreshAll fetches keys for all providers.
-func (km *KeyManager) RefreshAll() {
+func (km *KeyManager) RefreshAll(ctx context.Context) {
+	// Configure retryable HTTP client
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 10
+	retryClient.Logger = nil // Disable verbose logging
+	httpClient := retryClient.StandardClient()
+
 	// We assume km.Providers is immutable after initialization, so we can iterate without lock.
 	// If Providers list were dynamic, we'd need to RLock, copy slice, RUnlock, then iterate.
 	var wg sync.WaitGroup
 	for _, p := range km.Providers {
-		// Use wg.Go() (Go 1.25+) to handle Add/Done automatically
 		wg.Go(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
 
-			set, err := jwk.Fetch(ctx, p.URL)
+			set, err := jwk.Fetch(ctx, p.URL, jwk.WithHTTPClient(httpClient))
 			if err != nil {
 				log.Printf("Failed to fetch JWKS from %s: %v", p.URL, err)
 				return
@@ -198,7 +204,7 @@ func (km *KeyManager) StartBackgroundRefresh(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			km.RefreshAll()
+			km.RefreshAll(ctx)
 		}
 	}
 }
