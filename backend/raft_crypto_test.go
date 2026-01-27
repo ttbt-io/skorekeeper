@@ -15,7 +15,6 @@
 package backend
 
 import (
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage/crypto"
@@ -82,8 +81,7 @@ func (m *mockLogStore) DeleteRange(min, max uint64) error {
 }
 
 func TestLogKeyRotation(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "logkey_rotation_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 
@@ -162,9 +160,7 @@ func TestLogKeyRotation(t *testing.T) {
 }
 
 func TestEncryptedLogStoreExtra(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "log_extra")
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	rm := &RaftManager{MasterKey: mk, DataDir: tempDir}
 	rm.loadOrGenerateLogKey()
@@ -199,8 +195,7 @@ func TestEncryptedLogStoreExtra(t *testing.T) {
 }
 
 func TestLogKeyPersistence(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "logkey_persistence_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 

@@ -17,16 +17,14 @@ package backend
 import (
 	"bytes"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
 )
 
-func TestEncryptedSnapshotStore(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "snapshot_test")
-	defer os.RemoveAll(tempDir)
+func TestSnapshotStore(t *testing.T) {
+	tempDir := t.TempDir()
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	key, _ := mk.NewKey()

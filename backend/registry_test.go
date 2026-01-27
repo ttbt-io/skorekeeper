@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -9,9 +8,7 @@ import (
 )
 
 func TestRegistry_Permissions(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "registry_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	s := storage.New(tmpDir, mk)
 	gs := NewGameStore(tmpDir, s)
@@ -62,9 +59,7 @@ func TestRegistry_Permissions(t *testing.T) {
 }
 
 func TestRegistry_Rebuild(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "registry_rebuild_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	s := storage.New(tmpDir, mk)
 	gs := NewGameStore(tmpDir, s)
@@ -92,9 +87,7 @@ func TestRegistry_Rebuild(t *testing.T) {
 }
 
 func TestRegistry_TeamAccess(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "registry_team_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	s := storage.New(tmpDir, mk)
 	gs := NewGameStore(tmpDir, s)

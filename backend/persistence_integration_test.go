@@ -36,12 +36,7 @@ func (m *testMockSnapshotSink) Close() error {
 }
 
 func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "persistence_integration_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
@@ -98,8 +93,7 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 
 	// 4. Restore from Snapshot (Simulate Crash/Restart)
 	// Create NEW FSM
-	tmpDir2, _ := os.MkdirTemp("", "persistence_restore_test")
-	defer os.RemoveAll(tmpDir2)
+	tmpDir2 := t.TempDir()
 	st2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, st2)
 	ts2 := NewTeamStore(tmpDir2, st2)
@@ -142,9 +136,7 @@ func (n *nopReadCloser) Close() error { return nil }
 
 func TestPersistence_CrashRecovery_LogReplay(t *testing.T) {
 	// Simulate: Apply 1 (Flush), Apply 2 (Dirty/Memory), Crash, Replay 2.
-	tmpDir, _ := os.MkdirTemp("", "persistence_replay_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 

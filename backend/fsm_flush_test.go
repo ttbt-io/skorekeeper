@@ -11,12 +11,7 @@ import (
 
 func TestFSM_ApplyAction_DelayedPersistence(t *testing.T) {
 	// Setup
-	tmpDir, err := os.MkdirTemp("", "fsm_delayed_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
@@ -115,17 +110,15 @@ func TestFSM_ApplyAction_DelayedPersistence(t *testing.T) {
 }
 
 func TestFSM_Standalone_ImmediatePersistence(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "fsm_standalone_test")
-	defer os.RemoveAll(tmpDir)
-
-	st := storage.New(tmpDir, nil)
-	gs := NewGameStore(tmpDir, st)
-	ts := NewTeamStore(tmpDir, st)
-	us := NewUserIndexStore(tmpDir, st, nil)
+	tmpDir := t.TempDir()
+	s := storage.New(tmpDir, nil)
+	gs := NewGameStore(tmpDir, s)
+	ts := NewTeamStore(tmpDir, s)
+	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st, us)
+	fsm := NewFSM(gs, ts, r, hm, s, us)
 	fsm.rm = nil // Explicitly nil (Standalone mode)
 
 	gameId := "test-game-std"

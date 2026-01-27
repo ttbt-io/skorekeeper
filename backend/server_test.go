@@ -31,12 +31,7 @@ import (
 
 func TestGameStore(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "gamestore_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	store := NewGameStore(tempDir, s)
 	gameId := "11111111-1111-4111-8111-111111111111"
@@ -128,12 +123,7 @@ func TestGameStore(t *testing.T) {
 
 func TestHTTPHandlers(t *testing.T) {
 	// Setup with temp dir
-	tempDir, err := os.MkdirTemp("", "http_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -602,34 +592,32 @@ func TestHTTPHandlers(t *testing.T) {
 		}
 
 		// 2. Test with Raft Enabled
-		dataDir, _ := os.MkdirTemp("", "status_test_data")
-		defer os.RemoveAll(dataDir)
-		raftDir, _ := os.MkdirTemp("", "status_test_log")
-		defer os.RemoveAll(raftDir)
-
+		dataDir := t.TempDir()
 		secret := "status-test-secret"
 		rmChan := make(chan *RaftManager, 1)
 
 		s := storage.New(dataDir, nil)
-		gStore := NewGameStore(dataDir, s)
-		tStore := NewTeamStore(dataDir, s)
+		gs := NewGameStore(dataDir, s)
+		ts := NewTeamStore(dataDir, s)
 		us := NewUserIndexStore(dataDir, s, nil)
+		r := NewRegistry(gs, ts, us, true)
+
 		opts := Options{
 			DataDir:          dataDir,
-			GameStore:        gStore,
-			TeamStore:        tStore,
+			GameStore:        gs,
+			TeamStore:        ts,
 			Storage:          s,
-			Registry:         NewRegistry(gStore, tStore, us, true),
+			Registry:         r,
 			RaftEnabled:      true,
-			RaftBind:         "127.0.0.1:0", // Random port
+			RaftBind:         "127.0.0.1:0",
 			RaftAdvertise:    "127.0.0.1:0",
 			ClusterAdvertise: "127.0.0.1:0",
 			ClusterAddr:      "127.0.0.1:0",
 			RaftSecret:       secret,
 			RaftBootstrap:    true,
 			RaftManagerChan:  rmChan,
+			UseMockAuth:      true,
 		}
-
 		var raftHandler http.Handler
 		_, _, raftHandler = NewServerHandler(opts)
 		select {
@@ -679,12 +667,7 @@ func TestHTTPHandlers(t *testing.T) {
 }
 
 func TestDataDirConfig(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "datadir_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	// Setup Handler with a specific DataDir
 	s := storage.New(tempDir, nil)
 	us := NewUserIndexStore(tempDir, s, nil)
@@ -725,12 +708,7 @@ func TestDataDirConfig(t *testing.T) {
 }
 
 func TestConcurrentSaves(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "concurrent_save_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)

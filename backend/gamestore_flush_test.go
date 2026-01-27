@@ -10,13 +10,9 @@ import (
 
 func TestGameStore_Flush(t *testing.T) {
 	// Setup
-	tmpDir, err := os.MkdirTemp("", "gamestore_flush_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	gs := NewGameStore(tmpDir, st)
 
 	gameId := "test-game-1"
@@ -87,8 +83,7 @@ func TestGameStore_Flush(t *testing.T) {
 }
 
 func TestGameStore_SaveGame_ClearsDirty(t *testing.T) {
-	tmpDir, _ := os.MkdirTemp("", "gamestore_flush_test_2")
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
 	gs := NewGameStore(tmpDir, st)
 

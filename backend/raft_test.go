@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -29,11 +28,7 @@ import (
 
 func TestRaftSingleNode(t *testing.T) {
 	// Setup unique temp dirs
-	dataDir, err := os.MkdirTemp("", "raft_test_data")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dataDir)
+	dataDir := t.TempDir()
 
 	// Ports
 	raftBind := "127.0.0.1:50001" // Random port might be better, but this works for single run
@@ -135,8 +130,8 @@ func TestRaftSingleNode(t *testing.T) {
 }
 
 func TestRaftGetters(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "raft_getters")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
+	rm := NewRaftManager(tempDir, "127.0.0.1:0", "", "127.0.0.1:0", "127.0.0.1:0", "secret", nil, nil)
 
 	s := storage.New(tempDir, nil)
 	gs := NewGameStore(tempDir, s)
@@ -183,7 +178,7 @@ func TestRaftGetters(t *testing.T) {
 	}
 
 	// Test RaftManager GetHTTPClient
-	rm := &RaftManager{httpClient: &http.Client{}}
+	rm.httpClient = &http.Client{}
 	if rm.GetHTTPClient() == nil {
 		t.Error("GetHTTPClient returned nil")
 	}

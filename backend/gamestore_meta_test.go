@@ -11,13 +11,9 @@ import (
 )
 
 func TestGameStore_MetadataSidecar(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gamestore_meta_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	st := storage.New(tmpDir, nil)
+
 	gs := NewGameStore(tmpDir, st)
 
 	gameId := "test-game-meta"

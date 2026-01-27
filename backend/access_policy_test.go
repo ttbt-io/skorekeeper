@@ -1,15 +1,13 @@
 package backend
 
 import (
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 )
 
 func TestFSMLoadAccessPolicyOnStartup(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "access_policy_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	s := storage.New(tempDir, nil)
 

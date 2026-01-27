@@ -20,7 +20,6 @@ import (
 	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -28,10 +27,9 @@ import (
 
 func TestRaftHandlersDirect(t *testing.T) {
 	// Setup
-	dir, _ := os.MkdirTemp("", "raft_handlers")
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	s := storage.New(dir, nil)
+
 	gs := NewGameStore(dir, s)
 	ts := NewTeamStore(dir, s)
 	us := NewUserIndexStore(dir, s, nil)

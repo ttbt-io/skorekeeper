@@ -29,7 +29,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -79,8 +78,7 @@ func generateSelfSignedCert() (*tls.Certificate, ed25519.PublicKey, error) {
 
 // TestRaftTLSConfig verifies that RaftManager correctly configures TLS with dynamic keys.
 func TestRaftTLSConfig(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "raft_tls_test")
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
@@ -153,10 +151,7 @@ func TestForwardRequestToLeader(t *testing.T) {
 	l2.Close()
 
 	// 2. Start Leader
-	dir1, _ := os.MkdirTemp("", "leader")
-	defer os.RemoveAll(dir1)
-
-	// We need fsm, stores etc.
+	dir1 := t.TempDir()
 	s1 := storage.New(dir1, nil)
 	gStore1 := NewGameStore(dir1, s1)
 	tStore1 := NewTeamStore(dir1, s1)
@@ -187,8 +182,7 @@ func TestForwardRequestToLeader(t *testing.T) {
 	}
 
 	// 3. Start Follower
-	dir2, _ := os.MkdirTemp("", "follower")
-	defer os.RemoveAll(dir2)
+	dir2 := t.TempDir()
 
 	r2, _ := net.Listen("tcp", "127.0.0.1:0")
 	followerRaft := r2.Addr().String()
@@ -259,10 +253,9 @@ func TestForwardRequestToLeader(t *testing.T) {
 }
 
 func TestJoinNonVoter(t *testing.T) {
-	dir, _ := os.MkdirTemp("", "nonvoter_test")
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	s := storage.New(dir, nil)
+
 	gStore := NewGameStore(dir, s)
 	tStore := NewTeamStore(dir, s)
 	us := NewUserIndexStore(dir, s, nil)
@@ -313,8 +306,7 @@ func TestJoinNonVoter(t *testing.T) {
 }
 
 func TestForwardingLoop(t *testing.T) {
-	dir, _ := os.MkdirTemp("", "loop_test")
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	rm := NewRaftManager(dir, "127.0.0.1:0", "", "127.0.0.1:0", "127.0.0.1:0", "secret", nil, nil)
 	// We need to load/generate keys to get the NodeID
@@ -336,8 +328,7 @@ func TestForwardingLoop(t *testing.T) {
 
 func TestForwardAppRequest(t *testing.T) {
 	// 1. Setup Leader
-	dir1, _ := os.MkdirTemp("", "leader_app")
-	defer os.RemoveAll(dir1)
+	dir1 := t.TempDir()
 
 	// Get two free ports for Leader
 	l1, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -380,8 +371,7 @@ func TestForwardAppRequest(t *testing.T) {
 	}
 
 	// 2. Setup Follower
-	dir2, _ := os.MkdirTemp("", "follower_app")
-	defer os.RemoveAll(dir2)
+	dir2 := t.TempDir()
 
 	// Get two free ports for Follower
 	l2, _ := net.Listen("tcp", "127.0.0.1:0")

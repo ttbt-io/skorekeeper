@@ -19,21 +19,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
+
+	"github.com/c2FmZQ/storage"
 )
 
 func TestDeleteAllEndpoint(t *testing.T) {
 	// Setup
-	tempDir, err := os.MkdirTemp("", "backend_profile_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
+	s := storage.New(tempDir, nil)
 
 	opts := Options{
 		DataDir:     tempDir,
+		Storage:     s,
 		UseMockAuth: true,
 	}
 

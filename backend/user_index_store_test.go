@@ -13,11 +13,7 @@ import (
 
 func TestUserIndexStore(t *testing.T) {
 	// Setup
-	tmpDir, err := os.MkdirTemp("", "userindex_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	os.MkdirAll(filepath.Join(tmpDir, "users"), 0755)
 
@@ -77,14 +73,8 @@ func TestUserIndexStore(t *testing.T) {
 	}
 }
 
-func TestUserIndexStore_NoMasterKey(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "userindex_nomk_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-	os.MkdirAll(filepath.Join(tmpDir, "users"), 0755)
-
+func TestUserIndexStore_Load_NoDir(t *testing.T) {
+	tmpDir := t.TempDir()
 	s := storage.New(tmpDir, nil)
 	store := NewUserIndexStore(tmpDir, s, nil)
 

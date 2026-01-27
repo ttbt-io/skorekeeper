@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -123,8 +122,7 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// Using FSM is easier, but FSM writes *its* current state.
 	// So let's create a separate FSM2 with Low Index.
 
-	tmpDir2, _ := os.MkdirTemp("", "smart_snap_source")
-	defer os.RemoveAll(tmpDir2)
+	tmpDir2 := t.TempDir()
 	s2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
@@ -173,10 +171,9 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 
 func TestSmartSnapshot_FastRestore(t *testing.T) {
 	// Setup FSM
-	tmpDir, _ := os.MkdirTemp("", "smart_snap_fast_test")
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	s := storage.New(tmpDir, nil)
+
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
@@ -204,8 +201,7 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	}
 
 	// New FSM
-	tmpDir2, _ := os.MkdirTemp("", "smart_snap_fast_dest")
-	defer os.RemoveAll(tmpDir2)
+	tmpDir2 := t.TempDir()
 	s2 := storage.New(tmpDir2, nil)
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)

@@ -15,19 +15,13 @@
 package backend
 
 import (
-	"os"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 )
 
 func TestGetGameAccess(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "auth_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	ts := NewTeamStore(tempDir, s)
 	owner := "owner@example.com"

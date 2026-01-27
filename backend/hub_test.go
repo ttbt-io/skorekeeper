@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -37,12 +36,7 @@ func makeUUID(i int) string {
 
 func TestHubConcurrency(t *testing.T) {
 	// Setup Server
-	tempDir, err := os.MkdirTemp("", "hub_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -247,12 +241,7 @@ func TestHubConcurrency(t *testing.T) {
 }
 
 func TestIdempotency(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "idempotency_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -323,12 +312,7 @@ func TestIdempotency(t *testing.T) {
 }
 
 func TestBootstrapRace(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "race_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -403,12 +387,7 @@ func TestBootstrapRace(t *testing.T) {
 }
 
 func TestMixedTraffic(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "mixed_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -507,12 +486,7 @@ func TestMixedTraffic(t *testing.T) {
 }
 
 func TestTeamHubConcurrency(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "team_hub_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
@@ -565,12 +539,7 @@ func TestTeamHubConcurrency(t *testing.T) {
 }
 
 func TestStaleCacheRecovery(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "stale_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := storage.New(tempDir, nil)
 	gStore := NewGameStore(tempDir, s)
 	tStore := NewTeamStore(tempDir, s)
