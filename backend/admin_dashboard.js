@@ -248,11 +248,11 @@ function calculatePercentile(hist, p) {
     for (let i = 0; i < hist.b.length; i++) {
         count += hist.b[i];
         if (count >= target) {
-            // Bucket i covers [(i * 125), (i+1) * 125]
-            return (i * 125) + 62.5;
+            // Bucket i covers [(i * 50), (i+1) * 50]
+            return (i * 50) + 25;
         }
     }
-    return 5000;
+    return 5050;
 }
 
 function renderCharts() {
@@ -306,12 +306,14 @@ function renderCharts() {
             buf.data.forEach(pt => {
                 if (pt.t > 0) {
                     if (!clusterHistMap[pt.t]) {
-                        clusterHistMap[pt.t] = { b: new Array(41).fill(0), c: 0, s: 0 };
+                        clusterHistMap[pt.t] = { b: new Array(101).fill(0), c: 0, s: 0 };
                     }
                     const h = clusterHistMap[pt.t];
-                    pt.v.b.forEach((count, idx) => h.b[idx] += count);
-                    h.c += pt.v.c;
-                    h.s += pt.v.s;
+                    if (pt.v.b2) {
+                        pt.v.b2.forEach((count, idx) => h.b[idx] += count);
+                        h.c += pt.v.c;
+                        h.s += pt.v.s;
+                    }
                 }
             });
         }

@@ -486,22 +486,32 @@ func TestLeaderGap_SelfClobber(t *testing.T) {
 
 func TestHistogram_AddAndMerge(t *testing.T) {
 	h := &Histogram{}
-	h.Add(50 * time.Millisecond)
-	h.Add(150 * time.Millisecond)
-	h.Add(6 * time.Second)
+	h.Add(40 * time.Millisecond)  // Bucket 0 (0-49ms)
+	h.Add(50 * time.Millisecond)  // Bucket 1 (50-99ms)
+	h.Add(150 * time.Millisecond) // Bucket 3 (150-199ms)
+	h.Add(6 * time.Second)        // Bucket 100 (>= 5000ms)
 
-	if h.Count != 3 {
-		t.Errorf("Expected count 3, got %d", h.Count)
+	if h.Count != 4 {
+		t.Errorf("Expected count 4, got %d", h.Count)
 	}
-	if h.Buckets[0] != 1 || h.Buckets[1] != 1 || h.Buckets[40] != 1 {
-		t.Errorf("Bucket distribution mismatch")
+	if h.Buckets[0] != 1 {
+		t.Errorf("Bucket 0 mismatch: %d", h.Buckets[0])
+	}
+	if h.Buckets[1] != 1 {
+		t.Errorf("Bucket 1 mismatch: %d", h.Buckets[1])
+	}
+	if h.Buckets[3] != 1 {
+		t.Errorf("Bucket 3 mismatch: %d", h.Buckets[3])
+	}
+	if h.Buckets[LatencyBuckets-1] != 1 {
+		t.Errorf("Last Bucket mismatch: %d", h.Buckets[LatencyBuckets-1])
 	}
 
 	h2 := &Histogram{}
-	h2.Add(100 * time.Millisecond)
+	h2.Add(100 * time.Millisecond) // Bucket 2
 	h.Merge(h2)
 
-	if h.Count != 4 || h.Buckets[0] != 2 {
+	if h.Count != 5 || h.Buckets[2] != 1 {
 		t.Errorf("Merge failed")
 	}
 }
