@@ -44,11 +44,11 @@ type ClusterMetric struct {
 	TotalTeams   int    `json:"totalTeams"`
 }
 
-const LatencyBuckets = 41
-const LatencyBucketSize = 125 * time.Millisecond
+const LatencyBuckets = 101
+const LatencyBucketSize = 50 * time.Millisecond
 
 type Histogram struct {
-	Buckets [LatencyBuckets]uint64 `json:"b"`
+	Buckets [LatencyBuckets]uint64 `json:"b2"`
 	Count   uint64                 `json:"c"`
 	Sum     float64                `json:"s"` // Sum of durations in milliseconds
 }
