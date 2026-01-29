@@ -196,7 +196,7 @@ func (km *KeyManager) RefreshAll(ctx context.Context) {
 
 // StartBackgroundRefresh runs a periodic refresh loop.
 func (km *KeyManager) StartBackgroundRefresh(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Minute)
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
 	for {
