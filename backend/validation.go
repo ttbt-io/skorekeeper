@@ -39,7 +39,7 @@ func isValidEmail(email string) bool {
 const (
 	CurrentSchemaVersion   = 3
 	CurrentProtocolVersion = 1
-	CurrentAppVersion      = "0.1.135"
+	CurrentAppVersion      = "0.1.136"
 )
 
 // ActionTypes constants
