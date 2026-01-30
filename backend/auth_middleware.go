@@ -85,10 +85,14 @@ func jwtAuthMiddleware(opts Options, next http.Handler) http.Handler {
 			// 3. Verify Issuer if configured for this key
 			kid, _ := token.Header["kid"].(string)
 			if expectedIss, ok := remote.IssuerForKey(kid); ok && expectedIss != "" {
-				iss, _ := token.Claims.GetIssuer()
-				if iss != expectedIss {
+				iss, err := token.Claims.GetIssuer()
+				if err != nil || iss != expectedIss {
 					if opts.Debug {
-						log.Printf("JWT Validation failed: issuer mismatch. Got %s, expected %s", iss, expectedIss)
+						if err != nil {
+							log.Printf("JWT Validation failed: token is missing issuer claim (or it's invalid), but expected '%s' for key %s. err: %v", expectedIss, kid, err)
+						} else {
+							log.Printf("JWT Validation failed: issuer mismatch. Got '%s', expected '%s'", iss, expectedIss)
+						}
 					}
 					next.ServeHTTP(w, r)
 					return
