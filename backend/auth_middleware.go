@@ -20,27 +20,36 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
+	"github.com/c2FmZQ/tlsproxy/jwks"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/lestrrat-go/jwx/v3/jwk"
 )
+
+type jwksLogger struct{}
+
+func (l jwksLogger) Errorf(format string, args ...any) {
+	log.Printf("JWKS Error: "+format, args...)
+}
 
 // jwtAuthMiddleware handles JWT authentication using JWKS.
 func jwtAuthMiddleware(opts Options, next http.Handler) http.Handler {
-	km := NewKeyManager(opts.AuthJWKSURL)
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 10
+	retryClient.Logger = nil // Disable verbose logging
+
+	remote := jwks.NewRemote(retryClient, jwksLogger{})
+
 	if opts.AuthJWKSURL != "" {
-		// Initial fetch
-		km.RefreshAll(context.Background())
-		// Start background refresh
-		go km.StartBackgroundRefresh(context.Background())
+		issuers := parseJWKSConfig(opts.AuthJWKSURL)
+		remote.SetIssuers(issuers)
 	} else {
 		log.Println("Warning: No AuthJWKSURL provided. JWT validation will fail unless MockAuth is used.")
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remote.Ready(r.Context())
+
 		// 1. Extract JWT from cookie
 		cookieName := opts.AuthCookieName
 		if cookieName == "" {
@@ -56,86 +65,67 @@ func jwtAuthMiddleware(opts Options, next http.Handler) http.Handler {
 		tokenString := cookie.Value
 		audience := fmt.Sprintf("https://%s/", r.Host)
 
-		// 2. Iterate through providers to find a valid match
-		// We loop because we can't extract the unverified issuer claim to verify the issuer.
-		// Instead, we try each provider. If a provider has an issuer configured, we enforce it.
-		// Only the provider that actually holds the signing key (check via kid) will succeed in the KeyFunc.
-		km.mu.RLock()
-		defer km.mu.RUnlock()
-
-		for _, provider := range km.Providers {
-			var parseOpts []jwt.ParserOption
-			parseOpts = append(parseOpts, jwt.WithAudience(audience))
-			if provider.Issuer != "" {
-				parseOpts = append(parseOpts, jwt.WithIssuer(provider.Issuer))
+		// 2. Parse and Validate JWT
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Validate algorithm
+			switch token.Method.(type) {
+			case *jwt.SigningMethodRSA, *jwt.SigningMethodECDSA, *jwt.SigningMethodEd25519:
+				// Allowed
+			default:
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				// Validate algorithm
-				switch token.Method.(type) {
-				case *jwt.SigningMethodRSA, *jwt.SigningMethodECDSA, *jwt.SigningMethodEd25519:
-					// Allowed
-				default:
-					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-				}
+			kid, ok := token.Header["kid"].(string)
+			if !ok {
+				return nil, fmt.Errorf("token missing 'kid' header")
+			}
 
-				kid, ok := token.Header["kid"].(string)
-				if !ok {
-					return nil, fmt.Errorf("token missing 'kid' header")
-				}
+			return remote.GetKey(kid)
+		}, jwt.WithAudience(audience))
 
-				// Look up key ONLY in this provider's set
-				key, ok := provider.Keys.LookupKeyID(kid)
-				if !ok {
-					return nil, fmt.Errorf("key %s not found in provider %s", kid, provider.URL)
-				}
-				var raw interface{}
-				if err := jwk.Export(key, &raw); err != nil {
-					return nil, fmt.Errorf("failed to materialize key: %w", err)
-				}
-				return raw, nil
-			}, parseOpts...)
-
-			if err == nil && token.Valid {
-				// 3. Extract Claims and Set Context
-				if claims, ok := token.Claims.(jwt.MapClaims); ok {
-					if email, ok := claims["email"].(string); ok && email != "" {
-						ctx := context.WithValue(r.Context(), userIDKey, normalizeEmail(email))
-						next.ServeHTTP(w, r.WithContext(ctx))
-						return
+		if err == nil && token.Valid {
+			// 3. Verify Issuer if configured for this key
+			kid, _ := token.Header["kid"].(string)
+			if expectedIss, ok := remote.IssuerForKey(kid); ok && expectedIss != "" {
+				iss, err := token.Claims.GetIssuer()
+				if err != nil || iss != expectedIss {
+					if opts.Debug {
+						if err != nil {
+							log.Printf("JWT Validation failed: token is missing issuer claim (or it's invalid), but expected '%s' for key %s. err: %v", expectedIss, kid, err)
+						} else {
+							log.Printf("JWT Validation failed: issuer mismatch. Got '%s', expected '%s'", iss, expectedIss)
+						}
 					}
+					next.ServeHTTP(w, r)
+					return
 				}
-			} else {
-				if opts.Debug {
-					log.Printf("JWT Validation failed for provider %s: %v", provider.URL, err)
+			}
+
+			// 4. Extract Claims and Set Context
+			if claims, ok := token.Claims.(jwt.MapClaims); ok {
+				if email, ok := claims["email"].(string); ok && email != "" {
+					ctx := context.WithValue(r.Context(), userIDKey, normalizeEmail(email))
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
 				}
+			}
+		} else {
+			if opts.Debug {
+				log.Printf("JWT Validation failed: %v", err)
 			}
 		}
 
-		// No provider validated the token -> Anonymous
+		// Anonymous
 		next.ServeHTTP(w, r)
 	})
 }
 
-// JWKSProvider represents a single JWKS endpoint configuration.
-type JWKSProvider struct {
-	Issuer string
-	URL    string
-	Keys   jwk.Set
-}
-
-// KeyManager manages multiple JWKS providers.
-type KeyManager struct {
-	Providers []*JWKSProvider
-	mu        sync.RWMutex
-}
-
-// NewKeyManager parses the config string and initializes the manager.
+// parseJWKSConfig parses the config string into jwks.Issuer slice.
 // Config format: "ISSUER=URL,URL,ISSUER=URL"
-func NewKeyManager(config string) *KeyManager {
-	km := &KeyManager{}
+func parseJWKSConfig(config string) []jwks.Issuer {
+	var issuers []jwks.Issuer
 	if config == "" {
-		return km
+		return issuers
 	}
 
 	parts := strings.Split(config, ",")
@@ -154,57 +144,10 @@ func NewKeyManager(config string) *KeyManager {
 			url = part
 		}
 
-		km.Providers = append(km.Providers, &JWKSProvider{
-			Issuer: issuer,
-			URL:    url,
-			Keys:   jwk.NewSet(),
+		issuers = append(issuers, jwks.Issuer{
+			Issuer:  issuer,
+			JWKSURI: url,
 		})
 	}
-	return km
-}
-
-// RefreshAll fetches keys for all providers.
-func (km *KeyManager) RefreshAll(ctx context.Context) {
-	// Configure retryable HTTP client
-	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 10
-	retryClient.Logger = nil // Disable verbose logging
-	httpClient := retryClient.StandardClient()
-
-	// We assume km.Providers is immutable after initialization, so we can iterate without lock.
-	// If Providers list were dynamic, we'd need to RLock, copy slice, RUnlock, then iterate.
-	var wg sync.WaitGroup
-	for _, p := range km.Providers {
-		wg.Go(func() {
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			defer cancel()
-
-			set, err := jwk.Fetch(ctx, p.URL, jwk.WithHTTPClient(httpClient))
-			if err != nil {
-				log.Printf("Failed to fetch JWKS from %s: %v", p.URL, err)
-				return
-			}
-
-			// Only lock when updating the shared state
-			km.mu.Lock()
-			p.Keys = set
-			km.mu.Unlock()
-		})
-	}
-	wg.Wait()
-}
-
-// StartBackgroundRefresh runs a periodic refresh loop.
-func (km *KeyManager) StartBackgroundRefresh(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			km.RefreshAll(ctx)
-		}
-	}
+	return issuers
 }
