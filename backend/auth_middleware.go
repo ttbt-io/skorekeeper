@@ -48,6 +48,8 @@ func jwtAuthMiddleware(opts Options, next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remote.Ready(r.Context())
+
 		// 1. Extract JWT from cookie
 		cookieName := opts.AuthCookieName
 		if cookieName == "" {

@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/c2FmZQ/storage v0.3.2
-	github.com/c2FmZQ/tlsproxy/jwks v0.0.0-20260130170702-223855195ae7
+	github.com/c2FmZQ/tlsproxy/jwks v0.0.0-20260130184727-383e293de02d
 	github.com/chromedp/cdproto v0.0.0-20250803210736-d308e07a266d
 	github.com/chromedp/chromedp v0.14.2
 	github.com/golang-jwt/jwt/v5 v5.3.0
