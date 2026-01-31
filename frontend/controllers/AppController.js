@@ -2346,6 +2346,11 @@ export class AppController {
             b.onclick = () => this.recordAutoAdvance(b.dataset.autoStart || b.innerText || b.textContent);
         });
 
+        const btnBalk = document.getElementById('btn-balk');
+        if (btnBalk) {
+            btnBalk.onclick = () => this.recordBalk();
+        }
+
         click('btn-cancel-bip', this.hideBallInPlay);
         click('btn-runner-advance-close', () => this.closeRunnerAdvanceView());
         click('btn-save-bip', this.commitBiP);
@@ -5083,6 +5088,38 @@ export class AppController {
         };
 
         this.showRunnerAdvance(runners, bip);
+    }
+
+    /**
+     * Records a Balk (BK) action, advancing all runners 1 base.
+     */
+    async recordBalk() {
+        if (this.state.isReadOnly) {
+            return;
+        }
+
+        const runners = this.getRunnersOnBase();
+        if (runners.length === 0) {
+            return;
+        }
+
+        const updates = runners.map(r => ({
+            key: r.key,
+            action: 'BK',
+            base: r.base,
+        }));
+
+        await this.dispatch({
+            type: ActionTypes.RUNNER_BATCH_UPDATE,
+            payload: {
+                updates: updates,
+                activeCtx: this.state.activeCtx,
+                activeTeam: this.state.activeTeam,
+                batterId: this.getBatterId(),
+            },
+        });
+
+        this.renderCSO();
     }
 
     /**

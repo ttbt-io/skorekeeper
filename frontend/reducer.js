@@ -366,7 +366,7 @@ function applyRunnerBatchUpdate(state, payload) {
             return;
         }
 
-        if (action === 'SB' || action === 'Adv' || action === 'Place' || action.startsWith('CR') || action.startsWith('E')) {
+        if (action === 'SB' || action === 'Adv' || action === 'Place' || action === 'BK' || action.startsWith('CR') || action.startsWith('E')) {
             evt.paths[nextPathIdx] = 1; // Safe
             evt.pathInfo[nextPathIdx] = action;
         } else if (['CS', RunnerActionOut, 'PO', 'LE', 'LB', 'INT', 'Left Early', 'Look Back', 'Int'].includes(action)) {

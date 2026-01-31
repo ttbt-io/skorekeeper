@@ -70,7 +70,7 @@ export class NarrativeEngine {
             '1B': '⚾', '2B': '⚾⚾', '3B': '⚾⚾⚾', 'HR': '🎆',
             'BB': '🚶', 'IBB': '🤌', 'HBP': '🤕',
             'K': '❌', 'ꓘ': '❌', 'Out': '🔴',
-            'SB': '🏃', 'CS': '🛑', 'E': '⚠️',
+            'SB': '🏃', 'CS': '🛑', 'E': '⚠️', 'BK': '⚠️',
             'Run': '💎',
         };
         return map[type] || '⚾';
@@ -564,7 +564,8 @@ export class NarrativeEngine {
                             // No, the test should match the golden.
                             // So `generateNarrative` should return an empty outcome or null if it's just generic "Out".
 
-                            if (outcome === 'SB' || outcome === 'Adv' || outcome.startsWith('E') || outcome.startsWith('To') || outcome === 'Place' || outcome === 'Score') {
+                            const advanceOutcomes = ['SB', 'Adv', 'Place', 'Score', 'WP', 'PB', 'BK'];
+                            if (advanceOutcomes.includes(outcome) || outcome.startsWith('E') || outcome.startsWith('To')) {
                                 let destIdx = -1;
                                 if (outcome.startsWith('To')) {
                                     destIdx = ['1st', '2nd', '3rd', 'Home'].indexOf(outcome.split(' ')[1]);
