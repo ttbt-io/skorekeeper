@@ -61,7 +61,7 @@ export class CSORenderer {
         }
 
         container.innerHTML = '';
-        let opts = type === 'advance' ? ['SB', 'WP', 'PB', 'Adv', 'Err', 'Obs', 'Place', 'CR'] : ['CS', 'PO', 'Force', 'Tag'];
+        let opts = type === 'advance' ? ['SB', 'WP', 'PB', 'BK', 'Adv', 'Err', 'Obs', 'Place', 'CR'] : ['CS', 'PO', 'Force', 'Tag'];
         opts.forEach((c) => {
             const btn = createElement('button', {
                 className: 'text-xs bg-gray-700 p-2 rounded text-white font-bold',
@@ -256,6 +256,10 @@ export class CSORenderer {
         const btnClearAll = document.getElementById('btn-clear-all');
         if (btnClearAll) {
             btnClearAll.classList.toggle('hidden', isLocked);
+        }
+        const btnBalk = document.getElementById('btn-balk');
+        if (btnBalk) {
+            btnBalk.classList.toggle('hidden', isLocked);
         }
         const btnShowBip = document.getElementById('btn-show-bip');
         if (btnShowBip) {
