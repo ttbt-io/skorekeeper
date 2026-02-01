@@ -359,7 +359,6 @@ func (rm *RaftManager) GarbageCollectKeys() error {
 	}
 
 	keysToDelete := oldKeys[cutoff:]
-	keysToKeep := oldKeys[:cutoff]
 
 	log.Printf("GC: Found %d keys to delete (older than key for oldest snapshot)", len(keysToDelete))
 
