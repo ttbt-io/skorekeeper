@@ -25,27 +25,119 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-// EncryptedLogStore wraps a raft.LogStore to encrypt log entries.
-type EncryptedLogStore struct {
-	inner raft.LogStore
-	mu    sync.RWMutex
-	key   crypto.EncryptionKey
-	prev  crypto.EncryptionKey
+// KeyInfo wraps an encryption key with its identifier (filename).
+type KeyInfo struct {
+	Key crypto.EncryptionKey
+	ID  string
 }
 
-// NewEncryptedLogStore creates a new encrypted log store.
-func NewEncryptedLogStore(inner raft.LogStore, key crypto.EncryptionKey) *EncryptedLogStore {
-	return &EncryptedLogStore{
-		inner: inner,
-		key:   key,
+// KeyRing manages a collection of encryption keys.
+type KeyRing struct {
+	mu     sync.RWMutex
+	Active *KeyInfo
+	Old    []*KeyInfo
+}
+
+// NewKeyRing creates a new KeyRing with an initial active key.
+func NewKeyRing(active crypto.EncryptionKey, id string) *KeyRing {
+	return &KeyRing{
+		Active: &KeyInfo{Key: active, ID: id},
+		Old:    make([]*KeyInfo, 0),
 	}
 }
 
-func (e *EncryptedLogStore) SetKeys(key, prev crypto.EncryptionKey) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.key = key
-	e.prev = prev
+// SetKeys sets the key ring keys.
+func (k *KeyRing) SetKeys(active *KeyInfo, old []*KeyInfo) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.Active = active
+	k.Old = old
+}
+
+// Rotate adds a new active key and moves the current active key to the old list.
+func (k *KeyRing) Rotate(newKey crypto.EncryptionKey, id string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.Active != nil {
+		// Prepend to keep newest first
+		k.Old = append([]*KeyInfo{k.Active}, k.Old...)
+	}
+	k.Active = &KeyInfo{Key: newKey, ID: id}
+}
+
+// Wipe wipes all keys in the ring from memory.
+func (k *KeyRing) Wipe() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.Active != nil {
+		k.Active.Key.Wipe()
+		k.Active = nil
+	}
+	for _, info := range k.Old {
+		if info != nil {
+			info.Key.Wipe()
+		}
+	}
+	k.Old = nil
+}
+
+// Encrypt encrypts data using the active key.
+func (k *KeyRing) Encrypt(data []byte) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.Active == nil {
+		return nil, fmt.Errorf("no active key")
+	}
+	return k.Active.Key.Encrypt(data)
+}
+
+// Decrypt tries to decrypt data using the active key, then old keys.
+func (k *KeyRing) Decrypt(data []byte) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	// Try active key first
+	if k.Active != nil {
+		dec, err := k.Active.Key.Decrypt(data)
+		if err == nil {
+			return dec, nil
+		}
+		if !errors.Is(err, crypto.ErrDecryptFailed) {
+			return nil, err
+		}
+	}
+
+	// Try old keys
+	for _, info := range k.Old {
+		dec, err := info.Key.Decrypt(data)
+		if err == nil {
+			return dec, nil
+		}
+		if !errors.Is(err, crypto.ErrDecryptFailed) {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("failed to decrypt with any key: %w", crypto.ErrDecryptFailed)
+}
+
+// EncryptedLogStore wraps a raft.LogStore to encrypt log entries.
+type EncryptedLogStore struct {
+	inner raft.LogStore
+	ring  *KeyRing
+}
+
+// NewEncryptedLogStore creates a new encrypted log store.
+func NewEncryptedLogStore(inner raft.LogStore, ring *KeyRing) *EncryptedLogStore {
+	return &EncryptedLogStore{
+		inner: inner,
+		ring:  ring,
+	}
+}
+
+// SetKeyRing updates the key ring reference (if ring pointer changes, though typically we just update inside ring).
+func (e *EncryptedLogStore) SetKeyRing(ring *KeyRing) {
+	e.ring = ring
 }
 
 func (e *EncryptedLogStore) FirstIndex() (uint64, error) {
@@ -63,22 +155,12 @@ func (e *EncryptedLogStore) GetLog(index uint64, log *raft.Log) error {
 	if len(log.Data) == 0 {
 		return nil
 	}
-	e.mu.RLock()
-	key := e.key
-	prev := e.prev
-	e.mu.RUnlock()
 
-	if key != nil {
-		decrypted, err := key.Decrypt(log.Data)
+	if e.ring != nil {
+		decrypted, err := e.ring.Decrypt(log.Data)
 		if err == nil {
 			log.Data = decrypted
 			return nil
-		}
-		if prev != nil && errors.Is(err, crypto.ErrDecryptFailed) {
-			if dec, err := prev.Decrypt(log.Data); err == nil {
-				log.Data = dec
-				return nil
-			}
 		}
 		return fmt.Errorf("failed to decrypt log index %d: %w", index, err)
 	}
@@ -86,12 +168,8 @@ func (e *EncryptedLogStore) GetLog(index uint64, log *raft.Log) error {
 }
 
 func (e *EncryptedLogStore) StoreLog(log *raft.Log) error {
-	e.mu.RLock()
-	key := e.key
-	e.mu.RUnlock()
-
-	if key != nil && len(log.Data) > 0 {
-		encrypted, err := key.Encrypt(log.Data)
+	if e.ring != nil && len(log.Data) > 0 {
+		encrypted, err := e.ring.Encrypt(log.Data)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt log: %w", err)
 		}
@@ -103,18 +181,14 @@ func (e *EncryptedLogStore) StoreLog(log *raft.Log) error {
 }
 
 func (e *EncryptedLogStore) StoreLogs(logs []*raft.Log) error {
-	e.mu.RLock()
-	key := e.key
-	e.mu.RUnlock()
-
-	if key == nil {
+	if e.ring == nil {
 		return e.inner.StoreLogs(logs)
 	}
 
 	newLogs := make([]*raft.Log, len(logs))
 	for i, l := range logs {
 		if len(l.Data) > 0 {
-			encrypted, err := key.Encrypt(l.Data)
+			encrypted, err := e.ring.Encrypt(l.Data)
 			if err != nil {
 				return fmt.Errorf("failed to encrypt log batch index %d: %w", i, err)
 			}
@@ -142,33 +216,24 @@ func (e *EncryptedLogStore) Close() error {
 // EncryptedStableStore wraps a raft.StableStore to encrypt key-values.
 type EncryptedStableStore struct {
 	inner raft.StableStore
-	mu    sync.RWMutex
-	key   crypto.EncryptionKey
-	prev  crypto.EncryptionKey
+	ring  *KeyRing
 }
 
 // NewEncryptedStableStore creates a new encrypted stable store.
-func NewEncryptedStableStore(inner raft.StableStore, key crypto.EncryptionKey) *EncryptedStableStore {
+func NewEncryptedStableStore(inner raft.StableStore, ring *KeyRing) *EncryptedStableStore {
 	return &EncryptedStableStore{
 		inner: inner,
-		key:   key,
+		ring:  ring,
 	}
 }
 
-func (e *EncryptedStableStore) SetKeys(key, prev crypto.EncryptionKey) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.key = key
-	e.prev = prev
+func (e *EncryptedStableStore) SetKeyRing(ring *KeyRing) {
+	e.ring = ring
 }
 
 func (e *EncryptedStableStore) Set(key []byte, val []byte) error {
-	e.mu.RLock()
-	ekey := e.key
-	e.mu.RUnlock()
-
-	if ekey != nil {
-		encrypted, err := ekey.Encrypt(val)
+	if e.ring != nil {
+		encrypted, err := e.ring.Encrypt(val)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt stable set: %w", err)
 		}
@@ -185,20 +250,11 @@ func (e *EncryptedStableStore) Get(key []byte) ([]byte, error) {
 	if len(val) == 0 {
 		return val, nil
 	}
-	e.mu.RLock()
-	ekey := e.key
-	eprev := e.prev
-	e.mu.RUnlock()
 
-	if ekey != nil {
-		decrypted, err := ekey.Decrypt(val)
+	if e.ring != nil {
+		decrypted, err := e.ring.Decrypt(val)
 		if err == nil {
 			return decrypted, nil
-		}
-		if eprev != nil && errors.Is(err, crypto.ErrDecryptFailed) {
-			if dec, err := eprev.Decrypt(val); err == nil {
-				return dec, nil
-			}
 		}
 		return nil, fmt.Errorf("failed to decrypt stable get: %w", err)
 	}

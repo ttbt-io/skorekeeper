@@ -15,6 +15,7 @@
 package backend
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/c2FmZQ/storage/crypto"
@@ -27,14 +28,18 @@ const snapshotCryptoCtx = "raft-snapshot"
 // but serve them as plaintext (decrypted) via Open() for streaming/restore.
 type EncryptedSnapshotStore struct {
 	inner raft.SnapshotStore
-	key   crypto.EncryptionKey
+	ring  *KeyRing
 }
 
-func NewEncryptedSnapshotStore(inner raft.SnapshotStore, key crypto.EncryptionKey) *EncryptedSnapshotStore {
+func NewEncryptedSnapshotStore(inner raft.SnapshotStore, ring *KeyRing) *EncryptedSnapshotStore {
 	return &EncryptedSnapshotStore{
 		inner: inner,
-		key:   key,
+		ring:  ring,
 	}
+}
+
+func (e *EncryptedSnapshotStore) SetKeyRing(ring *KeyRing) {
+	e.ring = ring
 }
 
 func (e *EncryptedSnapshotStore) Create(version raft.SnapshotVersion, index, term uint64, configuration raft.Configuration, snapshotSize uint64, trans raft.Transport) (raft.SnapshotSink, error) {
@@ -43,13 +48,12 @@ func (e *EncryptedSnapshotStore) Create(version raft.SnapshotVersion, index, ter
 		return nil, err
 	}
 
-	if e.key == nil {
+	if e.ring == nil || e.ring.Active == nil {
 		return sink, nil
 	}
 
-	// Create encryption stream wrapper
-	// We wrap the sink. Writing to 'encryptedWriter' encrypts and writes to 'sink'.
-	encryptedWriter, err := e.key.StartWriter([]byte(snapshotCryptoCtx), sink)
+	// Use active key for writing new snapshot
+	encryptedWriter, err := e.ring.Active.Key.StartWriter([]byte(snapshotCryptoCtx), sink)
 	if err != nil {
 		sink.Cancel()
 		return nil, err
@@ -65,28 +69,74 @@ func (e *EncryptedSnapshotStore) List() ([]*raft.SnapshotMeta, error) {
 	return e.inner.List()
 }
 
+// GetSnapshotKeyID attempts to identify which key ID decrypts the snapshot.
+// It returns the ID of the key, or empty string if no key works or store is unencrypted.
+func (e *EncryptedSnapshotStore) GetSnapshotKeyID(id string) (string, error) {
+	if e.ring == nil {
+		return "", nil
+	}
+
+	// We need to try keys just like Open, but return the ID.
+	keys := append([]*KeyInfo{e.ring.Active}, e.ring.Old...)
+
+	for _, info := range keys {
+		if info == nil {
+			continue
+		}
+
+		// Open logic: Re-open the snapshot stream for each key attempt.
+		_, rc, err := e.inner.Open(id)
+		if err != nil {
+			return "", err
+		}
+
+		// Try to start reader (verifies header/tag)
+		_, err = info.Key.StartReader([]byte(snapshotCryptoCtx), rc)
+		rc.Close() // Close immediately
+
+		if err == nil {
+			return info.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no key found for snapshot %s", id)
+}
+
 func (e *EncryptedSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, error) {
-	meta, rc, err := e.inner.Open(id)
-	if err != nil {
-		return nil, nil, err
+	if e.ring == nil {
+		return e.inner.Open(id)
 	}
 
-	if e.key == nil {
-		return meta, rc, nil
-	}
+	keys := append([]*KeyInfo{e.ring.Active}, e.ring.Old...)
+	var lastErr error
 
-	// Create decryption stream wrapper
-	// Reading from 'decryptedReader' reads from 'rc' and decrypts.
-	decryptedReader, err := e.key.StartReader([]byte(snapshotCryptoCtx), rc)
-	if err != nil {
+	for _, info := range keys {
+		if info == nil {
+			continue
+		}
+
+		// Re-open the snapshot stream for each key attempt.
+		// This is necessary because standard raft.FileSnapshotStore returns a non-seekable *raft.bufferedFile,
+		// so we cannot rewind after a failed decryption attempt.
+		meta, rc, err := e.inner.Open(id)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		decryptedReader, err := info.Key.StartReader([]byte(snapshotCryptoCtx), rc)
+		if err == nil {
+			return meta, &DecryptedReadCloser{
+				inner:  rc,
+				stream: decryptedReader,
+			}, nil
+		}
+
+		// Failed with this key, close and try next
 		rc.Close()
-		return nil, nil, err
+		lastErr = err
 	}
 
-	return meta, &DecryptedReadCloser{
-		inner:  rc,
-		stream: decryptedReader,
-	}, nil
+	return nil, nil, fmt.Errorf("failed to open snapshot with any key: %w", lastErr)
 }
 
 // EncryptedSnapshotSink wraps the underlying sink.

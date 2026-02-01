@@ -11,9 +11,9 @@ Skorekeeper implements the **Embedded Raft** pattern. The application itself act
 *   **Raft Node (`RaftManager`):** The core component managing leader election, log replication, and peer communication. It uses a TCP transport layer secured by mutual TLS.
 *   **Finite State Machine (`FSM`):** The bridge between the Raft log and the application's data. It is responsible for applying committed log entries to the local storage.
 *   **Storage Layer:**
-    *   **Raft Log:** A BoltDB database (`raft-log.bolt`) stores the sequential log of commands.
-    *   **Stable Store:** A BoltDB database (`raft-stable.bolt`) stores election metadata (term, vote).
-    *   **Application State:** The existing `GameStore` and `TeamStore` (JSON files on disk) serve as the materialized view of the FSM.
+    *   **Raft Log:** A BoltDB database (`raft-log.bolt`) stores the sequential log of commands. Encrypted via `EncryptedLogStore`.
+    *   **Stable Store:** A BoltDB database (`raft-stable.bolt`) stores election metadata (term, vote). Encrypted via `EncryptedStableStore`.
+    *   **Application State:** The existing `GameStore` and `TeamStore` (JSON files on disk) serve as the materialized view of the FSM. Secured via authenticated encryption (see `docs/ENCRYPT-AT-REST.md`).
 
 ### 1.2 Data Flow
 

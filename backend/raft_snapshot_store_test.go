@@ -15,7 +15,6 @@
 package backend
 
 import (
-	"bytes"
 	"io"
 	"testing"
 
@@ -25,15 +24,17 @@ import (
 
 func TestSnapshotStore(t *testing.T) {
 	tempDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tempDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create snapshot store: %v", err)
+	}
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	key, _ := mk.NewKey()
+	ring := NewKeyRing(key, "test-key")
+	defer ring.Wipe()
 
-	inner, err := raft.NewFileSnapshotStore(tempDir, 1, nil)
-	if err != nil {
-		t.Fatalf("NewFileSnapshotStore failed: %v", err)
-	}
-	store := NewEncryptedSnapshotStore(inner, key)
+	store := NewEncryptedSnapshotStore(snapshotStore, ring)
 
 	// 1. Create a snapshot
 	data := []byte("snapshot data")
@@ -69,7 +70,7 @@ func TestSnapshotStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAll failed: %v", err)
 	}
-	if !bytes.Equal(readData, data) {
+	if string(readData) != string(data) {
 		t.Errorf("Expected %s, got %s", string(data), string(readData))
 	}
 }

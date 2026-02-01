@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,13 +80,14 @@ type RaftManager struct {
 	stableStore  raft.StableStore
 	logStoreEnc  *EncryptedLogStore
 	stabStoreEnc *EncryptedStableStore
-	logKey       crypto.EncryptionKey
-	prevLogKey   crypto.EncryptionKey
+	snapStoreEnc *EncryptedSnapshotStore
+	keyRing      *KeyRing
 	logKeyMu     sync.Mutex
-	LogOutput    io.Writer // Optional: Redirect Raft logs
-	UseGob       bool      // Optional: Use GOB encoding for log entries
-	AppHandler   http.Handler
-	listener     net.Listener
+
+	LogOutput  io.Writer // Optional: Redirect Raft logs
+	UseGob     bool      // Optional: Use GOB encoding for log entries
+	AppHandler http.Handler
+	listener   net.Listener
 
 	countersMu   sync.Mutex
 	nodeCounters map[string]uint64
@@ -121,48 +123,104 @@ func NewRaftManager(dataDir, bind, advertise, clusterAdvertise, clusterAddr, sec
 	return rm
 }
 
-func (rm *RaftManager) loadOrGenerateLogKey() error {
+func (rm *RaftManager) loadKeyRing() error {
 	if rm.MasterKey == nil {
 		return nil
 	}
-	rm.logKeyMu.Lock()
-	defer rm.logKeyMu.Unlock()
 
-	keyPath := filepath.Join(rm.DataDir, "log.key")
-	prevPath := filepath.Join(rm.DataDir, "log.key.old")
+	keysDir := filepath.Join(rm.DataDir, "keys")
+	if err := os.MkdirAll(keysDir, 0700); err != nil {
+		return fmt.Errorf("failed to create keys dir: %v", err)
+	}
 
-	// Load current key
-	if f, err := os.Open(keyPath); err == nil {
-		defer f.Close()
-		key, err := rm.MasterKey.ReadEncryptedKey(f)
-		if err != nil {
-			return fmt.Errorf("failed to read log key: %v", err)
+	// Migration: Move legacy log.key and log.key.old to keysDir
+	legacyKey := filepath.Join(rm.DataDir, "log.key")
+	legacyOld := filepath.Join(rm.DataDir, "log.key.old")
+
+	if _, err := os.Stat(legacyKey); err == nil {
+		// Timestamp roughly now for migration
+		ts := time.Now().Add(-1 * time.Minute).UnixNano()
+		newName := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+		if err := os.Rename(legacyKey, newName); err != nil {
+			return fmt.Errorf("failed to migrate log.key: %v", err)
 		}
-		rm.logKey = key
+		log.Printf("Migrated legacy log.key to %s", newName)
 	}
 
-	// Load previous key
-	if f, err := os.Open(prevPath); err == nil {
-		defer f.Close()
-		key, err := rm.MasterKey.ReadEncryptedKey(f)
-		if err == nil {
-			rm.prevLogKey = key
+	if _, err := os.Stat(legacyOld); err == nil {
+		// Older timestamp
+		ts := time.Now().Add(-2 * time.Minute).UnixNano()
+		newName := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+		if err := os.Rename(legacyOld, newName); err != nil {
+			return fmt.Errorf("failed to migrate log.key.old: %v", err)
 		}
+		log.Printf("Migrated legacy log.key.old to %s", newName)
 	}
 
-	if rm.logKey != nil {
-		return nil
-	}
-
-	// Generate initial key
-	key, err := rm.MasterKey.NewKey()
+	// Load all keys
+	entries, err := os.ReadDir(keysDir)
 	if err != nil {
-		return fmt.Errorf("failed to generate new log key: %v", err)
+		return fmt.Errorf("failed to read keys dir: %v", err)
 	}
-	if err := rm.saveLogKey(key, keyPath); err != nil {
-		return err
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".key") {
+			files = append(files, filepath.Join(keysDir, e.Name()))
+		}
 	}
-	rm.logKey = key
+
+	// Ensure consistent sorting by length then content to handle timestamp rollover if needed
+	// (Though UnixNano length is fixed for a long time, this is safer)
+	sort.Slice(files, func(i, j int) bool {
+		if len(files[i]) != len(files[j]) {
+			return len(files[i]) < len(files[j])
+		}
+		return files[i] < files[j]
+	})
+
+	var active *KeyInfo
+	var old []*KeyInfo
+
+	// Read newest to oldest
+	for i := len(files) - 1; i >= 0; i-- {
+		path := files[i]
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("failed to open key %s: %v", path, err)
+		}
+		key, err := rm.MasterKey.ReadEncryptedKey(f)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("failed to read key %s: %v", path, err)
+		}
+
+		info := &KeyInfo{Key: key, ID: filepath.Base(path)}
+
+		if active == nil {
+			active = info
+		} else {
+			old = append(old, info)
+		}
+	}
+
+	if active == nil {
+		// Generate first key
+		log.Printf("Generating initial Raft encryption key...")
+		k, err := rm.MasterKey.NewKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate new key: %v", err)
+		}
+		ts := time.Now().UnixNano()
+		path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+		if err := rm.saveLogKey(k, path); err != nil {
+			return err
+		}
+		active = &KeyInfo{Key: k, ID: filepath.Base(path)}
+	}
+
+	rm.keyRing = &KeyRing{}
+	rm.keyRing.SetKeys(active, old)
 	return nil
 }
 
@@ -170,45 +228,184 @@ func (rm *RaftManager) RotateLogKey() error {
 	if rm.MasterKey == nil {
 		return nil
 	}
-	rm.logKeyMu.Lock()
-	defer rm.logKeyMu.Unlock()
 
 	newKey, err := rm.MasterKey.NewKey()
 	if err != nil {
 		return fmt.Errorf("failed to generate new log key: %v", err)
 	}
 
-	keyPath := filepath.Join(rm.DataDir, "log.key")
-	prevPath := filepath.Join(rm.DataDir, "log.key.old")
-
-	// 1. Atomically rotate existing current key to old
-	if _, err := os.Stat(keyPath); err == nil {
-		if err := os.Rename(keyPath, prevPath); err != nil {
-			return fmt.Errorf("failed to rotate log key on disk: %v", err)
-		}
+	keysDir := filepath.Join(rm.DataDir, "keys")
+	if err := os.MkdirAll(keysDir, 0700); err != nil {
+		return fmt.Errorf("failed to ensure keys dir: %v", err)
 	}
 
-	// 2. Save new key
-	if err := rm.saveLogKey(newKey, keyPath); err != nil {
+	ts := time.Now().UnixNano()
+	path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+
+	if err := rm.saveLogKey(newKey, path); err != nil {
 		return fmt.Errorf("failed to save new log key: %v", err)
 	}
 
-	// 3. Update memory
-	if rm.prevLogKey != nil {
-		rm.prevLogKey.Wipe()
-	}
-	rm.prevLogKey = rm.logKey
-	rm.logKey = newKey
-
-	// 4. Update stores
-	if rm.logStoreEnc != nil {
-		rm.logStoreEnc.SetKeys(rm.logKey, rm.prevLogKey)
-	}
-	if rm.stabStoreEnc != nil {
-		rm.stabStoreEnc.SetKeys(rm.logKey, rm.prevLogKey)
+	if rm.keyRing != nil {
+		rm.keyRing.Rotate(newKey, filepath.Base(path))
+	} else {
+		rm.keyRing = NewKeyRing(newKey, filepath.Base(path))
 	}
 
-	log.Printf("Raft log key rotated successfully")
+	log.Printf("Raft log key rotated successfully. New key: %s", filepath.Base(path))
+	return nil
+}
+
+func (rm *RaftManager) GarbageCollectKeys() error {
+	if rm.keyRing == nil || rm.snapStoreEnc == nil {
+		return nil // Encryption disabled
+	}
+
+	// 1. Re-encrypt Stable Store (Term & Vote) to ensure they use the active key.
+	// This prevents deletion of an old key that is still needed for stable store metadata.
+	if rm.stableStore != nil {
+		// Known keys used by hashicorp/raft
+		knownKeys := [][]byte{
+			[]byte("CurrentTerm"),
+			[]byte("LastVoteCand"),
+			[]byte("LastVoteTerm"),
+		}
+		for _, key := range knownKeys {
+			// Get will try all keys (Active + Old)
+			val, err := rm.stableStore.Get(key)
+			if err == nil && len(val) > 0 {
+				// Set will encrypt with Active key
+				if err := rm.stableStore.Set(key, val); err != nil {
+					log.Printf("Warning: Failed to re-encrypt stable key %s: %v", string(key), err)
+				}
+			}
+		}
+	}
+
+	// 2. Scan Snapshots to find the oldest key in use.
+	snapshots, err := rm.snapStoreEnc.List()
+	if err != nil {
+		return fmt.Errorf("failed to list snapshots: %v", err)
+	}
+
+	if len(snapshots) == 0 {
+		// No snapshots, keep all keys to be safe (or keep just Active?).
+		// If no snapshots, logs might be infinite?
+		// Better to do nothing.
+		return nil
+	}
+
+	rm.keyRing.mu.RLock()
+	oldKeys := make([]*KeyInfo, len(rm.keyRing.Old))
+	copy(oldKeys, rm.keyRing.Old)
+	rm.keyRing.mu.RUnlock()
+
+	// Map KeyID to Index in Old list (higher index = older)
+	// Actually, Old is sorted Newest -> Oldest.
+	// So index 0 is newest old key.
+	// Index N is oldest.
+
+	// We want to find the "Oldest Used Key".
+	// Any key *older* than that (higher index) can be deleted.
+
+	oldestUsedIndex := -1
+
+	for _, snap := range snapshots {
+		keyID, err := rm.snapStoreEnc.GetSnapshotKeyID(snap.ID)
+		if err != nil {
+			log.Printf("Warning: Failed to identify key for snapshot %s: %v", snap.ID, err)
+			// If we can't identify, we should be conservative and NOT delete anything?
+			// Or assume it's a very old key?
+			// Safest: Abort GC.
+			return fmt.Errorf("aborting GC: cannot identify key for snapshot %s: %v", snap.ID, err)
+		}
+
+		// Find where this key is in the ring
+		if rm.keyRing.Active.ID == keyID {
+			continue // Active key is always kept, effectively index -1
+		}
+
+		found := false
+		for i, k := range oldKeys {
+			if k.ID == keyID {
+				if i > oldestUsedIndex {
+					oldestUsedIndex = i
+				}
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			// Key not in ring? Should not happen if we can decrypt.
+			// Unless it WAS in Active and we just checked.
+			// Or it's missing? (GetSnapshotKeyID checks ring).
+		}
+	}
+
+	// If oldestUsedIndex is -1, it means all snapshots use Active key.
+	// We can delete ALL old keys?
+	// YES, provided logs are also covered.
+	// Raft logs are truncated at the snapshot.
+	// So if all snapshots use Active key, and logs are newer than snapshots,
+	// then logs also use Active key (or newer, but Active is newest).
+	// So we can delete ALL old keys.
+
+	// If oldestUsedIndex is K. We keep 0..K. We delete K+1..End.
+
+	cutoff := oldestUsedIndex + 1
+	if cutoff >= len(oldKeys) {
+		return nil // Nothing to delete
+	}
+
+	keysToDelete := oldKeys[cutoff:]
+	keysToKeep := oldKeys[:cutoff]
+
+	log.Printf("GC: Found %d keys to delete (older than key for oldest snapshot)", len(keysToDelete))
+
+	// 3. Delete from Disk
+	keysDir := filepath.Join(rm.DataDir, "keys")
+	for _, k := range keysToDelete {
+		path := filepath.Join(keysDir, k.ID)
+		if err := os.Remove(path); err != nil {
+			log.Printf("Warning: Failed to delete key file %s: %v", path, err)
+			// Continue to remove from memory anyway?
+			// Yes, consistency.
+		} else {
+			log.Printf("Deleted old key: %s", k.ID)
+		}
+	}
+
+	// 4. Update Ring
+	rm.keyRing.mu.Lock()
+	// We hold lock now.
+	// But between our read of Old and now, Rotate might have happened.
+	// Rotate prepends to Old.
+	// If Rotate happened:
+	// Old became [NewActive, Old[0], Old[1]...]
+	// Our 'keysToKeep' corresponds to Old[0]...Old[cutoff].
+	// We want to keep the NEW ones too.
+
+	// Better approach: filter the *current* Old list.
+	// Remove keys whose IDs are in keysToDelete.
+
+	// Let's rebuild the list to be safe against concurrent rotation.
+	newOld := make([]*KeyInfo, 0)
+	deleteMap := make(map[string]bool)
+	for _, k := range keysToDelete {
+		deleteMap[k.ID] = true
+	}
+
+	for _, k := range rm.keyRing.Old {
+		if !deleteMap[k.ID] {
+			newOld = append(newOld, k)
+		} else {
+			k.Key.Wipe() // Wipe from memory
+		}
+	}
+	rm.keyRing.Old = newOld
+	rm.keyRing.mu.Unlock()
+
 	return nil
 }
 
@@ -315,7 +512,7 @@ func (rm *RaftManager) generateEphemeralCert() (*tls.Certificate, error) {
 func (rm *RaftManager) Start(bootstrap bool) error {
 	rm.Bootstrap = bootstrap
 	rm.startTime = time.Now()
-	if err := rm.loadOrGenerateLogKey(); err != nil {
+	if err := rm.loadKeyRing(); err != nil {
 		return err
 	}
 	if err := rm.loadOrGenerateNodeKey(); err != nil {
@@ -406,11 +603,9 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	var raftLogStore raft.LogStore = logStore
 	var raftStableStore raft.StableStore = stableStore
 
-	if rm.logKey != nil {
-		rm.logStoreEnc = NewEncryptedLogStore(logStore, rm.logKey)
-		rm.stabStoreEnc = NewEncryptedStableStore(stableStore, rm.logKey)
-		rm.logStoreEnc.SetKeys(rm.logKey, rm.prevLogKey)
-		rm.stabStoreEnc.SetKeys(rm.logKey, rm.prevLogKey)
+	if rm.keyRing != nil {
+		rm.logStoreEnc = NewEncryptedLogStore(logStore, rm.keyRing)
+		rm.stabStoreEnc = NewEncryptedStableStore(stableStore, rm.keyRing)
 		raftLogStore = rm.logStoreEnc
 		raftStableStore = rm.stabStoreEnc
 
@@ -425,8 +620,14 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	}
 
 	var raftSnapshotStore raft.SnapshotStore = snapshotStore
-	if rm.MasterKey != nil {
-		raftSnapshotStore = NewEncryptedSnapshotStore(snapshotStore, rm.MasterKey)
+	if rm.keyRing != nil {
+		// Use KeyRing for snapshots
+		rm.snapStoreEnc = NewEncryptedSnapshotStore(snapshotStore, rm.keyRing)
+		raftSnapshotStore = rm.snapStoreEnc
+	} else if rm.MasterKey != nil {
+		// Fallback for transition/testing if KeyRing not loaded?
+		// Actually loadKeyRing ensures KeyRing exists if MasterKey exists.
+		// If MasterKey is nil, we don't encrypt.
 	}
 
 	r, err := raft.NewRaft(config, rm.FSM, raftLogStore, raftStableStore, raftSnapshotStore, transport)
@@ -585,8 +786,34 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	go rm.monitorConfiguration()
 	go rm.monitorMetrics()
 	go rm.monitorLeadership(notifyCh)
+	go rm.monitorKeyGC()
 
 	return nil
+}
+
+func (rm *RaftManager) monitorKeyGC() {
+	// GC keys periodically.
+	// Keys are only deleted if they are older than the key used by the oldest snapshot.
+	// Since snapshots happen every ~2 mins (default), running this every 10-30 mins is fine.
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-rm.shutdownCh:
+			return
+		case <-ticker.C:
+			// Only Leader needs to worry?
+			// No, every node has its own keys and snapshots.
+			// Persistence is local.
+			if err := rm.GarbageCollectKeys(); err != nil {
+				// Don't log "no key found" as error if it's just startup or empty
+				if !strings.Contains(err.Error(), "no key found") && !strings.Contains(err.Error(), "aborting") {
+					log.Printf("Key GC error: %v", err)
+				}
+			}
+		}
+	}
 }
 
 // GetHTTPClient returns the reusable HTTP client for internal cluster communication.
@@ -1190,12 +1417,7 @@ func (rm *RaftManager) Shutdown() error {
 func (rm *RaftManager) closeStores() {
 	rm.logKeyMu.Lock()
 	defer rm.logKeyMu.Unlock()
-	if rm.logKey != nil {
-		rm.logKey.Wipe()
-	}
-	if rm.prevLogKey != nil {
-		rm.prevLogKey.Wipe()
-	}
+
 	if rm.logStore != nil {
 		if c, ok := rm.logStore.(io.Closer); ok {
 			c.Close()
@@ -1207,6 +1429,11 @@ func (rm *RaftManager) closeStores() {
 			c.Close()
 		}
 		rm.stableStore = nil
+	}
+
+	if rm.keyRing != nil {
+		rm.keyRing.Wipe()
+		rm.keyRing = nil
 	}
 }
 
