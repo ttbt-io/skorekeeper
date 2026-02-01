@@ -90,12 +90,17 @@ func TestLogKeyRotation(t *testing.T) {
 		MasterKey: mk,
 	}
 
-	if err := rm.loadOrGenerateLogKey(); err != nil {
-		t.Fatalf("Failed to load log key: %v", err)
+	if err := rm.loadKeyRing(); err != nil {
+		t.Fatalf("Failed to load key ring: %v", err)
 	}
+	defer func() {
+		if rm.keyRing != nil {
+			rm.keyRing.Wipe()
+		}
+	}()
 
 	inner := &mockLogStore{logs: make(map[uint64]*raft.Log)}
-	logStore := NewEncryptedLogStore(inner, rm.logKey)
+	logStore := NewEncryptedLogStore(inner, rm.keyRing)
 	rm.logStoreEnc = logStore
 
 	// 1. Store log with key 1
@@ -147,10 +152,9 @@ func TestLogKeyRotation(t *testing.T) {
 		t.Fatalf("Failed to rotate log key again: %v", err)
 	}
 
-	// Now log 1 should be UNREADABLE (too old)
-	// (Actually, our fallback only goes back one level)
-	if err := logStore.GetLog(1, &out1); err == nil {
-		t.Error("Log 1 should be unreadable after two rotations")
+	// Now log 1 should STILL be readable because we keep ALL keys
+	if err := logStore.GetLog(1, &out1); err != nil {
+		t.Errorf("Log 1 should still be readable after two rotations: %v", err)
 	}
 
 	// Log 2 should still be readable
@@ -163,10 +167,15 @@ func TestEncryptedLogStoreExtra(t *testing.T) {
 	tempDir := t.TempDir()
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	rm := &RaftManager{MasterKey: mk, DataDir: tempDir}
-	rm.loadOrGenerateLogKey()
+	rm.loadKeyRing()
+	defer func() {
+		if rm.keyRing != nil {
+			rm.keyRing.Wipe()
+		}
+	}()
 
 	inner := &mockLogStore{logs: make(map[uint64]*raft.Log)}
-	logStore := NewEncryptedLogStore(inner, rm.logKey)
+	logStore := NewEncryptedLogStore(inner, rm.keyRing)
 
 	// 1. StoreLogs
 	logs := []*raft.Log{
@@ -204,35 +213,45 @@ func TestLogKeyPersistence(t *testing.T) {
 		MasterKey: mk,
 	}
 
-	if err := rm.loadOrGenerateLogKey(); err != nil {
+	if err := rm.loadKeyRing(); err != nil {
 		t.Fatalf("Failed to load log key: %v", err)
 	}
-	key1 := rm.logKey
+	defer func() {
+		if rm.keyRing != nil {
+			rm.keyRing.Wipe()
+		}
+	}()
+	key1 := rm.keyRing.Active
 
 	// Rotate
 	if err := rm.RotateLogKey(); err != nil {
 		t.Fatalf("Failed to rotate: %v", err)
 	}
-	key2 := rm.logKey
+	key2 := rm.keyRing.Active
 
 	// Restart RaftManager
 	rm2 := &RaftManager{
 		DataDir:   tempDir,
 		MasterKey: mk,
 	}
-	if err := rm2.loadOrGenerateLogKey(); err != nil {
+	if err := rm2.loadKeyRing(); err != nil {
 		t.Fatalf("Failed to load: %v", err)
 	}
+	defer func() {
+		if rm2.keyRing != nil {
+			rm2.keyRing.Wipe()
+		}
+	}()
 
 	// Verify keys match
 	// (EncryptionKey doesn't have equality check, but we can try to decrypt something)
-	data, _ := key2.Encrypt([]byte("test"))
-	if _, err := rm2.logKey.Decrypt(data); err != nil {
+	data, _ := key2.Key.Encrypt([]byte("test"))
+	if _, err := rm2.keyRing.Decrypt(data); err != nil {
 		t.Error("Current key not persisted correctly")
 	}
 
-	dataOld, _ := key1.Encrypt([]byte("old test"))
-	if _, err := rm2.prevLogKey.Decrypt(dataOld); err != nil {
+	dataOld, _ := key1.Key.Encrypt([]byte("old test"))
+	if _, err := rm2.keyRing.Decrypt(dataOld); err != nil {
 		t.Error("Old key not persisted correctly")
 	}
 }
@@ -270,9 +289,11 @@ func (m *mockStableStore) GetUint64(key []byte) (uint64, error) {
 func TestEncryptedStableStore(t *testing.T) {
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	key, _ := mk.NewKey()
+	ring := NewKeyRing(key, "test-key")
+	defer ring.Wipe()
 
 	inner := &mockStableStore{data: make(map[string][]byte)}
-	store := NewEncryptedStableStore(inner, key)
+	store := NewEncryptedStableStore(inner, ring)
 
 	// Test Set/Get
 	if err := store.Set([]byte("key1"), []byte("val1")); err != nil {
@@ -303,5 +324,72 @@ func TestEncryptedStableStore(t *testing.T) {
 	}
 	if uval != 12345 {
 		t.Errorf("Expected 12345, got %d", uval)
+	}
+}
+
+func TestStableStoreRotationPersistence(t *testing.T) {
+	tempDir := t.TempDir()
+
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	rm := &RaftManager{
+		DataDir:   tempDir,
+		MasterKey: mk,
+	}
+
+	if err := rm.loadKeyRing(); err != nil {
+		t.Fatalf("Failed to load log key: %v", err)
+	}
+	defer func() {
+		if rm.keyRing != nil {
+			rm.keyRing.Wipe()
+		}
+	}()
+
+	// 1. Setup EncryptedStableStore
+	inner := &mockStableStore{data: make(map[string][]byte)}
+	store := NewEncryptedStableStore(inner, rm.keyRing)
+	rm.stabStoreEnc = store
+
+	// 2. Write "CurrentTerm" (simulating Raft)
+	termKey := []byte("CurrentTerm")
+	termVal := uint64(1)
+
+	if err := store.SetUint64(termKey, termVal); err != nil {
+		t.Fatalf("Failed to set CurrentTerm: %v", err)
+	}
+
+	// Verify we can read it
+	v, err := store.GetUint64(termKey)
+	if err != nil || v != termVal {
+		t.Fatalf("Failed to read initial term: %v, %d", err, v)
+	}
+
+	// 3. Rotate Key (1 -> 2)
+	if err := rm.RotateLogKey(); err != nil {
+		t.Fatalf("Failed to rotate key 1: %v", err)
+	}
+
+	// Verify we can STILL read it (should use Prev key)
+	v, err = store.GetUint64(termKey)
+	if err != nil {
+		t.Fatalf("Failed to read term after rotation 1: %v", err)
+	}
+	if v != termVal {
+		t.Errorf("Value mismatch after rotation 1: got %d want %d", v, termVal)
+	}
+
+	// 4. Rotate Key (2 -> 3)
+	if err := rm.RotateLogKey(); err != nil {
+		t.Fatalf("Failed to rotate key 2: %v", err)
+	}
+
+	// 5. Verify read SUCCEEDS (because we keep ALL keys)
+	v, err = store.GetUint64(termKey)
+	if err != nil {
+		t.Fatalf("Failed to read term after 2nd rotation (should use retained key): %v", err)
+	}
+	if v != termVal {
+		t.Errorf("Value mismatch after 2nd rotation: got %d want %d", v, termVal)
 	}
 }

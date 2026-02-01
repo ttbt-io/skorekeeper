@@ -23,13 +23,21 @@ Encryption is applied to the following data components:
 
 ## 3. Key Management
 
-The system employs a **Node-Local Key Management** strategy.
+The system employs a **Node-Local Key Management** strategy with support for key rotation.
 
 *   **Root Secret:** A master passphrase is provided to the application via the environment variable `SK_MASTER_KEY`.
 *   **Master Key Derivation:**
     *   On startup, the node checks for a `data/master.key` file.
     *   If the file exists, it is decrypted using the provided passphrase to load the `crypto.MasterKey`.
     *   If the file does not exist, a new random Master Key is generated, encrypted with the passphrase, and saved to `data/master.key`.
+*   **KeyRing Architecture:**
+    *   Raft encryption keys are stored in `data/raft/keys/`.
+    *   Keys are managed by a `KeyRing` structure which maintains an **Active Key** (for new writes) and a list of **Old Keys** (for decrypting older data).
+    *   **Rotation:** Keys can be rotated programmatically. The new key becomes Active, and the previous Active key is demoted to Old. This ensures immediate write protection with new keys while maintaining read access to historical data.
+    *   **Garbage Collection:** A background process runs periodically (every 15 minutes) to securely delete obsolete keys.
+        *   It scans all retained snapshots to identify the oldest key currently in use.
+        *   It re-encrypts critical Stable Store metadata with the Active Key.
+        *   Any keys strictly older than the oldest snapshot key are permanently deleted from disk and memory.
 *   **Isolation:** Each node in a cluster maintains its own unique `master.key` and encryption passphrase. Encryption keys are **never** shared across the network.
     *   This design simplifies rotation and decommissioning of nodes.
     *   Data replicated via Raft (Logs/Snapshots) is decrypted by the sender and re-encrypted by the receiver using their own local keys. Transport security is handled by mTLS.
@@ -44,15 +52,17 @@ The stores have been refactored to abstract file I/O through the `storage` libra
 *   **Lazy Migration:** To support upgrading existing deployments, the read path includes a fallback mechanism. If decryption fails (indicating a legacy plaintext file), the system attempts to read the file as standard JSON. If successful, the data is loaded, and subsequent writes will transparently encrypt the file.
 
 ### 4.2 Encrypted Raft Storage (`backend/raft_crypto.go`)
-Since the Raft library (`hashicorp/raft`) manages its own persistence via BoltDB, we implemented the Decorator Pattern to inject encryption transparently.
+Since the Raft library (`hashicorp/raft`) manages its own persistence via BoltDB, we implemented the Decorator Pattern to inject encryption transparently using the `KeyRing`.
 
-*   **`EncryptedLogStore`:** Wraps the standard `raft.LogStore`. It encrypts the `Data` payload of `raft.Log` entries before storing them and decrypts them upon retrieval.
-*   **`EncryptedStableStore`:** Wraps `raft.StableStore`. It encrypts values (e.g., `CurrentTerm`, `LastVote`) stored in the key-value store.
+*   **`EncryptedLogStore`:** Wraps the standard `raft.LogStore`. It encrypts the `Data` payload of `raft.Log` entries with the **Active Key** before storing them. When retrieving, it attempts decryption with the Active Key, falling back to Old Keys if necessary.
+*   **`EncryptedStableStore`:** Wraps `raft.StableStore`. It encrypts values (e.g., `CurrentTerm`, `LastVote`) stored in the key-value store. Critical values are automatically re-encrypted with the Active Key during garbage collection cycles.
 
 ### 4.3 Encrypted Snapshots (`backend/raft_snapshot_store.go`)
 Snapshots are large files that must be streamed efficiently.
 
-*   **Storage:** The `EncryptedSnapshotStore` wraps the file-based snapshot store. It uses `MasterKey.StartWriter` and `MasterKey.StartReader` to create encrypted streams for writing and reading snapshots on disk.
+*   **Storage:** The `EncryptedSnapshotStore` wraps the file-based snapshot store.
+    *   **Writes:** New snapshots are encrypted using the **Active Key**.
+    *   **Reads:** `Open` identifies the correct key ID from the snapshot file and streams decryption on-the-fly. The implementation handles non-seekable streams by re-opening the file if trial decryption fails.
 *   **Replication:** When a snapshot is sent to another node (InstallSnapshot), `EncryptedSnapshotStore.Open` provides a *decrypted* reader. This plaintext stream is sent over the secure mTLS transport. The receiving node's FSM then persists the data using its own local encryption via its `GameStore` and `TeamStore`.
 
 ## 5. Security Guarantees
