@@ -135,11 +135,6 @@ func NewEncryptedLogStore(inner raft.LogStore, ring *KeyRing) *EncryptedLogStore
 	}
 }
 
-// SetKeyRing updates the key ring reference (if ring pointer changes, though typically we just update inside ring).
-func (e *EncryptedLogStore) SetKeyRing(ring *KeyRing) {
-	e.ring = ring
-}
-
 func (e *EncryptedLogStore) FirstIndex() (uint64, error) {
 	return e.inner.FirstIndex()
 }
@@ -225,10 +220,6 @@ func NewEncryptedStableStore(inner raft.StableStore, ring *KeyRing) *EncryptedSt
 		inner: inner,
 		ring:  ring,
 	}
-}
-
-func (e *EncryptedStableStore) SetKeyRing(ring *KeyRing) {
-	e.ring = ring
 }
 
 func (e *EncryptedStableStore) Set(key []byte, val []byte) error {

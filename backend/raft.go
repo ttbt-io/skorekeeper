@@ -189,8 +189,8 @@ func (rm *RaftManager) loadKeyRing() error {
 		if err != nil {
 			return fmt.Errorf("failed to open key %s: %v", path, err)
 		}
+		defer f.Close()
 		key, err := rm.MasterKey.ReadEncryptedKey(f)
-		f.Close()
 		if err != nil {
 			return fmt.Errorf("failed to read key %s: %v", path, err)
 		}

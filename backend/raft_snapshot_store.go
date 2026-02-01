@@ -38,10 +38,6 @@ func NewEncryptedSnapshotStore(inner raft.SnapshotStore, ring *KeyRing) *Encrypt
 	}
 }
 
-func (e *EncryptedSnapshotStore) SetKeyRing(ring *KeyRing) {
-	e.ring = ring
-}
-
 func (e *EncryptedSnapshotStore) Create(version raft.SnapshotVersion, index, term uint64, configuration raft.Configuration, snapshotSize uint64, trans raft.Transport) (raft.SnapshotSink, error) {
 	sink, err := e.inner.Create(version, index, term, configuration, snapshotSize, trans)
 	if err != nil {
@@ -76,8 +72,14 @@ func (e *EncryptedSnapshotStore) GetSnapshotKeyID(id string) (string, error) {
 		return "", nil
 	}
 
-	// We need to try keys just like Open, but return the ID.
-	keys := append([]*KeyInfo{e.ring.Active}, e.ring.Old...)
+	e.ring.mu.RLock()
+	// Create a snapshot of the keys to iterate over to avoid data races.
+	keys := make([]*KeyInfo, 0, 1+len(e.ring.Old))
+	if e.ring.Active != nil {
+		keys = append(keys, e.ring.Active)
+	}
+	keys = append(keys, e.ring.Old...)
+	e.ring.mu.RUnlock()
 
 	for _, info := range keys {
 		if info == nil {
@@ -107,7 +109,15 @@ func (e *EncryptedSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadClo
 		return e.inner.Open(id)
 	}
 
-	keys := append([]*KeyInfo{e.ring.Active}, e.ring.Old...)
+	e.ring.mu.RLock()
+	// Create a snapshot of the keys to iterate over to avoid data races.
+	keys := make([]*KeyInfo, 0, 1+len(e.ring.Old))
+	if e.ring.Active != nil {
+		keys = append(keys, e.ring.Active)
+	}
+	keys = append(keys, e.ring.Old...)
+	e.ring.mu.RUnlock()
+
 	var lastErr error
 
 	for _, info := range keys {
