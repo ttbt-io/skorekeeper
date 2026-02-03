@@ -76,7 +76,6 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	if err := fsm.persist(sink); err != nil {
 		t.Fatalf("FSM persist failed: %v", err)
 	}
-	// persist calls sink.Close() because of the defer I added
 
 	// 5. Verify Hardlinks on Disk
 	snapID := sink.ID()

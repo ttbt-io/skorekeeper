@@ -544,8 +544,8 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	config.CommitTimeout = 500 * time.Millisecond
 
 	config.SnapshotInterval = 120 * time.Second
-	//config.SnapshotThreshold = 20480
-	config.SnapshotThreshold = 200 // Testing
+	config.SnapshotThreshold = 20480
+	//config.SnapshotThreshold = 200 // Testing
 
 	//config.ShutdownOnRemove = true
 	//config.NoSnapshotRestoreOnStart = true

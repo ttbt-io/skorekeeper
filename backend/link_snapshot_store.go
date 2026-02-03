@@ -56,30 +56,32 @@ func NewLinkSnapshotStore(baseDir string, inner *raft.FileSnapshotStore, ring *K
 	}
 }
 
+func (s *LinkSnapshotStore) resolveSnapshotPath(id string) (string, error) {
+	candidates := []string{
+		filepath.Join(s.baseDir, "snapshots", id),
+		filepath.Join(s.baseDir, "snapshots", id+".tmp"),
+		filepath.Join(s.baseDir, id),
+		filepath.Join(s.baseDir, id+".tmp"),
+	}
+
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("snapshot directory not found for ID %s in %s", id, s.baseDir)
+}
+
 func (s *LinkSnapshotStore) Create(version raft.SnapshotVersion, index, term uint64, configuration raft.Configuration, snapshotSize uint64, trans raft.Transport) (raft.SnapshotSink, error) {
 	sink, err := s.inner.Create(version, index, term, configuration, snapshotSize, trans)
 	if err != nil {
 		return nil, err
 	}
 
-	// FileSnapshotStore typically puts snapshots in baseDir/snapshots/ID.tmp during creation
-	snapDir := filepath.Join(s.baseDir, "snapshots", sink.ID())
-	if _, err := os.Stat(snapDir); os.IsNotExist(err) {
-		snapDir += ".tmp"
-	}
-
-	if _, err := os.Stat(snapDir); os.IsNotExist(err) {
-		// Try without "snapshots" subdir as well (depending on raft version/config)
-		altDir := filepath.Join(s.baseDir, sink.ID())
-		if _, err := os.Stat(altDir); os.IsNotExist(err) {
-			altDir += ".tmp"
-		}
-		if _, err := os.Stat(altDir); err == nil {
-			snapDir = altDir
-		} else {
-			sink.Cancel()
-			return nil, fmt.Errorf("snapshot directory not found for ID %s in %s", sink.ID(), s.baseDir)
-		}
+	snapDir, err := s.resolveSnapshotPath(sink.ID())
+	if err != nil {
+		sink.Cancel()
+		return nil, err
 	}
 
 	var stream crypto.StreamWriter
@@ -174,11 +176,11 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 			return
 		}
 
-		// FileSnapshotStore moves the directory to its final name (without .tmp) once closed.
-		// Since we are Opening it, it should be in the final location.
-		snapDir := filepath.Join(s.baseDir, "snapshots", id)
-		if _, err := os.Stat(snapDir); os.IsNotExist(err) {
-			snapDir = filepath.Join(s.baseDir, id)
+		// Locate snapshot directory (handling .tmp or snapshots/ subdir variants)
+		snapDir, err := s.resolveSnapshotPath(id)
+		if err != nil {
+			pw.CloseWithError(err)
+			return
 		}
 
 		tempStore := storage.New(snapDir, s.masterKey)

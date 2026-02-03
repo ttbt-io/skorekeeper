@@ -79,21 +79,10 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	}
 	id2 := sink2.ID()
 
-	// 5. Verify Snap 1 is gone
-	// Raft's FileSnapshotStore does GC *during* Create (before returning sink) or generally when it feels like it?
-	// Actually, FileSnapshotStore calls ReapSnapshots at the start of Create.
-	// So creating Snap 2 might reap Snap 1 IF there was already one before?
-	// Wait, retain=1 means keep 1.
-	// When we create Snap 2, we have Snap 1.
-	// After Snap 2 is done (Close), we have 2 snapshots.
-	// Does it reap automatically?
-	// FileSnapshotStore typically reaps in Create, but it only sees "complete" snapshots.
-	// So when we start Create 2, Snap 1 is complete.
-	// It lists snapshots. If len > retain, it deletes.
-	// But we passed 1. So it keeps 1.
-	// So after Create 2 is done, we have 2.
-	// We need to trigger another Create or manually reap?
-	// Let's force a Create 3 to see if Snap 1 goes away.
+	// 5. Verify Snap 1 is reaped
+	// FileSnapshotStore reaps snapshots during Create (before returning sink).
+	// With retain=1, creating Snap 2 should leave us with 2 snapshots temporarily (Snap 1 and Snap 2).
+	// We force a third Create (even if cancelled) to ensure Snap 1 is reaped.
 
 	sink3, err := linkStore.Create(1, 30, 1, raft.Configuration{}, 1, nil)
 	if err != nil {

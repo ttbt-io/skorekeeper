@@ -43,6 +43,11 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	if err := f.ts.FlushAll(); err != nil {
 		return fmt.Errorf("failed to flush teams: %w", err)
 	}
+	if f.us != nil {
+		if err := f.us.FlushAll(); err != nil {
+			return fmt.Errorf("failed to flush user indices: %w", err)
+		}
+	}
 
 	// Check if sink supports linking
 	var linker SnapshotLinker
@@ -59,6 +64,27 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		defer gw.Close()
 		tw = tar.NewWriter(gw)
 		defer tw.Close()
+	}
+
+	// Helper to abstract Link vs Tar
+	save := func(relPath string, load func() (any, error)) error {
+		if linker != nil {
+			if err := linker.LinkFile(relPath, relPath); err != nil {
+				return fmt.Errorf("failed to link %s: %w", relPath, err)
+			}
+			return nil
+		}
+		obj, err := load()
+		if err != nil {
+			log.Printf("Snapshot Warning: failed to load %s: %v", relPath, err)
+			return nil // Skip failed load
+		}
+		data, err := json.Marshal(obj)
+		if err != nil {
+			log.Printf("Snapshot Warning: failed to marshal %s: %v", relPath, err)
+			return nil // Skip failed marshal
+		}
+		return writeFileToTar(tw, relPath, data)
 	}
 
 	// 1. Prepare Manifest
@@ -85,36 +111,14 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	}
 
 	// 2. Write Games
-	// Use ListAllGameIDs to iterate names, then handle file logic
 	gameIDs, err := f.gs.ListAllGameIDs()
 	if err != nil {
 		return err
 	}
-
 	for _, id := range gameIDs {
-		encodedId := url.PathEscape(id)
-		srcRel := fmt.Sprintf("games/%s.json", encodedId)
-
-		if linker != nil {
-			// Link
-			if err := linker.LinkFile(srcRel, srcRel); err != nil {
-				return fmt.Errorf("failed to link game %s: %w", id, err)
-			}
-		} else {
-			// Write to Tar
-			g, err := f.gs.LoadGame(id)
-			if err != nil {
-				log.Printf("Snapshot Warning: failed to load game %s: %v", id, err)
-				continue
-			}
-			data, err := json.Marshal(g)
-			if err != nil {
-				log.Printf("Snapshot Warning: failed to marshal game %s: %v", id, err)
-				continue
-			}
-			if err := writeFileToTar(tw, srcRel, data); err != nil {
-				return err
-			}
+		rel := fmt.Sprintf("games/%s.json", url.PathEscape(id))
+		if err := save(rel, func() (any, error) { return f.gs.LoadGame(id) }); err != nil {
+			return err
 		}
 	}
 
@@ -123,127 +127,43 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	if err != nil {
 		return err
 	}
-
 	for _, id := range teamIDs {
-		encodedId := url.PathEscape(id)
-		srcRel := fmt.Sprintf("teams/%s.json", encodedId)
-
-		if linker != nil {
-			if err := linker.LinkFile(srcRel, srcRel); err != nil {
-				return fmt.Errorf("failed to link team %s: %w", id, err)
-			}
-		} else {
-			t, err := f.ts.LoadTeam(id)
-			if err != nil {
-				log.Printf("Snapshot Warning: failed to load team %s: %v", id, err)
-				continue
-			}
-			data, err := json.Marshal(t)
-			if err != nil {
-				log.Printf("Snapshot Warning: failed to marshal team %s: %v", id, err)
-				continue
-			}
-			if err := writeFileToTar(tw, srcRel, data); err != nil {
-				return err
-			}
+		rel := fmt.Sprintf("teams/%s.json", url.PathEscape(id))
+		if err := save(rel, func() (any, error) { return f.ts.LoadTeam(id) }); err != nil {
+			return err
 		}
 	}
 
 	// 4. Write User Indices
-	// Currently indices are not separate files in the same way (they are inside users/ team_games/ etc)
-	// They are managed by user_index_store which uses `storage` too.
-	// If `UserIndexStore` stores individual files, we can link them too.
-	// `UserIndexStore` implementation uses `users/ID.json`.
-	// We can link them if we iterate IDs.
-	// Current `persist` uses `f.us.ListAllUserIndices()` which returns objects.
-	// We need file-based iteration or keep using tar for them if small?
-	// User indices can be large (many users).
-	// Let's defer linking user indices to a future optimization to verify this change first,
-	// OR use `ListAllUserIndices` (which loads them) and Write to Tar for now.
-	// The LinkSnapshotStore.Open handles `users/` prefix by reading generic JSON, so it supports it being in Tar.
-	// Wait, if I write them to `tw` here, but `linker` is NOT nil, `tw` is nil!
-	// So I MUST handle them.
-	// If I don't link them, I must write them to `state.bin` (via linker.WriteManifest? No, that's just one file).
-	// `LinkSnapshotSink` writes to `state.bin`.
-	// If I want to include them in the snapshot, I have two options:
-	// A) Link them (requires `ListAllUserIDs` and knowing paths).
-	// B) Write them to `sink` (state.bin). But `state.bin` is just one stream.
-	//    The `LinkSnapshotStore.Open` reads `state.bin` as the Manifest JSON *only*.
-	//    Wait, `LinkSnapshotStore.Open` reads `state.bin` into `manifestBytes`.
-	//    Then it uses `writeFileToTar(tw, "manifest.json", manifestBytes)`.
-	//    It expects `state.bin` to be JUST `manifest.json`.
-	//    So I CANNOT write other stuff to `sink` if I use `LinkSnapshotStore`.
-	//    I MUST link EVERYTHING or change `LinkSnapshotStore` to handle a tarball in `state.bin`.
-	//    The current design of `LinkSnapshotStore` assumes `state.bin` is effectively `manifest.json`.
-	//    So I MUST link `users/`, `team_games/`, etc.
-
-	// I need `ListAllUserIDs` etc from `UserIndexStore`.
-	// Let's check `user_index_store.go`.
-	// It likely has `ListAllUserIndices` which loads them.
-	// I should implement `LinkUserIndices` helper in `UserIndexStore` or just iterate.
-	// `f.us` has `ListAllUserIndices`.
-	// If I iterate them, I can get ID, construct path, and Link.
-
 	if f.us != nil {
-		if linker != nil {
-			// Optimized Path: Link files directly without loading/decrypting
-			if files, err := f.us.ListUserIndexFiles(); err == nil {
-				for _, path := range files {
-					linker.LinkFile(path, path)
+		processFiles := func(listFiles func() ([]string, error), loadType func() any) error {
+			files, err := listFiles()
+			if err != nil {
+				return err
+			}
+			for _, path := range files {
+				if err := save(path, func() (any, error) {
+					idx := loadType()
+					err := f.storage.ReadDataFile(path, idx)
+					return idx, err
+				}); err != nil {
+					return err
 				}
 			}
-			if files, err := f.us.ListTeamGamesFiles(); err == nil {
-				for _, path := range files {
-					linker.LinkFile(path, path)
-				}
-			}
-			if files, err := f.us.ListGameUsersFiles(); err == nil {
-				for _, path := range files {
-					linker.LinkFile(path, path)
-				}
-			}
-			if files, err := f.us.ListTeamUsersFiles(); err == nil {
-				for _, path := range files {
-					linker.LinkFile(path, path)
-				}
-			}
-		} else {
-			// Legacy/Tar Path: Load objects (decrypt) and write JSON
-			// Users
-			users, _ := f.us.ListAllUserIndices()
-			for _, idx := range users {
-				encodedId := url.PathEscape(idx.UserID)
-				path := fmt.Sprintf("users/%s.json", encodedId)
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, path, data)
-			}
+			return nil
+		}
 
-			// Team Games
-			teamGames, _ := f.us.ListAllTeamGames()
-			for _, idx := range teamGames {
-				encodedId := url.PathEscape(idx.TeamID)
-				path := fmt.Sprintf("team_games/%s.json", encodedId)
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, path, data)
-			}
-
-			// Game Users
-			gameUsers, _ := f.us.ListAllGameUsers()
-			for _, idx := range gameUsers {
-				encodedId := url.PathEscape(idx.GameID)
-				path := fmt.Sprintf("game_users/%s.json", encodedId)
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, path, data)
-			}
-
-			// Team Users
-			teamUsers, _ := f.us.ListAllTeamUsers()
-			for _, idx := range teamUsers {
-				encodedId := url.PathEscape(idx.TeamID)
-				path := fmt.Sprintf("team_users/%s.json", encodedId)
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, path, data)
-			}
+		if err := processFiles(f.us.ListUserIndexFiles, func() any { return &UserIndex{} }); err != nil {
+			return err
+		}
+		if err := processFiles(f.us.ListTeamGamesFiles, func() any { return &TeamGamesIndex{} }); err != nil {
+			return err
+		}
+		if err := processFiles(f.us.ListGameUsersFiles, func() any { return &GameUsersIndex{} }); err != nil {
+			return err
+		}
+		if err := processFiles(f.us.ListTeamUsersFiles, func() any { return &TeamUsersIndex{} }); err != nil {
+			return err
 		}
 	}
 
@@ -435,21 +355,10 @@ func (f *FSM) restore(rc io.Reader) error {
 		return nil
 	}
 
-	// Cleanup Zombies (games/teams only, indices cleaned up by overwrite or we accept staleness until next update)
-	// Ideally we clean up indices too, but listing all files is expensive.
-	// Since we overwrote active ones, stale ones might remain on disk but won't be in active set?
-	// Actually, if we restore, we might want to clear directory first?
-	// Raft usually snapshots FULL state.
-	// Current cleanup only handles games/teams.
-	// For indices, if a user was deleted, their index file remains.
-	// It's acceptable for indices to be "additive" or we need to list and delete.
-	// Given "Scalability", listing all users to delete zombies is slow.
-	// We'll accept zombie index files for now (they are just disk space, not logically reachable if user doesn't exist).
-	// But wait, if user exists but lost access, the file is overwritten.
-	// If user is completely gone?
-	// We don't have a list of "active users" in memory to check against.
-	// So we skip zombie cleanup for users for now.
-
+	// Cleanup Zombies (Games and Teams only).
+	// We delete any local entities that were not present in the snapshot to maintain consistency.
+	// User index cleanup is currently skipped as listing all users is prohibitively expensive
+	// for large datasets; zombie index files remain on disk but are logically unreachable.
 	gameIDs, err := f.gs.ListAllGameIDs()
 	if err == nil {
 		for _, id := range gameIDs {

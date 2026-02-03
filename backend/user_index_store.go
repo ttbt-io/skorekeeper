@@ -575,10 +575,6 @@ func (s *UserIndexStore) InvalidateTeamUsers(id string) { s.teamUserCache.Remove
 // --- Snapshot Helpers ---
 
 func (s *UserIndexStore) listIndexFiles(subDir string) ([]string, error) {
-	// Ensure we flush dirty cache first if we want accurate disk state?
-	// The caller (snapshot.persist) is responsible for calling FlushAll().
-	// We just read disk.
-
 	dir := filepath.Join(s.DataDir, subDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
