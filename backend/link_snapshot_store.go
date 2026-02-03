@@ -215,15 +215,37 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 				}
 				data, _ := json.Marshal(t)
 				writeFileToTar(tw, relPath, data)
-			} else if strings.HasPrefix(relPath, "users/") || strings.HasPrefix(relPath, "team_games/") ||
-				strings.HasPrefix(relPath, "game_users/") || strings.HasPrefix(relPath, "team_users/") {
-				// User indices
-				var v interface{}
-				if err := tempStore.ReadDataFile(relPath, &v); err != nil {
-					log.Printf("Snapshot Open Warning: failed to read index %s: %v", relPath, err)
+			} else if strings.HasPrefix(relPath, "users/") {
+				var idx UserIndex
+				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
+					log.Printf("Snapshot Open Warning: failed to read user index %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(v)
+				data, _ := json.Marshal(idx)
+				writeFileToTar(tw, relPath, data)
+			} else if strings.HasPrefix(relPath, "team_games/") {
+				var idx TeamGamesIndex
+				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
+					log.Printf("Snapshot Open Warning: failed to read team_games index %s: %v", relPath, err)
+					return nil
+				}
+				data, _ := json.Marshal(idx)
+				writeFileToTar(tw, relPath, data)
+			} else if strings.HasPrefix(relPath, "game_users/") {
+				var idx GameUsersIndex
+				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
+					log.Printf("Snapshot Open Warning: failed to read game_users index %s: %v", relPath, err)
+					return nil
+				}
+				data, _ := json.Marshal(idx)
+				writeFileToTar(tw, relPath, data)
+			} else if strings.HasPrefix(relPath, "team_users/") {
+				var idx TeamUsersIndex
+				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
+					log.Printf("Snapshot Open Warning: failed to read team_users index %s: %v", relPath, err)
+					return nil
+				}
+				data, _ := json.Marshal(idx)
 				writeFileToTar(tw, relPath, data)
 			}
 

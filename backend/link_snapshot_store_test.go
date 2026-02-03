@@ -50,6 +50,11 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 		t.Fatalf("Failed to save team: %v", err)
 	}
 
+	// Setup User Index
+	idx := &UserIndex{UserID: "user-1", LastUpdated: 12345}
+	us.SetUserIndex(idx)
+	us.FlushAll()
+
 	// 2. Setup Raft Keyring
 	rk, _ := mk.NewKey()
 	ring := NewKeyRing(rk, "raft-key-1")
@@ -110,6 +115,7 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	foundManifest := false
 	foundGame := false
 	foundTeam := false
+	foundUser := false
 
 	for {
 		header, err := tr.Next()
@@ -148,11 +154,21 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 			if t2.ID != "team-1" || t2.Name != "Super Team" {
 				t.Errorf("Decoded team mismatch: %+v", t2)
 			}
+		default:
+			if filepath.Dir(header.Name) == "users" {
+				var u UserIndex
+				if err := json.NewDecoder(tr).Decode(&u); err != nil {
+					t.Fatalf("Failed to decode user index: %v", err)
+				}
+				if u.UserID == "user-1" {
+					foundUser = true
+				}
+			}
 		}
 	}
 
-	if !foundManifest || !foundGame || !foundTeam {
-		t.Errorf("Missing entries in tar stream: manifest=%v, game=%v, team=%v", foundManifest, foundGame, foundTeam)
+	if !foundManifest || !foundGame || !foundTeam || !foundUser {
+		t.Errorf("Missing entries: manifest=%v, game=%v, team=%v, user=%v", foundManifest, foundGame, foundTeam, foundUser)
 	}
 
 	// 7. Test Restore with reconstructed stream

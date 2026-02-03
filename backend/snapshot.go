@@ -185,53 +185,62 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	// If I iterate them, I can get ID, construct path, and Link.
 
 	if f.us != nil {
-		// Users
-		users, _ := f.us.ListAllUserIndices()
-		for _, idx := range users {
-			encodedId := url.PathEscape(idx.UserID)
-			path := fmt.Sprintf("users/%s.json", encodedId)
-			if linker != nil {
-				linker.LinkFile(path, path)
-			} else {
+		if linker != nil {
+			// Optimized Path: Link files directly without loading/decrypting
+			if files, err := f.us.ListUserIndexFiles(); err == nil {
+				for _, path := range files {
+					linker.LinkFile(path, path)
+				}
+			}
+			if files, err := f.us.ListTeamGamesFiles(); err == nil {
+				for _, path := range files {
+					linker.LinkFile(path, path)
+				}
+			}
+			if files, err := f.us.ListGameUsersFiles(); err == nil {
+				for _, path := range files {
+					linker.LinkFile(path, path)
+				}
+			}
+			if files, err := f.us.ListTeamUsersFiles(); err == nil {
+				for _, path := range files {
+					linker.LinkFile(path, path)
+				}
+			}
+		} else {
+			// Legacy/Tar Path: Load objects (decrypt) and write JSON
+			// Users
+			users, _ := f.us.ListAllUserIndices()
+			for _, idx := range users {
+				encodedId := url.PathEscape(idx.UserID)
+				path := fmt.Sprintf("users/%s.json", encodedId)
 				data, _ := json.Marshal(idx)
 				writeFileToTar(tw, path, data)
 			}
-		}
 
-		// Team Games
-		teamGames, _ := f.us.ListAllTeamGames()
-		for _, idx := range teamGames {
-			encodedId := url.PathEscape(idx.TeamID)
-			path := fmt.Sprintf("team_games/%s.json", encodedId)
-			if linker != nil {
-				linker.LinkFile(path, path)
-			} else {
+			// Team Games
+			teamGames, _ := f.us.ListAllTeamGames()
+			for _, idx := range teamGames {
+				encodedId := url.PathEscape(idx.TeamID)
+				path := fmt.Sprintf("team_games/%s.json", encodedId)
 				data, _ := json.Marshal(idx)
 				writeFileToTar(tw, path, data)
 			}
-		}
 
-		// Game Users
-		gameUsers, _ := f.us.ListAllGameUsers()
-		for _, idx := range gameUsers {
-			encodedId := url.PathEscape(idx.GameID)
-			path := fmt.Sprintf("game_users/%s.json", encodedId)
-			if linker != nil {
-				linker.LinkFile(path, path)
-			} else {
+			// Game Users
+			gameUsers, _ := f.us.ListAllGameUsers()
+			for _, idx := range gameUsers {
+				encodedId := url.PathEscape(idx.GameID)
+				path := fmt.Sprintf("game_users/%s.json", encodedId)
 				data, _ := json.Marshal(idx)
 				writeFileToTar(tw, path, data)
 			}
-		}
 
-		// Team Users
-		teamUsers, _ := f.us.ListAllTeamUsers()
-		for _, idx := range teamUsers {
-			encodedId := url.PathEscape(idx.TeamID)
-			path := fmt.Sprintf("team_users/%s.json", encodedId)
-			if linker != nil {
-				linker.LinkFile(path, path)
-			} else {
+			// Team Users
+			teamUsers, _ := f.us.ListAllTeamUsers()
+			for _, idx := range teamUsers {
+				encodedId := url.PathEscape(idx.TeamID)
+				path := fmt.Sprintf("team_users/%s.json", encodedId)
 				data, _ := json.Marshal(idx)
 				writeFileToTar(tw, path, data)
 			}

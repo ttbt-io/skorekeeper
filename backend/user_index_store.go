@@ -574,6 +574,45 @@ func (s *UserIndexStore) InvalidateTeamUsers(id string) { s.teamUserCache.Remove
 
 // --- Snapshot Helpers ---
 
+func (s *UserIndexStore) listIndexFiles(subDir string) ([]string, error) {
+	// Ensure we flush dirty cache first if we want accurate disk state?
+	// The caller (snapshot.persist) is responsible for calling FlushAll().
+	// We just read disk.
+
+	dir := filepath.Join(s.DataDir, subDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+			files = append(files, filepath.Join(subDir, e.Name()))
+		}
+	}
+	return files, nil
+}
+
+func (s *UserIndexStore) ListUserIndexFiles() ([]string, error) {
+	return s.listIndexFiles("users")
+}
+
+func (s *UserIndexStore) ListTeamGamesFiles() ([]string, error) {
+	return s.listIndexFiles("team_games")
+}
+
+func (s *UserIndexStore) ListGameUsersFiles() ([]string, error) {
+	return s.listIndexFiles("game_users")
+}
+
+func (s *UserIndexStore) ListTeamUsersFiles() ([]string, error) {
+	return s.listIndexFiles("team_users")
+}
+
 func (s *UserIndexStore) ListAllUserIndices() ([]*UserIndex, error) {
 	return s.ListAllUserIndicesWithDirty()
 }
