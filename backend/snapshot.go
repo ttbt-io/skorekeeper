@@ -50,41 +50,17 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	}
 
 	// Check if sink supports linking
-	var linker SnapshotLinker
-	if l, ok := sink.(SnapshotLinker); ok {
-		linker = l
+	linker, ok := sink.(SnapshotLinker)
+	if !ok {
+		return fmt.Errorf("sink does not support SnapshotLinker interface")
 	}
 
-	// If not linking, we wrap in Gzip/Tar immediately
-	var gw *gzip.Writer
-	var tw *tar.Writer
-
-	if linker == nil {
-		gw = gzip.NewWriter(sink)
-		defer gw.Close()
-		tw = tar.NewWriter(gw)
-		defer tw.Close()
-	}
-
-	// Helper to abstract Link vs Tar
-	save := func(relPath string, load func() (any, error)) error {
-		if linker != nil {
-			if err := linker.LinkFile(relPath, relPath); err != nil {
-				return fmt.Errorf("failed to link %s: %w", relPath, err)
-			}
-			return nil
+	// Helper to link files
+	link := func(relPath string) error {
+		if err := linker.LinkFile(relPath, relPath); err != nil {
+			return fmt.Errorf("failed to link %s: %w", relPath, err)
 		}
-		obj, err := load()
-		if err != nil {
-			log.Printf("Snapshot Warning: failed to load %s: %v", relPath, err)
-			return nil // Skip failed load
-		}
-		data, err := json.Marshal(obj)
-		if err != nil {
-			log.Printf("Snapshot Warning: failed to marshal %s: %v", relPath, err)
-			return nil // Skip failed marshal
-		}
-		return writeFileToTar(tw, relPath, data)
+		return nil
 	}
 
 	// 1. Prepare Manifest
@@ -100,14 +76,8 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	}
 	manifestBytes, _ := json.Marshal(manifest)
 
-	if linker != nil {
-		if _, err := linker.WriteManifest(manifestBytes); err != nil {
-			return err
-		}
-	} else {
-		if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
-			return err
-		}
+	if _, err := linker.WriteManifest(manifestBytes); err != nil {
+		return err
 	}
 
 	// 2. Write Games
@@ -117,7 +87,7 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	}
 	for _, id := range gameIDs {
 		rel := fmt.Sprintf("games/%s.json", url.PathEscape(id))
-		if err := save(rel, func() (any, error) { return f.gs.LoadGame(id) }); err != nil {
+		if err := link(rel); err != nil {
 			return err
 		}
 	}
@@ -129,107 +99,37 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 	}
 	for _, id := range teamIDs {
 		rel := fmt.Sprintf("teams/%s.json", url.PathEscape(id))
-		if err := save(rel, func() (any, error) { return f.ts.LoadTeam(id) }); err != nil {
+		if err := link(rel); err != nil {
 			return err
 		}
 	}
 
 	// 4. Write User Indices
 	if f.us != nil {
-		if linker != nil {
-			// Hardlink Strategy: O(1) memory, O(N) metadata ops
-			linkGroup := func(listFiles func() ([]string, error)) error {
-				files, err := listFiles()
-				if err != nil {
-					return err
-				}
-				for _, path := range files {
-					if err := linker.LinkFile(path, path); err != nil {
-						return fmt.Errorf("failed to link %s: %w", path, err)
-					}
-				}
-				return nil
-			}
-
-			if err := linkGroup(f.us.ListUserIndexFiles); err != nil {
+		linkGroup := func(listFiles func() ([]string, error)) error {
+			files, err := listFiles()
+			if err != nil {
 				return err
 			}
-			if err := linkGroup(f.us.ListTeamGamesFiles); err != nil {
-				return err
+			for _, path := range files {
+				if err := link(path); err != nil {
+					return err
+				}
 			}
-			if err := linkGroup(f.us.ListGameUsersFiles); err != nil {
-				return err
-			}
-			if err := linkGroup(f.us.ListTeamUsersFiles); err != nil {
-				return err
-			}
-		} else {
-			// Tarball Strategy: Streaming objects (Low Memory, High IO)
-			// We use iterators to load objects one-by-one from disk.
+			return nil
+		}
 
-			// Users
-			for idx, err := range f.us.IterateAllUserIndices() {
-				if err != nil {
-					return err
-				}
-				path := fmt.Sprintf("users/%s.json", url.PathEscape(idx.UserID))
-				data, err := json.Marshal(idx)
-				if err != nil {
-					log.Printf("Snapshot Warning: failed to marshal user index %s: %v", idx.UserID, err)
-					continue
-				}
-				if err := writeFileToTar(tw, path, data); err != nil {
-					return err
-				}
-			}
-
-			// Team Games
-			for idx, err := range f.us.IterateAllTeamGames() {
-				if err != nil {
-					return err
-				}
-				path := fmt.Sprintf("team_games/%s.json", url.PathEscape(idx.TeamID))
-				data, err := json.Marshal(idx)
-				if err != nil {
-					log.Printf("Snapshot Warning: failed to marshal team_games index %s: %v", idx.TeamID, err)
-					continue
-				}
-				if err := writeFileToTar(tw, path, data); err != nil {
-					return err
-				}
-			}
-
-			// Game Users
-			for idx, err := range f.us.IterateAllGameUsers() {
-				if err != nil {
-					return err
-				}
-				path := fmt.Sprintf("game_users/%s.json", url.PathEscape(idx.GameID))
-				data, err := json.Marshal(idx)
-				if err != nil {
-					log.Printf("Snapshot Warning: failed to marshal game_users index %s: %v", idx.GameID, err)
-					continue
-				}
-				if err := writeFileToTar(tw, path, data); err != nil {
-					return err
-				}
-			}
-
-			// Team Users
-			for idx, err := range f.us.IterateAllTeamUsers() {
-				if err != nil {
-					return err
-				}
-				path := fmt.Sprintf("team_users/%s.json", url.PathEscape(idx.TeamID))
-				data, err := json.Marshal(idx)
-				if err != nil {
-					log.Printf("Snapshot Warning: failed to marshal team_users index %s: %v", idx.TeamID, err)
-					continue
-				}
-				if err := writeFileToTar(tw, path, data); err != nil {
-					return err
-				}
-			}
+		if err := linkGroup(f.us.ListUserIndexFiles); err != nil {
+			return err
+		}
+		if err := linkGroup(f.us.ListTeamGamesFiles); err != nil {
+			return err
+		}
+		if err := linkGroup(f.us.ListGameUsersFiles); err != nil {
+			return err
+		}
+		if err := linkGroup(f.us.ListTeamUsersFiles); err != nil {
+			return err
 		}
 	}
 

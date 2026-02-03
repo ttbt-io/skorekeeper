@@ -1,13 +1,15 @@
 package backend
 
 import (
-	"bytes"
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
 )
 
@@ -76,21 +78,44 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 		t.Errorf("fsm_state.json index mismatch: expected 100, got %v (type %T)", val, val)
 	}
 
-	// Check Manifest in Tarball
-	sink := &testSmartSnapshotSink{Buffer: &bytes.Buffer{}}
+	// Check Manifest in Snapshot
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+
+	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
 
-	// Restore to check manifest
-	// We can't easily peek inside without un-tarring.
-	// Let's use fsm.restore (which reads manifest) on a fresh FSM
-	// and verify it sees the index?
-	// But FSM doesn't expose the manifest it read.
-	// We can modify restore to log it (already does) or trust unit test logic.
-	// Let's manually inspect the tarball using FSM.restore logic?
-	// Actually, Phase 2 implements checking the manifest.
-	// For Phase 1, we just ensure it compiles and writes the file.
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
+
+	// Read tar to find manifest.json
+	gz, _ := gzip.NewReader(rc)
+	tr := tar.NewReader(gz)
+	found := false
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if h.Name == "manifest.json" {
+			var m snapshotManifest
+			json.NewDecoder(tr).Decode(&m)
+			if m.RaftIndex != 100 {
+				t.Errorf("Manifest index mismatch. Expected 100, got %d", m.RaftIndex)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Manifest not found in snapshot")
+	}
 }
 
 func TestSmartSnapshot_SkipRestore(t *testing.T) {
@@ -144,9 +169,12 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 		t.Fatalf("Snapshot creation failed: %v", err)
 	}
 
-	// Persist to buffer
-	var buf bytes.Buffer
-	sink := &testSmartSnapshotSink{Buffer: &buf}
+	// Persist to LinkSnapshotStore
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	innerStore, _ := raft.NewFileSnapshotStore(tmpDir2, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(tmpDir2, innerStore, nil, mk)
+
+	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
@@ -154,7 +182,13 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// 3. Restore FSM1 from Snapshot
 	// FSM1 has Index 200. Snapshot is Index 100.
 	// Should SKIP.
-	if err := fsm.Restore(io.NopCloser(&buf)); err != nil {
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
+
+	if err := fsm.Restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
@@ -184,7 +218,7 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	numGames := 10
 	for i := 0; i < numGames; i++ {
 		// We use gs.SaveGame directly to bypass FSM log/index but populate disk
-		g := &Game{ID: fmt.Sprintf("game-%d", i), ActionLog: []json.RawMessage{}}
+		g := &Game{ID: fmt.Sprintf("game-%d", i), ActionLog: []json.RawMessage{}, SchemaVersion: 3}
 		gs.SaveGame(g)
 	}
 
@@ -194,15 +228,18 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
-	var buf bytes.Buffer
-	sink := &testSmartSnapshotSink{Buffer: &buf}
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+
+	sink, _ := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
 
 	// New FSM
 	tmpDir2 := t.TempDir()
-	s2 := storage.New(tmpDir2, nil)
+	s2 := storage.New(tmpDir2, mk)
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
 	us2 := NewUserIndexStore(tmpDir2, s2, nil)
@@ -210,7 +247,13 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
 
 	// Restore
-	if err := fsm2.Restore(io.NopCloser(&buf)); err != nil {
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
+
+	if err := fsm2.Restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
@@ -222,11 +265,3 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 		}
 	}
 }
-
-type testSmartSnapshotSink struct {
-	*bytes.Buffer
-}
-
-func (m *testSmartSnapshotSink) ID() string    { return "mock" }
-func (m *testSmartSnapshotSink) Cancel() error { return nil }
-func (m *testSmartSnapshotSink) Close() error  { return nil }

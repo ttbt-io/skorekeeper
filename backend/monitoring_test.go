@@ -17,6 +17,7 @@ package backend
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
 )
 
@@ -174,7 +176,15 @@ func TestFSMMetricsPersistence(t *testing.T) {
 	}
 
 	// Snapshot
-	sink := &monitoringSnapshotSink{data: make([]byte, 0)}
+	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
+	}
+
 	snapshot, err := fsm.Snapshot()
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
@@ -189,7 +199,7 @@ func TestFSMMetricsPersistence(t *testing.T) {
 		t.Fatalf("metrics.json not found on disk after Snapshot")
 	}
 
-	// Restore Verification
+	// Restore Verification (Check disk content)
 	var m2 MetricsStore
 	if err := s.ReadDataFile("metrics.json", &m2); err != nil {
 		t.Fatalf("Failed to read metrics.json back: %v", err)
@@ -201,18 +211,6 @@ func TestFSMMetricsPersistence(t *testing.T) {
 		t.Errorf("Restored metrics mismatch: %+v", points2)
 	}
 }
-
-type monitoringSnapshotSink struct {
-	data []byte
-}
-
-func (m *monitoringSnapshotSink) Write(p []byte) (n int, err error) {
-	m.data = append(m.data, p...)
-	return len(p), nil
-}
-func (m *monitoringSnapshotSink) Close() error  { return nil }
-func (m *monitoringSnapshotSink) ID() string    { return "mock" }
-func (m *monitoringSnapshotSink) Cancel() error { return nil }
 
 func TestFSM_ApplyBatch_Metrics(t *testing.T) {
 	// Setup FSM

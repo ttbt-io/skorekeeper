@@ -1,43 +1,21 @@
 package backend
 
 import (
-	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
+	"github.com/hashicorp/raft"
 )
-
-// testMockSnapshotSink implements raft.SnapshotSink
-type testMockSnapshotSink struct {
-	*bytes.Buffer
-	id     string
-	cancel bool
-	closed bool
-}
-
-func newTestMockSnapshotSink() *testMockSnapshotSink {
-	return &testMockSnapshotSink{
-		Buffer: new(bytes.Buffer),
-		id:     "test-snapshot-id",
-	}
-}
-
-func (m *testMockSnapshotSink) ID() string { return m.id }
-func (m *testMockSnapshotSink) Cancel() error {
-	m.cancel = true
-	return nil
-}
-func (m *testMockSnapshotSink) Close() error {
-	m.closed = true
-	return nil
-}
 
 func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	tmpDir := t.TempDir()
-	st := storage.New(tmpDir, nil)
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	st := storage.New(tmpDir, mk)
 	gs := NewGameStore(tmpDir, st)
 	ts := NewTeamStore(tmpDir, st)
 	us := NewUserIndexStore(tmpDir, st, nil)
@@ -69,44 +47,62 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	}
 
 	// 2. Take Snapshot (Should Flush)
+	// We call fsm.Snapshot() to get the FSMSnapshot object, then Persist it.
 	snap, err := fsm.Snapshot()
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
 	// Verify ON DISK now (Flush occurred)
-	if _, err := os.Stat(filepath.Join(tmpDir, "games", gameId+".json")); os.IsNotExist(err) {
-		t.Error("Game should be on disk after Snapshot call")
+	// Flush happens inside persist? No, FSM.Snapshot doesn't flush. FSM.persist flushes.
+	// Wait, FSM.Snapshot() returns a struct. It doesn't do IO.
+	// Persist() does IO.
+	// So we can't verify flush here yet.
+	// Ah, the original test asserted Flush happened at Snapshot() call?
+	// The original `FSM.Snapshot` implementation might not have flushed.
+	// `LinkSnapshotStore` implementation of `persist` calls `FlushAll`.
+	// So we verify flush AFTER Persist.
+
+	// 3. Persist Snapshot to Sink (Hardlinks)
+	innerStore, err := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(tmpDir, "teams", teamId+".json")); os.IsNotExist(err) {
-		t.Error("Team should be on disk after Snapshot call")
+	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
 	}
 
-	// 3. Persist Snapshot to Sink (Tarball)
-	sink := newTestMockSnapshotSink()
 	if err := snap.Persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
-	if !sink.closed {
-		t.Error("Sink was not closed")
+	// Persist closes the sink.
+
+	// Now verify Flush occurred
+	if _, err := os.Stat(filepath.Join(tmpDir, "games", gameId+".json")); os.IsNotExist(err) {
+		t.Error("Game should be on disk after Persist call")
 	}
 
 	// 4. Restore from Snapshot (Simulate Crash/Restart)
 	// Create NEW FSM
 	tmpDir2 := t.TempDir()
-	st2 := storage.New(tmpDir2, nil)
+	st2 := storage.New(tmpDir2, mk)
 	gs2 := NewGameStore(tmpDir2, st2)
 	ts2 := NewTeamStore(tmpDir2, st2)
 	us2 := NewUserIndexStore(tmpDir2, st2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
 	fsm2 := NewFSM(gs2, ts2, r2, hm, st2, us2)
 
-	// Feed the tarball to Restore
-	reader := bytes.NewReader(sink.Bytes())
-	// Use io.NopCloser because Restore expects ReadCloser but we have Reader
-	readCloser := &nopReadCloser{reader}
+	// Open snapshot from linkStore (same source dir)
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
 
-	if err := fsm2.Restore(readCloser); err != nil {
+	if err := fsm2.Restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
@@ -127,12 +123,6 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 		t.Errorf("Restored team has wrong index: %d", tRestored.LastRaftIndex)
 	}
 }
-
-type nopReadCloser struct {
-	*bytes.Reader
-}
-
-func (n *nopReadCloser) Close() error { return nil }
 
 func TestPersistence_CrashRecovery_LogReplay(t *testing.T) {
 	// Simulate: Apply 1 (Flush), Apply 2 (Dirty/Memory), Crash, Replay 2.

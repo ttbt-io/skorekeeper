@@ -30,6 +30,25 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+const snapshotCryptoCtx = "raft-snapshot"
+
+// DecryptedReadCloser wraps the underlying reader.
+type DecryptedReadCloser struct {
+	inner  io.ReadCloser
+	stream crypto.StreamReader // io.Reader + io.Seeker + io.Closer
+}
+
+func (r *DecryptedReadCloser) Read(p []byte) (n int, err error) {
+	return r.stream.Read(p)
+}
+
+func (r *DecryptedReadCloser) Close() error {
+	// Close stream first
+	r.stream.Close()
+	// Then close underlying file
+	return r.inner.Close()
+}
+
 // SnapshotLinker is the interface that FSM.Persist uses to link files.
 type SnapshotLinker interface {
 	LinkFile(srcRelPath string, dstRelPath string) error

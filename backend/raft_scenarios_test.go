@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 )
 
 // TestRaftScenarios verifies cluster consistency under various restart/failure conditions.
@@ -23,6 +24,7 @@ func TestRaftScenarios(t *testing.T) {
 	activeNodes := make(map[string]*RaftManager)
 	nodeDirs := make(map[string]string)
 	nodePorts := make(map[string]int)
+	nodeMKs := make(map[string]crypto.MasterKey)
 
 	// Helper: Get free port
 	getFreePort := func() int {
@@ -56,15 +58,25 @@ func TestRaftScenarios(t *testing.T) {
 
 		// Use a fixed secret for cluster
 		secret := "test-secret"
+		
+		mk, ok := nodeMKs[id]
+		if !ok {
+			var err error
+			mk, err = crypto.CreateAESMasterKeyForTest()
+			if err != nil {
+				t.Fatalf("Failed to create master key: %v", err)
+			}
+			nodeMKs[id] = mk
+		}
 
-		s := storage.New(dir, nil)
+		s := storage.New(dir, mk)
 		gs := NewGameStore(dir, s)
 		ts := NewTeamStore(dir, s)
 		us := NewUserIndexStore(dir, s, nil)
 		r := NewRegistry(gs, ts, us, true)
 		fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 
-		rm := NewRaftManager(dir, raftAddr, raftAddr, httpAddr, httpAddr, secret, nil, fsm)
+		rm := NewRaftManager(dir, raftAddr, raftAddr, httpAddr, httpAddr, secret, mk, fsm)
 
 		// aggressive snapshot config for testing
 		// We modify the internal config before Start (a bit hacky but needed since Config is private/hardcoded in Start)

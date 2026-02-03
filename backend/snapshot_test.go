@@ -15,16 +15,18 @@
 package backend
 
 import (
-	"bytes"
 	"io"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
+	"github.com/hashicorp/raft"
 )
 
 func TestFSMSnapshot(t *testing.T) {
 	dataDir := t.TempDir()
-	s := storage.New(dataDir, nil)
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+	s := storage.New(dataDir, mk)
 
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
@@ -43,22 +45,41 @@ func TestFSMSnapshot(t *testing.T) {
 
 	fsm.nodeMap.Store("node-1", &NodeMeta{NodeID: "node-1", HttpAddr: "127.0.0.1:8080"})
 
-	// 2. Snapshot
-	var buf bytes.Buffer
-	if err := fsm.persist(&nopWriteCloser{Buffer: &buf}); err != nil {
-		t.Fatalf("Snapshot failed: %v", err)
+	// 2. Snapshot using LinkSnapshotStore
+	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	linkStore := NewLinkSnapshotStore(dataDir, innerStore, nil, mk)
+
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
 	}
 
-	// Restore to new dir
+	if err := fsm.persist(sink); err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+	// persist closes the sink
+
+	// 3. Restore to new dir
+	// To test restore, we can use the SAME linkStore to Open the snapshot we just made.
+	// But we restore into a NEW FSM backed by a NEW DataDir.
 	dataDir2 := t.TempDir()
-	s2 := storage.New(dataDir2, nil)
+	s2 := storage.New(dataDir2, mk)
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
 	us2 := NewUserIndexStore(dataDir2, s2, nil)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
 	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
 
-	if err := fsm2.restore(io.NopCloser(&buf)); err != nil {
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open snapshot failed: %v", err)
+	}
+	defer rc.Close()
+
+	if err := fsm2.restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
@@ -83,16 +104,4 @@ func TestFSMSnapshot(t *testing.T) {
 	if addr != "127.0.0.1:8080" {
 		t.Errorf("NodeAddr mismatch. Expected 127.0.0.1:8080, got %s", addr)
 	}
-}
-
-type nopWriteCloser struct {
-	*bytes.Buffer
-}
-
-func (n *nopWriteCloser) Write(p []byte) (int, error) {
-	return n.Buffer.Write(p)
-}
-
-func (n *nopWriteCloser) Close() error {
-	return nil
 }

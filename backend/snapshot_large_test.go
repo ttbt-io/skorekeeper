@@ -15,13 +15,13 @@
 package backend
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
 	"github.com/c2FmZQ/storage/crypto"
+	"github.com/hashicorp/raft"
 )
 
 func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
@@ -62,8 +62,18 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 
 	// Take Snapshot
 	t.Log("Taking snapshot...")
-	var buf bytes.Buffer
-	if err := fsm.persist(&nopWriteCloser{Buffer: &buf}); err != nil {
+	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	linkStore := NewLinkSnapshotStore(dataDir, innerStore, nil, mk)
+
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
+	}
+
+	if err := fsm.persist(sink); err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
@@ -76,7 +86,13 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 	reg2 := NewRegistry(gs2, ts2, us2, true)
 	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
 
-	if err := fsm2.restore(io.NopCloser(&buf)); err != nil {
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open snapshot failed: %v", err)
+	}
+	defer rc.Close()
+
+	if err := fsm2.restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
