@@ -66,7 +66,7 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {

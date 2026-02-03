@@ -81,7 +81,7 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	// Check Manifest in Snapshot
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
@@ -172,7 +172,7 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// Persist to LinkSnapshotStore
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	innerStore, _ := raft.NewFileSnapshotStore(tmpDir2, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir2, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(tmpDir2, tmpDir2, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
@@ -230,7 +230,7 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {

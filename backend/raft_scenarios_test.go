@@ -58,7 +58,7 @@ func TestRaftScenarios(t *testing.T) {
 
 		// Use a fixed secret for cluster
 		secret := "test-secret"
-		
+
 		mk, ok := nodeMKs[id]
 		if !ok {
 			var err error

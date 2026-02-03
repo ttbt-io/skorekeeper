@@ -51,7 +51,7 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, nil, mk)
 
 	// 3. Create Snapshot 1
 	sink1, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)

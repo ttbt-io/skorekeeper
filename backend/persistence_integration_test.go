@@ -68,7 +68,7 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {

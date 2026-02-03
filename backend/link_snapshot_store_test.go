@@ -65,7 +65,7 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, innerStore, ring, mk)
+	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, ring, mk)
 
 	// 4. Create Snapshot via FSM
 	sink, err := linkStore.Create(raft.SnapshotVersion(1), 10, 2, raft.Configuration{}, 1, nil)

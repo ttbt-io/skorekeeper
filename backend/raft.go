@@ -625,8 +625,12 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	var raftSnapshotStore raft.SnapshotStore = snapshotStore
 	if rm.keyRing != nil {
 		// Use KeyRing for snapshots with Linking (Hardlink optimization)
+		sourceDir := rm.DataDir
+		if rm.FSM != nil && rm.FSM.storage != nil {
+			sourceDir = rm.FSM.storage.Dir()
+		}
 		// LinkSnapshotStore wraps FileSnapshotStore but links data files instead of copying
-		rm.snapStoreEnc = NewLinkSnapshotStore(rm.DataDir, snapshotStore, rm.keyRing, rm.MasterKey)
+		rm.snapStoreEnc = NewLinkSnapshotStore(rm.DataDir, sourceDir, snapshotStore, rm.keyRing, rm.MasterKey)
 		raftSnapshotStore = rm.snapStoreEnc
 	} else if rm.MasterKey != nil {
 		// Fallback for transition/testing if KeyRing not loaded?

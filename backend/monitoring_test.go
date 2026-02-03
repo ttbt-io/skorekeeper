@@ -178,7 +178,7 @@ func TestFSMMetricsPersistence(t *testing.T) {
 	// Snapshot
 	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	linkStore := NewLinkSnapshotStore(tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {

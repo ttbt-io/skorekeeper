@@ -59,16 +59,18 @@ type SnapshotLinker interface {
 
 // LinkSnapshotStore implements raft.SnapshotStore using hardlinks for data files.
 type LinkSnapshotStore struct {
-	baseDir   string
+	baseDir   string // Directory for Raft snapshots (e.g. /data/raft)
+	sourceDir string // Directory for Source Data (e.g. /data)
 	inner     *raft.FileSnapshotStore
 	ring      *KeyRing
 	masterKey crypto.MasterKey
 }
 
 // NewLinkSnapshotStore creates a new LinkSnapshotStore.
-func NewLinkSnapshotStore(baseDir string, inner *raft.FileSnapshotStore, ring *KeyRing, masterKey crypto.MasterKey) *LinkSnapshotStore {
+func NewLinkSnapshotStore(baseDir, sourceDir string, inner *raft.FileSnapshotStore, ring *KeyRing, masterKey crypto.MasterKey) *LinkSnapshotStore {
 	return &LinkSnapshotStore{
 		baseDir:   baseDir,
+		sourceDir: sourceDir,
 		inner:     inner,
 		ring:      ring,
 		masterKey: masterKey,
@@ -113,10 +115,10 @@ func (s *LinkSnapshotStore) Create(version raft.SnapshotVersion, index, term uin
 	}
 
 	return &LinkSnapshotSink{
-		inner:   sink,
-		snapDir: snapDir,
-		dataDir: s.baseDir,
-		stream:  stream,
+		inner:     sink,
+		snapDir:   snapDir,
+		sourceDir: s.sourceDir,
+		stream:    stream,
 	}, nil
 }
 
@@ -292,10 +294,10 @@ func (s *LinkSnapshotStore) decryptManifestStream(id string) (io.ReadCloser, err
 
 // LinkSnapshotSink implements raft.SnapshotSink
 type LinkSnapshotSink struct {
-	inner   raft.SnapshotSink
-	snapDir string
-	dataDir string
-	stream  crypto.StreamWriter
+	inner     raft.SnapshotSink
+	snapDir   string
+	sourceDir string
+	stream    crypto.StreamWriter
 }
 
 func (s *LinkSnapshotSink) Write(p []byte) (n int, err error) {
@@ -324,7 +326,7 @@ func (s *LinkSnapshotSink) Cancel() error {
 }
 
 func (s *LinkSnapshotSink) LinkFile(srcRelPath string, dstRelPath string) error {
-	src := filepath.Join(s.dataDir, srcRelPath)
+	src := filepath.Join(s.sourceDir, srcRelPath)
 	dst := filepath.Join(s.snapDir, dstRelPath)
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
