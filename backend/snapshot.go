@@ -136,34 +136,100 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 
 	// 4. Write User Indices
 	if f.us != nil {
-		processFiles := func(listFiles func() ([]string, error), loadType func() any) error {
-			files, err := listFiles()
-			if err != nil {
+		if linker != nil {
+			// Hardlink Strategy: O(1) memory, O(N) metadata ops
+			linkGroup := func(listFiles func() ([]string, error)) error {
+				files, err := listFiles()
+				if err != nil {
+					return err
+				}
+				for _, path := range files {
+					if err := linker.LinkFile(path, path); err != nil {
+						return fmt.Errorf("failed to link %s: %w", path, err)
+					}
+				}
+				return nil
+			}
+
+			if err := linkGroup(f.us.ListUserIndexFiles); err != nil {
 				return err
 			}
-			for _, path := range files {
-				if err := save(path, func() (any, error) {
-					idx := loadType()
-					err := f.storage.ReadDataFile(path, idx)
-					return idx, err
-				}); err != nil {
+			if err := linkGroup(f.us.ListTeamGamesFiles); err != nil {
+				return err
+			}
+			if err := linkGroup(f.us.ListGameUsersFiles); err != nil {
+				return err
+			}
+			if err := linkGroup(f.us.ListTeamUsersFiles); err != nil {
+				return err
+			}
+		} else {
+			// Tarball Strategy: Streaming objects (Low Memory, High IO)
+			// We use iterators to load objects one-by-one from disk.
+
+			// Users
+			for idx, err := range f.us.IterateAllUserIndices() {
+				if err != nil {
+					return err
+				}
+				path := fmt.Sprintf("users/%s.json", url.PathEscape(idx.UserID))
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Warning: failed to marshal user index %s: %v", idx.UserID, err)
+					continue
+				}
+				if err := writeFileToTar(tw, path, data); err != nil {
 					return err
 				}
 			}
-			return nil
-		}
 
-		if err := processFiles(f.us.ListUserIndexFiles, func() any { return &UserIndex{} }); err != nil {
-			return err
-		}
-		if err := processFiles(f.us.ListTeamGamesFiles, func() any { return &TeamGamesIndex{} }); err != nil {
-			return err
-		}
-		if err := processFiles(f.us.ListGameUsersFiles, func() any { return &GameUsersIndex{} }); err != nil {
-			return err
-		}
-		if err := processFiles(f.us.ListTeamUsersFiles, func() any { return &TeamUsersIndex{} }); err != nil {
-			return err
+			// Team Games
+			for idx, err := range f.us.IterateAllTeamGames() {
+				if err != nil {
+					return err
+				}
+				path := fmt.Sprintf("team_games/%s.json", url.PathEscape(idx.TeamID))
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Warning: failed to marshal team_games index %s: %v", idx.TeamID, err)
+					continue
+				}
+				if err := writeFileToTar(tw, path, data); err != nil {
+					return err
+				}
+			}
+
+			// Game Users
+			for idx, err := range f.us.IterateAllGameUsers() {
+				if err != nil {
+					return err
+				}
+				path := fmt.Sprintf("game_users/%s.json", url.PathEscape(idx.GameID))
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Warning: failed to marshal game_users index %s: %v", idx.GameID, err)
+					continue
+				}
+				if err := writeFileToTar(tw, path, data); err != nil {
+					return err
+				}
+			}
+
+			// Team Users
+			for idx, err := range f.us.IterateAllTeamUsers() {
+				if err != nil {
+					return err
+				}
+				path := fmt.Sprintf("team_users/%s.json", url.PathEscape(idx.TeamID))
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Warning: failed to marshal team_users index %s: %v", idx.TeamID, err)
+					continue
+				}
+				if err := writeFileToTar(tw, path, data); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

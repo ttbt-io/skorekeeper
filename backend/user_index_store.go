@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"sync"
@@ -607,6 +608,108 @@ func (s *UserIndexStore) ListGameUsersFiles() ([]string, error) {
 
 func (s *UserIndexStore) ListTeamUsersFiles() ([]string, error) {
 	return s.listIndexFiles("team_users")
+}
+
+// --- Iterators ---
+
+func (s *UserIndexStore) iterateIndices(subDir string, load func(string) (any, error)) iter.Seq2[any, error] {
+	return func(yield func(any, error) bool) {
+		files, err := s.listIndexFiles(subDir)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for _, path := range files {
+			obj, err := load(path)
+			if err != nil {
+				// Log warning? Yield error?
+				// For iterators, usually yield error.
+				if !yield(nil, fmt.Errorf("failed to load %s: %w", path, err)) {
+					return
+				}
+				continue
+			}
+			if !yield(obj, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (s *UserIndexStore) IterateAllUserIndices() iter.Seq2[*UserIndex, error] {
+	return func(yield func(*UserIndex, error) bool) {
+		iter := s.iterateIndices("users", func(path string) (any, error) {
+			var idx UserIndex
+			err := s.storage.ReadDataFile(path, &idx)
+			return &idx, err
+		})
+		for obj, err := range iter {
+			var v *UserIndex
+			if obj != nil {
+				v = obj.(*UserIndex)
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
+}
+
+func (s *UserIndexStore) IterateAllTeamGames() iter.Seq2[*TeamGamesIndex, error] {
+	return func(yield func(*TeamGamesIndex, error) bool) {
+		iter := s.iterateIndices("team_games", func(path string) (any, error) {
+			var idx TeamGamesIndex
+			err := s.storage.ReadDataFile(path, &idx)
+			return &idx, err
+		})
+		for obj, err := range iter {
+			var v *TeamGamesIndex
+			if obj != nil {
+				v = obj.(*TeamGamesIndex)
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
+}
+
+func (s *UserIndexStore) IterateAllGameUsers() iter.Seq2[*GameUsersIndex, error] {
+	return func(yield func(*GameUsersIndex, error) bool) {
+		iter := s.iterateIndices("game_users", func(path string) (any, error) {
+			var idx GameUsersIndex
+			err := s.storage.ReadDataFile(path, &idx)
+			return &idx, err
+		})
+		for obj, err := range iter {
+			var v *GameUsersIndex
+			if obj != nil {
+				v = obj.(*GameUsersIndex)
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
+}
+
+func (s *UserIndexStore) IterateAllTeamUsers() iter.Seq2[*TeamUsersIndex, error] {
+	return func(yield func(*TeamUsersIndex, error) bool) {
+		iter := s.iterateIndices("team_users", func(path string) (any, error) {
+			var idx TeamUsersIndex
+			err := s.storage.ReadDataFile(path, &idx)
+			return &idx, err
+		})
+		for obj, err := range iter {
+			var v *TeamUsersIndex
+			if obj != nil {
+				v = obj.(*TeamUsersIndex)
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
 }
 
 func (s *UserIndexStore) ListAllUserIndices() ([]*UserIndex, error) {
