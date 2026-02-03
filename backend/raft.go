@@ -80,7 +80,7 @@ type RaftManager struct {
 	stableStore  raft.StableStore
 	logStoreEnc  *EncryptedLogStore
 	stabStoreEnc *EncryptedStableStore
-	snapStoreEnc *EncryptedSnapshotStore
+	snapStoreEnc *LinkSnapshotStore
 	keyRing      *KeyRing
 	logKeyMu     sync.Mutex
 
@@ -541,7 +541,8 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	config.CommitTimeout = 500 * time.Millisecond
 
 	config.SnapshotInterval = 120 * time.Second
-	config.SnapshotThreshold = 20480
+	//config.SnapshotThreshold = 20480
+	config.SnapshotThreshold = 200 // Testing
 
 	//config.ShutdownOnRemove = true
 	//config.NoSnapshotRestoreOnStart = true
@@ -620,8 +621,9 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 
 	var raftSnapshotStore raft.SnapshotStore = snapshotStore
 	if rm.keyRing != nil {
-		// Use KeyRing for snapshots
-		rm.snapStoreEnc = NewEncryptedSnapshotStore(snapshotStore, rm.keyRing)
+		// Use KeyRing for snapshots with Linking (Hardlink optimization)
+		// LinkSnapshotStore wraps FileSnapshotStore but links data files instead of copying
+		rm.snapStoreEnc = NewLinkSnapshotStore(rm.DataDir, snapshotStore, rm.keyRing, rm.MasterKey)
 		raftSnapshotStore = rm.snapStoreEnc
 	} else if rm.MasterKey != nil {
 		// Fallback for transition/testing if KeyRing not loaded?
