@@ -207,48 +207,84 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 					log.Printf("Snapshot Open Warning: failed to read game %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(g)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(g)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal game %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			} else if strings.HasPrefix(relPath, "teams/") {
 				var t Team
 				if err := tempStore.ReadDataFile(relPath, &t); err != nil {
 					log.Printf("Snapshot Open Warning: failed to read team %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(t)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(t)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal team %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			} else if strings.HasPrefix(relPath, "users/") {
 				var idx UserIndex
 				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
 					log.Printf("Snapshot Open Warning: failed to read user index %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal user index %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			} else if strings.HasPrefix(relPath, "team_games/") {
 				var idx TeamGamesIndex
 				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
 					log.Printf("Snapshot Open Warning: failed to read team_games index %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal team_games index %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			} else if strings.HasPrefix(relPath, "game_users/") {
 				var idx GameUsersIndex
 				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
 					log.Printf("Snapshot Open Warning: failed to read game_users index %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal game_users index %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			} else if strings.HasPrefix(relPath, "team_users/") {
 				var idx TeamUsersIndex
 				if err := tempStore.ReadDataFile(relPath, &idx); err != nil {
 					log.Printf("Snapshot Open Warning: failed to read team_users index %s: %v", relPath, err)
 					return nil
 				}
-				data, _ := json.Marshal(idx)
-				writeFileToTar(tw, relPath, data)
+				data, err := json.Marshal(idx)
+				if err != nil {
+					log.Printf("Snapshot Open Warning: failed to marshal team_users index %s: %v", relPath, err)
+					return nil
+				}
+				if err := writeFileToTar(tw, relPath, data); err != nil {
+					return err
+				}
 			}
 
 			return nil
