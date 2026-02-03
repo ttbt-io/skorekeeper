@@ -288,79 +288,82 @@ func (rm *RaftManager) GarbageCollectKeys() error {
 		return fmt.Errorf("failed to list snapshots: %v", err)
 	}
 
-	if len(snapshots) == 0 {
-		// No snapshots, keep all keys to be safe (or keep just Active?).
-		// If no snapshots, logs might be infinite?
-		// Better to do nothing.
-		return nil
-	}
-
 	rm.keyRing.mu.RLock()
 	oldKeys := make([]*KeyInfo, len(rm.keyRing.Old))
 	copy(oldKeys, rm.keyRing.Old)
 	rm.keyRing.mu.RUnlock()
 
 	// Map KeyID to Index in Old list (higher index = older)
-	// Actually, Old is sorted Newest -> Oldest.
-	// So index 0 is newest old key.
-	// Index N is oldest.
+	keyIndexMap := make(map[string]int)
+	for i, k := range oldKeys {
+		keyIndexMap[k.ID] = i
+	}
 
-	// We want to find the "Oldest Used Key".
-	// Any key *older* than that (higher index) can be deleted.
+	// We want to find the "Oldest Needed Key" index in oldKeys.
+	// -1 means Active Key (keep everything).
+	// 0 means keep Old[0].
+	// K means keep Old[0]...Old[K]. Delete K+1...
+	// Since we want to find the LIMIT, we want the MAX index that is still used.
+	// Wait, no. OldKeys is [NewestOld, ..., OldestOld].
+	// Index 0 is newer than Index 10.
+	// If we need Index 5, we must keep 0,1,2,3,4,5.
+	// So we need to find the MAXIMUM index that is IN USE.
+	// Anything > MaxIndex is unused and older.
 
-	oldestUsedIndex := -1
+	maxUsedIndex := -1 // -1 implies only Active Key is used (or nothing).
 
+	// A helper to update maxUsedIndex
+	markUsed := func(keyID string) {
+		if rm.keyRing.Active.ID == keyID {
+			return // Active is always implicitly "used" and is "newer" than any old key (-1)
+		}
+		if idx, ok := keyIndexMap[keyID]; ok {
+			if idx > maxUsedIndex {
+				maxUsedIndex = idx
+			}
+		}
+	}
+
+	// 2a. Check Snapshots
 	for _, snap := range snapshots {
 		keyID, err := rm.snapStoreEnc.GetSnapshotKeyID(snap.ID)
 		if err != nil {
 			log.Printf("Warning: Failed to identify key for snapshot %s: %v", snap.ID, err)
-			// If we can't identify, we should be conservative and NOT delete anything?
-			// Or assume it's a very old key?
-			// Safest: Abort GC.
 			return fmt.Errorf("aborting GC: cannot identify key for snapshot %s: %v", snap.ID, err)
 		}
+		markUsed(keyID)
+	}
 
-		// Find where this key is in the ring
-		if rm.keyRing.Active.ID == keyID {
-			continue // Active key is always kept, effectively index -1
-		}
-
-		found := false
-		for i, k := range oldKeys {
-			if k.ID == keyID {
-				if i > oldestUsedIndex {
-					oldestUsedIndex = i
-				}
-				found = true
-				break
+	// 2b. Check Logs (FirstIndex)
+	// We need to know which key encrypts the oldest log.
+	// If logs are compacted, FirstIndex moves up.
+	firstIdx, err := rm.logStore.FirstIndex()
+	if err == nil && firstIdx > 0 {
+		var l raft.Log
+		if err := rm.logStore.GetLog(firstIdx, &l); err == nil && len(l.Data) > 0 {
+			// Determine which key decrypts this log
+			keyID, err := rm.keyRing.IdentifyKeyID(l.Data)
+			if err == nil {
+				markUsed(keyID)
+			} else {
+				log.Printf("Warning: GC could not identify key for FirstLogIndex %d: %v. Assuming unsafe to delete keys.", firstIdx, err)
+				// If we can't identify the log key, we must NOT delete potential candidates.
+				// Safest is to keep ALL keys.
+				return nil
 			}
-		}
-
-		if !found {
-			// Key not in ring? Should not happen if we can decrypt.
-			// Unless it WAS in Active and we just checked.
-			// Or it's missing? (GetSnapshotKeyID checks ring).
 		}
 	}
 
-	// If oldestUsedIndex is -1, it means all snapshots use Active key.
-	// We can delete ALL old keys?
-	// YES, provided logs are also covered.
-	// Raft logs are truncated at the snapshot.
-	// So if all snapshots use Active key, and logs are newer than snapshots,
-	// then logs also use Active key (or newer, but Active is newest).
-	// So we can delete ALL old keys.
-
-	// If oldestUsedIndex is K. We keep 0..K. We delete K+1..End.
-
-	cutoff := oldestUsedIndex + 1
+	// Calculate cutoff
+	// We keep 0..maxUsedIndex.
+	// We delete maxUsedIndex+1..End.
+	cutoff := maxUsedIndex + 1
 	if cutoff >= len(oldKeys) {
 		return nil // Nothing to delete
 	}
 
 	keysToDelete := oldKeys[cutoff:]
-
-	log.Printf("GC: Found %d keys to delete (older than key for oldest snapshot)", len(keysToDelete))
+	log.Printf("GC: Found %d keys to delete (older than oldest used key index %d)", len(keysToDelete), maxUsedIndex)
 
 	// 3. Delete from Disk
 	keysDir := filepath.Join(rm.DataDir, "keys")
