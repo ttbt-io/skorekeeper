@@ -118,7 +118,13 @@ curl -X POST https://leader-host/api/cluster/join \
 ## 4. Disaster Recovery
 
 ### 4.1 Snapshots
-The system automatically snapshots the FSM (zipping `games/` and `teams/` directories) to prevent the Raft log from growing indefinitely. Snapshots are stored in the `--raft-vol` directory.
+The system uses an optimized **Hardlink Snapshot** mechanism (`LinkSnapshotStore`) to minimize I/O overhead and blocking time during snapshot creation.
+
+*   **Creation:** Instead of serializing and copying all data, the FSM creates filesystem hardlinks for active Game and Team files into the snapshot directory (`data/snapshots/{id}/`). This is a fast metadata-only operation.
+*   **Storage:**
+    *   **Manifest (`state.bin`):** Contains snapshot metadata (Index, Term, Configuration) and is encrypted with the active **Raft Key**.
+    *   **Data Files:** The hardlinked files remain encrypted on disk using the node's **Master Key**, ensuring zero data duplication.
+*   **Streaming & Restore:** When a snapshot is opened (for local restore or replication), the store dynamically reconstructs a standard `.tar.gz` stream on-the-fly. It decrypts the manifest and reads the linked data files (decrypting them transparently) to provide a unified stream compatible with the standard Raft FSM.
 
 ### 4.2 Restoring from Backup
 If the cluster is lost:
