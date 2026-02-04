@@ -125,36 +125,6 @@ func (s *LinkSnapshotStore) List() ([]*raft.SnapshotMeta, error) {
 	return s.inner.List()
 }
 
-// GetSnapshotKeyID attempts to identify which key ID decrypts the snapshot.
-func (s *LinkSnapshotStore) GetSnapshotKeyID(id string) (string, error) {
-	if s.ring == nil {
-		return "", nil
-	}
-	s.ring.mu.RLock()
-	keys := make([]*KeyInfo, 0, 1+len(s.ring.Old))
-	if s.ring.Active != nil {
-		keys = append(keys, s.ring.Active)
-	}
-	keys = append(keys, s.ring.Old...)
-	s.ring.mu.RUnlock()
-
-	for _, info := range keys {
-		if info == nil {
-			continue
-		}
-		_, rc, err := s.inner.Open(id)
-		if err != nil {
-			return "", err
-		}
-		_, err = info.Key.StartReader([]byte(snapshotCryptoCtx), rc)
-		rc.Close()
-		if err == nil {
-			return info.ID, nil
-		}
-	}
-	return "", fmt.Errorf("no key found for snapshot %s", id)
-}
-
 func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, error) {
 	meta, rc, err := s.inner.Open(id)
 	if err != nil {
@@ -309,7 +279,10 @@ func (s *LinkSnapshotSink) Write(p []byte) (n int, err error) {
 
 func (s *LinkSnapshotSink) Close() error {
 	if s.stream != nil {
-		s.stream.Close()
+		if err := s.stream.Close(); err != nil {
+			s.inner.Cancel()
+			return err
+		}
 	}
 	return s.inner.Close()
 }
