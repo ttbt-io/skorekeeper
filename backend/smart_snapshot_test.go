@@ -19,13 +19,12 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	tmpDir := t.TempDir()
 	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
-	raftS := storage.New(raftDir, nil)
 
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, raftS, us)
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 
 	// verify initial index
 	if fsm.LastAppliedIndex() != 0 {
@@ -57,9 +56,9 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	}
 	defer snap.Release()
 
-	// Check fsm_state.json (Stored in raft storage)
+	// Check fsm_state.json (Stored in main storage)
 	var state map[string]any
-	if err := raftS.ReadDataFile("fsm_state.json", &state); err != nil {
+	if err := s.ReadDataFile("fsm_state.json", &state); err != nil {
 		t.Fatalf("Failed to read fsm_state.json: %v", err)
 	}
 
@@ -125,19 +124,17 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// 1. Setup Local State (High Index)
 	tmpDir := t.TempDir()
-	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
-	raftS := storage.New(raftDir, nil)
 
 	gs := NewGameStore(tmpDir, s)
+
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, raftS, us)
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 
 	// Set initialized
 	fsm.setInitialized()
-
 	// Create "Local Game A"
 	gameA := &Game{ID: "gameA", ActionLog: []json.RawMessage{}}
 	gs.SaveGame(gameA)
@@ -147,7 +144,7 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 		"lastAppliedIndex": 200,
 		"timestamp":        123456789,
 	}
-	raftS.SaveDataFile("fsm_state.json", state)
+	s.SaveDataFile("fsm_state.json", state)
 
 	// 2. Create a Snapshot (Low Index)
 	// We need to craft a snapshot manually or use FSM to generate one.
@@ -157,14 +154,12 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	tmpDir2 := t.TempDir()
 	raftDir2 := filepath.Join(tmpDir2, "raft")
 	s2 := storage.New(tmpDir2, nil)
-	raftS2 := storage.New(raftDir2, nil)
 
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
 	us2 := NewUserIndexStore(tmpDir2, s2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, raftS2, us2)
-
+	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
 	// Set Index 100 on FSM2
 	fsm2.lastAppliedIndex.Store(100)
 	fsm2.setInitialized()
@@ -218,14 +213,12 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	tmpDir := t.TempDir()
 	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
-	raftS := storage.New(raftDir, nil)
 
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, raftS, us)
-
+	fsm := NewFSM(gs, ts, r, nil, s, us)
 	// Create Games
 	numGames := 10
 	for i := 0; i < numGames; i++ {
@@ -250,17 +243,17 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	}
 
 	// New FSM
+
 	tmpDir2 := t.TempDir()
-	raftDir2 := filepath.Join(tmpDir2, "raft")
+
 	s2 := storage.New(tmpDir2, mk)
-	raftS2 := storage.New(raftDir2, mk)
 
 	gs2 := NewGameStore(tmpDir2, s2)
+
 	ts2 := NewTeamStore(tmpDir2, s2)
 	us2 := NewUserIndexStore(tmpDir2, s2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, raftS2, us2)
-
+	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
 	// Restore
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {

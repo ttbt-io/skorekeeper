@@ -147,7 +147,7 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 	}
 
 	// 5. Write System Files
-	sysFiles := []string{"sys_access_policy"}
+	sysFiles := []string{"sys_access_policy", "metrics.json", "nodes.json", "fsm_state.json"}
 	for _, fname := range sysFiles {
 		// Only link if exists in source directory
 		// We can't check existence easily without full path, but LinkFile checks it?
@@ -234,18 +234,6 @@ func (f *FSM) restore(rc io.Reader) error {
 			return err
 		}
 
-		select {
-		case err := <-errCh:
-			teardown()
-			return err
-		default:
-		}
-
-		if header.Size > 10*1024*1024 {
-			teardown()
-			return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
-		}
-
 		if header.Name == "manifest.json" {
 			var manifest snapshotManifest
 			if err := json.NewDecoder(tr).Decode(&manifest); err != nil {
@@ -282,6 +270,58 @@ func (f *FSM) restore(rc io.Reader) error {
 						shouldSkipRestore = true
 					}
 				}
+			}
+			continue
+		}
+
+		if header.Name == "sys_access_policy" {
+			var policy UserAccessPolicy
+			if err := json.NewDecoder(tr).Decode(&policy); err == nil {
+				if f.storage != nil {
+					f.storage.SaveDataFile("sys_access_policy", &policy)
+				}
+				f.r.UpdateAccessPolicy(&policy)
+			} else {
+				log.Printf("Restore Warning: failed to decode sys_access_policy: %v", err)
+			}
+			continue
+		}
+
+		if header.Name == "metrics.json" {
+			var m MetricsStore
+			if err := json.NewDecoder(tr).Decode(&m); err == nil {
+				if f.storage != nil {
+					f.storage.SaveDataFile("metrics.json", &m)
+				}
+			} else {
+				log.Printf("Restore Warning: failed to decode metrics.json: %v", err)
+			}
+			continue
+		}
+
+		if header.Name == "nodes.json" {
+			var nodes map[string]*NodeMeta
+			if err := json.NewDecoder(tr).Decode(&nodes); err == nil {
+				for k, v := range nodes {
+					f.nodeMap.Store(k, v)
+				}
+				if f.storage != nil {
+					f.storage.SaveDataFile("nodes.json", nodes)
+				}
+			} else {
+				log.Printf("Restore Warning: failed to decode nodes.json: %v", err)
+			}
+			continue
+		}
+
+		if header.Name == "fsm_state.json" {
+			var state map[string]any
+			if err := json.NewDecoder(tr).Decode(&state); err == nil {
+				if f.storage != nil {
+					f.storage.SaveDataFile("fsm_state.json", state)
+				}
+			} else {
+				log.Printf("Restore Warning: failed to decode fsm_state.json: %v", err)
 			}
 			continue
 		}

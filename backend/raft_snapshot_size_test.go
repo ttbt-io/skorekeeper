@@ -56,17 +56,14 @@ func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
 		t.Fatalf("Create sink failed: %v", err)
 	}
 
-		linker := sink.(SnapshotLinker)
+	linker := sink.(SnapshotLinker)
 
-		linker.LinkFile("games/game-1.json", "games/game-1.json")
+	linker.LinkFile("games/game-1.json", "games/game-1.json")
 
-		linker.LinkFile("sys_access_policy", "sys_access_policy")
+	linker.LinkFile("sys_access_policy", "sys_access_policy")
 
-		
+	manifest := snapshotManifest{
 
-		manifest := snapshotManifest{
-
-	
 		RaftIndex: 10,
 	}
 	manifestBytes, _ := json.Marshal(manifest)

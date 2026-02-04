@@ -65,6 +65,8 @@ type RaftManager struct {
 	Cert                  *tls.Certificate
 	Bootstrap             bool
 	UseProductionTimeouts bool
+	SnapshotThreshold     uint64
+	TrailingLogs          uint64
 
 	nodeAddrMap sync.Map // map[raft.ServerID]string (ClusterAdvertise Addr)
 
@@ -544,8 +546,14 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	config.CommitTimeout = 500 * time.Millisecond
 
 	config.SnapshotInterval = 120 * time.Second
-	config.SnapshotThreshold = 20480
-	//config.SnapshotThreshold = 200 // Testing
+	if rm.SnapshotThreshold > 0 {
+		config.SnapshotThreshold = rm.SnapshotThreshold
+	} else {
+		config.SnapshotThreshold = 20480
+	}
+	if rm.TrailingLogs > 0 {
+		config.TrailingLogs = rm.TrailingLogs
+	}
 
 	//config.ShutdownOnRemove = true
 	//config.NoSnapshotRestoreOnStart = true

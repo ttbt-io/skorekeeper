@@ -74,14 +74,12 @@ func TestRaftScenarios(t *testing.T) {
 		// storage.New creates dirs if needed, but explicit is fine
 
 		s := storage.New(dataDir, mk)
-		raftS := storage.New(raftDir, mk)
 
 		gs := NewGameStore(dataDir, s)
 		ts := NewTeamStore(dataDir, s)
 		us := NewUserIndexStore(dataDir, s, nil)
 		r := NewRegistry(gs, ts, us, true)
-		fsm := NewFSM(gs, ts, r, NewHubManager(), raftS, us)
-
+		fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
 		rm := NewRaftManager(raftDir, raftAddr, raftAddr, httpAddr, httpAddr, secret, mk, fsm)
 
 		// aggressive snapshot config for testing

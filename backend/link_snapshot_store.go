@@ -284,7 +284,8 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 	// Save Size
 	size := counter.count
 	if err := os.WriteFile(sizePath, []byte(fmt.Sprintf("%d", size)), 0644); err != nil {
-		// Non-fatal
+		f.Close()
+		return nil, nil, fmt.Errorf("failed to write snapshot size cache: %w", err)
 	}
 
 	// Re-open for reading
@@ -372,6 +373,51 @@ func (s *LinkSnapshotStore) walkSnapshotEntities(id string, visitor func(relPath
 		if relPath == "sys_access_policy" {
 			obj := &UserAccessPolicy{}
 			if err := tempStore.ReadDataFile(relPath, obj); err != nil {
+				return fmt.Errorf("failed to read %s: %w", relPath, err)
+			}
+			data, err := json.Marshal(obj)
+			if err != nil {
+				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+			}
+			if err := visitor(relPath, data); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		if relPath == "metrics.json" {
+			obj := &MetricsStore{}
+			if err := tempStore.ReadDataFile(relPath, obj); err != nil {
+				return fmt.Errorf("failed to read %s: %w", relPath, err)
+			}
+			data, err := json.Marshal(obj)
+			if err != nil {
+				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+			}
+			if err := visitor(relPath, data); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		if relPath == "nodes.json" {
+			var obj map[string]*NodeMeta
+			if err := tempStore.ReadDataFile(relPath, &obj); err != nil {
+				return fmt.Errorf("failed to read %s: %w", relPath, err)
+			}
+			data, err := json.Marshal(obj)
+			if err != nil {
+				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+			}
+			if err := visitor(relPath, data); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		if relPath == "fsm_state.json" {
+			var obj map[string]any
+			if err := tempStore.ReadDataFile(relPath, &obj); err != nil {
 				return fmt.Errorf("failed to read %s: %w", relPath, err)
 			}
 			data, err := json.Marshal(obj)

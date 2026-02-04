@@ -30,14 +30,12 @@ func TestFSMSnapshot(t *testing.T) {
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 
 	s := storage.New(dataDir, mk)
-	raftS := storage.New(raftDir, mk)
 
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
-
+	fsm := NewFSM(gs, ts, reg, nil, s, us)
 	// 1. Add some data
 	gameId := "game-1"
 	game := Game{SchemaVersion: SchemaVersionV3, ID: gameId, Away: "A", Home: "B"}
@@ -67,17 +65,17 @@ func TestFSMSnapshot(t *testing.T) {
 	// persist closes the sink
 
 	// 3. Restore to new dir
+
 	dataDir2 := t.TempDir()
-	raftDir2 := filepath.Join(dataDir2, "raft")
+
 	s2 := storage.New(dataDir2, mk)
-	raftS2 := storage.New(raftDir2, mk)
 
 	gs2 := NewGameStore(dataDir2, s2)
+
 	ts2 := NewTeamStore(dataDir2, s2)
 	us2 := NewUserIndexStore(dataDir2, s2, nil)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, raftS2, us2)
-
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {
 		t.Fatalf("Open snapshot failed: %v", err)
