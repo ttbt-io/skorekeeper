@@ -274,7 +274,7 @@ func (rm *RaftManager) RotateLogKey() error {
 	}
 
 	log.Printf("Raft log key rotated successfully. New key: %s", filepath.Base(path))
-	return nil
+	return rm.GarbageCollectKeys()
 }
 
 func (rm *RaftManager) GarbageCollectKeys() error {
@@ -801,34 +801,8 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	go rm.monitorConfiguration()
 	go rm.monitorMetrics()
 	go rm.monitorLeadership(notifyCh)
-	go rm.monitorKeyGC()
 
 	return nil
-}
-
-func (rm *RaftManager) monitorKeyGC() {
-	// GC keys periodically.
-	// Keys are only deleted if they are older than the key used by the oldest snapshot.
-	// Since snapshots happen every ~2 mins (default), running this every 10-30 mins is fine.
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-rm.shutdownCh:
-			return
-		case <-ticker.C:
-			// Only Leader needs to worry?
-			// No, every node has its own keys and snapshots.
-			// Persistence is local.
-			if err := rm.GarbageCollectKeys(); err != nil {
-				// Don't log "no key found" as error if it's just startup or empty
-				if !strings.Contains(err.Error(), "no key found") && !strings.Contains(err.Error(), "aborting") {
-					log.Printf("Key GC error: %v", err)
-				}
-			}
-		}
-	}
 }
 
 // GetHTTPClient returns the reusable HTTP client for internal cluster communication.
