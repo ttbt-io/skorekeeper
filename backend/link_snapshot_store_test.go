@@ -197,3 +197,100 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 		t.Errorf("Restore failed to recover game data correctly")
 	}
 }
+
+func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	// 1. Setup inner store
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
+
+	// 2. Create a "Remote" Snapshot (GZIP TAR) via inner store (simulating Raft receiving it)
+	// We use innerStore.Create directly because when receiving a snapshot, Raft writes the raw stream (GZIP TAR)
+	// to the Sink. LinkSnapshotSink (if used) simply passes bytes through if encryption is disabled.
+	// Using innerStore ensures correct CRC/Meta handling.
+	sink, err := innerStore.Create(1, 100, 5, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Failed to create inner sink: %v", err)
+	}
+
+	// Write GZIP TAR content to sink
+	gz := gzip.NewWriter(sink)
+	tw := tar.NewWriter(gz)
+
+	// Add manifest.json to TAR
+	manifestContent := []byte(`{"remote": true}`)
+	header := &tar.Header{
+		Name: "manifest.json",
+		Mode: 0600,
+		Size: int64(len(manifestContent)),
+	}
+	if err := tw.WriteHeader(header); err != nil {
+		t.Fatalf("Failed to write tar header: %v", err)
+	}
+	if _, err := tw.Write(manifestContent); err != nil {
+		t.Fatalf("Failed to write tar body: %v", err)
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Failed to close tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("Failed to close gzip: %v", err)
+	}
+	
+	// Close sink to finalize snapshot (writes meta.json with CRC)
+	if err := sink.Close(); err != nil {
+		t.Fatalf("Failed to close sink: %v", err)
+	}
+	snapID := sink.ID()
+
+	// 3. Open via LinkSnapshotStore
+	_, rc, err := linkStore.Open(snapID)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
+
+	// 4. Verify Content
+	// It should be the GZIP stream we just wrote.
+	// If the bug exists, this will be a GZIP stream of a TAR containing "manifest.json" which contains the GZIP stream we wrote.
+	// So we decode it and check the content of manifest.json.
+
+	gzR, err := gzip.NewReader(rc)
+	if err != nil {
+		t.Fatalf("Failed to open gzip reader (returned stream wasn't gzip?): %v", err)
+	}
+	defer gzR.Close()
+
+	tr := tar.NewReader(gzR)
+	h, err := tr.Next()
+	if err != nil {
+		t.Fatalf("Failed to read first tar entry: %v", err)
+	}
+
+	if h.Name != "manifest.json" {
+		t.Errorf("First entry should be manifest.json, got %s", h.Name)
+	}
+
+	// Read content of manifest.json
+	content, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatalf("Failed to read manifest content: %v", err)
+	}
+
+	// Verify it's our JSON, not binary garbage
+	var m map[string]interface{}
+	if err := json.Unmarshal(content, &m); err != nil {
+		t.Fatalf("Failed to unmarshal manifest.json: %v. Content was: %q. This likely means LinkSnapshotStore wrapped the GZIP TAR inside another TAR.", err, string(content))
+	}
+
+	if m["remote"] != true {
+		t.Errorf("Unexpected manifest content: %v", m)
+	}
+}
