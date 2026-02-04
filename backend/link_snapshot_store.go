@@ -16,6 +16,7 @@ package backend
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -41,11 +42,20 @@ func (r *DecryptedReadCloser) Read(p []byte) (n int, err error) {
 	return r.stream.Read(p)
 }
 
+func (r *DecryptedReadCloser) Seek(offset int64, whence int) (int64, error) {
+	return r.stream.Seek(offset, whence)
+}
+
 func (r *DecryptedReadCloser) Close() error {
 	// Close stream first
 	r.stream.Close()
 	// Then close underlying file
 	return r.inner.Close()
+}
+
+type bufReadCloser struct {
+	*bufio.Reader
+	io.Closer
 }
 
 // SnapshotLinker is the interface that FSM.Persist uses to link files.
@@ -139,10 +149,18 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 			rc.Close()
 			return nil, nil, err
 		}
-		rc.Close()
 	}
 
-	// 2. Return a reader that streams the TAR (Manifest + Files)
+	// 2. Peek to detect if this is a Remote Snapshot (GZIP TAR) or Local Snapshot (JSON Manifest)
+	br := bufio.NewReader(decryptedRC)
+	header, err := br.Peek(2)
+	if err == nil && len(header) == 2 && header[0] == 0x1f && header[1] == 0x8b {
+		// It's a GZIP stream (Remote Snapshot).
+		// Return the buffered reader wrapped to preserve Close.
+		return meta, &bufReadCloser{Reader: br, Closer: decryptedRC}, nil
+	}
+
+	// 3. Return a reader that streams the TAR (Manifest + Files)
 	pr, pw := io.Pipe()
 
 	go func() {
@@ -155,7 +173,7 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 		tw := tar.NewWriter(gz)
 		defer tw.Close()
 
-		manifestBytes, err := io.ReadAll(decryptedRC)
+		manifestBytes, err := io.ReadAll(br)
 		if err != nil {
 			pw.CloseWithError(fmt.Errorf("failed to read manifest: %w", err))
 			return
