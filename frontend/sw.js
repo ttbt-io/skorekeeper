@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const CACHE_NAME = 'skorekeeper-v0.2.5';
+const CACHE_NAME = 'skorekeeper-v0.2.13';
 const CORE_ASSETS = [
     './',
     './.sso/proxy.mjs',
