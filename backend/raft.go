@@ -314,7 +314,10 @@ func (rm *RaftManager) GarbageCollectKeys() error {
 	}
 
 	firstIdx, err := rm.logStore.FirstIndex()
-	if err != nil || firstIdx == 0 {
+	if err != nil {
+		return fmt.Errorf("failed to get log first index: %w", err)
+	}
+	if firstIdx == 0 {
 		firstIdx = ^uint64(0)
 	}
 

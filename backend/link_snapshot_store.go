@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,7 +205,7 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 
 		tempStore := storage.New(snapDir, s.masterKey)
 
-		filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
+		err = filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -238,13 +237,11 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 				if strings.HasPrefix(relPath, h.prefix) {
 					obj := h.factory()
 					if err := tempStore.ReadDataFile(relPath, obj); err != nil {
-						log.Printf("Snapshot Open Warning: failed to read %s: %v", relPath, err)
-						return nil
+						return fmt.Errorf("failed to read %s: %w", relPath, err)
 					}
 					data, err := json.Marshal(obj)
 					if err != nil {
-						log.Printf("Snapshot Open Warning: failed to marshal %s: %v", relPath, err)
-						return nil
+						return fmt.Errorf("failed to marshal %s: %w", relPath, err)
 					}
 					if err := writeFileToTar(tw, relPath, data); err != nil {
 						return err
@@ -255,6 +252,9 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 
 			return nil
 		})
+		if err != nil {
+			pw.CloseWithError(err)
+		}
 	}()
 
 	return meta, pr, nil

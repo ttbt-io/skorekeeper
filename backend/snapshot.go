@@ -41,7 +41,9 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 			s.Cancel()
 			return
 		}
-		sink.Close()
+		if closeErr := sink.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 	}()
 
 	// Ensure all in-memory state is flushed to disk before linking
