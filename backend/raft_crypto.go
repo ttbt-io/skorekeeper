@@ -121,30 +121,6 @@ func (k *KeyRing) Decrypt(data []byte) ([]byte, error) {
 	return nil, fmt.Errorf("failed to decrypt with any key: %w", crypto.ErrDecryptFailed)
 }
 
-// IdentifyKeyID attempts to find which key ID decrypts the data.
-func (k *KeyRing) IdentifyKeyID(data []byte) (string, error) {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-
-	// Try active key first
-	if k.Active != nil {
-		_, err := k.Active.Key.Decrypt(data)
-		if err == nil {
-			return k.Active.ID, nil
-		}
-	}
-
-	// Try old keys
-	for _, info := range k.Old {
-		_, err := info.Key.Decrypt(data)
-		if err == nil {
-			return info.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("failed to identify key")
-}
-
 // EncryptedLogStore wraps a raft.LogStore to encrypt log entries.
 type EncryptedLogStore struct {
 	inner raft.LogStore

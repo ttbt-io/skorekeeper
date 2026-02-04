@@ -25,6 +25,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/hashicorp/raft"
 )
 
 type snapshotManifest struct {
@@ -33,8 +35,14 @@ type snapshotManifest struct {
 	RaftIndex   uint64               `json:"raftIndex"`
 }
 
-func (f *FSM) persist(sink io.WriteCloser) error {
-	defer sink.Close()
+func (f *FSM) persist(sink io.WriteCloser) (err error) {
+	defer func() {
+		if s, ok := sink.(raft.SnapshotSink); ok && err != nil {
+			s.Cancel()
+			return
+		}
+		sink.Close()
+	}()
 
 	// Ensure all in-memory state is flushed to disk before linking
 	if err := f.gs.FlushAll(); err != nil {

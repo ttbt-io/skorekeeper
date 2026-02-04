@@ -212,7 +212,8 @@ func (rm *RaftManager) loadKeyRing() error {
 			return fmt.Errorf("failed to generate new key: %v", err)
 		}
 		ts := time.Now().UnixNano()
-		path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+		// Initial key uses index 0
+		path := filepath.Join(keysDir, fmt.Sprintf("idx-%020d-%d.key", 0, ts))
 		if err := rm.saveLogKey(k, path); err != nil {
 			return err
 		}
@@ -222,6 +223,19 @@ func (rm *RaftManager) loadKeyRing() error {
 	rm.keyRing = &KeyRing{}
 	rm.keyRing.SetKeys(active, old)
 	return nil
+}
+
+func parseKeyIndex(id string) uint64 {
+	if !strings.HasPrefix(id, "idx-") {
+		return 0
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) < 2 {
+		return 0
+	}
+	var res uint64
+	fmt.Sscanf(parts[1], "%d", &res)
+	return res
 }
 
 func (rm *RaftManager) RotateLogKey() error {
@@ -239,8 +253,15 @@ func (rm *RaftManager) RotateLogKey() error {
 		return fmt.Errorf("failed to ensure keys dir: %v", err)
 	}
 
+	var lastIdx uint64
+	if rm.logStore != nil {
+		if idx, err := rm.logStore.LastIndex(); err == nil {
+			lastIdx = idx
+		}
+	}
+
 	ts := time.Now().UnixNano()
-	path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+	path := filepath.Join(keysDir, fmt.Sprintf("idx-%020d-%d.key", lastIdx, ts))
 
 	if err := rm.saveLogKey(newKey, path); err != nil {
 		return fmt.Errorf("failed to save new log key: %v", err)
@@ -282,74 +303,50 @@ func (rm *RaftManager) GarbageCollectKeys() error {
 		}
 	}
 
-	// 2. Scan Snapshots to find the oldest key in use.
+	// 2. Determine the minimum Raft index we need to support.
+	// Log entry N is encrypted with the key active at that time, which is
+	// the key with the largest idx such that idx < N.
+	// Snapshot S is encrypted with the key active at that time, which is
+	// the key with the largest idx such that idx <= S (due to rotation in Snapshot()).
 	snapshots, err := rm.snapStoreEnc.List()
 	if err != nil {
 		return fmt.Errorf("failed to list snapshots: %v", err)
 	}
 
+	firstIdx, err := rm.logStore.FirstIndex()
+	if err != nil || firstIdx == 0 {
+		firstIdx = ^uint64(0)
+	}
+
+	// We need to cover log index firstIdx, so we need a key with idx <= firstIdx-1.
+	minNeededIdx := firstIdx - 1
+	if firstIdx == 0 {
+		minNeededIdx = ^uint64(0)
+	}
+
+	for _, snap := range snapshots {
+		if snap.Index < minNeededIdx {
+			minNeededIdx = snap.Index
+		}
+	}
+
 	rm.keyRing.mu.RLock()
 	oldKeys := make([]*KeyInfo, len(rm.keyRing.Old))
 	copy(oldKeys, rm.keyRing.Old)
+	activeID := rm.keyRing.Active.ID
 	rm.keyRing.mu.RUnlock()
 
-	// Map KeyID to Index in Old list (higher index = older)
-	keyIndexMap := make(map[string]int)
-	for i, k := range oldKeys {
-		keyIndexMap[k.ID] = i
-	}
+	// Find the oldest key in rm.keyRing.Old that we need to keep.
+	// Index 0 is newest, Index N is oldest.
+	maxUsedIndex := -1
 
-	// We want to find the "Oldest Needed Key" index in oldKeys.
-	// -1 means Active Key (keep everything).
-	// 0 means keep Old[0].
-	// K means keep Old[0]...Old[K]. Delete K+1...
-	// Since we want to find the LIMIT, we want the MAX index that is still used.
-	// Wait, no. OldKeys is [NewestOld, ..., OldestOld].
-	// Index 0 is newer than Index 10.
-	// If we need Index 5, we must keep 0,1,2,3,4,5.
-	// So we need to find the MAXIMUM index that is IN USE.
-	// Anything > MaxIndex is unused and older.
-
-	maxUsedIndex := -1 // -1 implies only Active Key is used (or nothing).
-
-	// A helper to update maxUsedIndex
-	markUsed := func(keyID string) {
-		if rm.keyRing.Active.ID == keyID {
-			return // Active is always implicitly "used" and is "newer" than any old key (-1)
-		}
-		if idx, ok := keyIndexMap[keyID]; ok {
-			if idx > maxUsedIndex {
-				maxUsedIndex = idx
-			}
-		}
-	}
-
-	// 2a. Check Snapshots
-	for _, snap := range snapshots {
-		keyID, err := rm.snapStoreEnc.GetSnapshotKeyID(snap.ID)
-		if err != nil {
-			log.Printf("Warning: Failed to identify key for snapshot %s: %v", snap.ID, err)
-			return fmt.Errorf("aborting GC: cannot identify key for snapshot %s: %v", snap.ID, err)
-		}
-		markUsed(keyID)
-	}
-
-	// 2b. Check Logs (FirstIndex)
-	// We need to know which key encrypts the oldest log.
-	// If logs are compacted, FirstIndex moves up.
-	firstIdx, err := rm.logStore.FirstIndex()
-	if err == nil && firstIdx > 0 {
-		var l raft.Log
-		if err := rm.logStore.GetLog(firstIdx, &l); err == nil && len(l.Data) > 0 {
-			// Determine which key decrypts this log
-			keyID, err := rm.keyRing.IdentifyKeyID(l.Data)
-			if err == nil {
-				markUsed(keyID)
-			} else {
-				log.Printf("Warning: GC could not identify key for FirstLogIndex %d: %v. Assuming unsafe to delete keys.", firstIdx, err)
-				// If we can't identify the log key, we must NOT delete potential candidates.
-				// Safest is to keep ALL keys.
-				return nil
+	if parseKeyIndex(activeID) > minNeededIdx {
+		// Active key is too new, we need at least some old keys to cover minNeededIdx.
+		for i, k := range oldKeys {
+			maxUsedIndex = i
+			if parseKeyIndex(k.ID) <= minNeededIdx {
+				// This key covers the minNeededIdx.
+				break
 			}
 		}
 	}

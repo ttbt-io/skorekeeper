@@ -72,7 +72,7 @@ func TestRaftScenarios(t *testing.T) {
 		dataDir := dir
 		raftDir := filepath.Join(dataDir, "raft")
 		// storage.New creates dirs if needed, but explicit is fine
-		
+
 		s := storage.New(dataDir, mk)
 		raftS := storage.New(raftDir, mk)
 
