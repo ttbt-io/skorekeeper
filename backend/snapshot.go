@@ -16,6 +16,7 @@ package backend
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -146,13 +147,20 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 	return nil
 }
 func (f *FSM) restore(rc io.Reader) error {
-	gz, err := gzip.NewReader(rc)
-	if err != nil {
-		return err
+	br := bufio.NewReader(rc)
+	peek, err := br.Peek(2)
+	
+	var r io.Reader = br
+	if err == nil && len(peek) == 2 && peek[0] == 0x1f && peek[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			return err
+		}
+		defer gz.Close()
+		r = gz
 	}
-	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(r)
 
 	processedGames := make(map[string]bool)
 	processedTeams := make(map[string]bool)

@@ -160,92 +160,244 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 		return meta, &bufReadCloser{Reader: br, Closer: decryptedRC}, nil
 	}
 
-	// 3. Return a reader that streams the TAR (Manifest + Files)
-	pr, pw := io.Pipe()
+	// 3. If Local Snapshot (JSON), we must "hydrate" it into a TAR stream.
+	// To ensure meta.Size matches the stream exactly, we generate the full GZipped TAR
+	// into a temporary encrypted cache file, count its size, and then stream from there.
 
-	go func() {
-		defer decryptedRC.Close()
-		defer pw.Close()
+	// Read manifest bytes eagerly
+	manifestBytes, err := io.ReadAll(br)
+	if err != nil {
+		decryptedRC.Close()
+		return nil, nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+	decryptedRC.Close() // Done with the original partial reader
 
-		gz := gzip.NewWriter(pw)
-		defer gz.Close()
+	snapDir, err := s.resolveSnapshotPath(id)
+	if err != nil {
+		return nil, nil, err
+	}
 
-		tw := tar.NewWriter(gz)
-		defer tw.Close()
+	cachePath := filepath.Join(snapDir, "replication.cache")
+	sizePath := filepath.Join(snapDir, "replication.size")
 
-		manifestBytes, err := io.ReadAll(br)
-		if err != nil {
-			pw.CloseWithError(fmt.Errorf("failed to read manifest: %w", err))
-			return
-		}
-
-		if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-
-		// Locate snapshot directory (handling .tmp or snapshots/ subdir variants)
-		snapDir, err := s.resolveSnapshotPath(id)
-		if err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-
-		tempStore := storage.New(snapDir, s.masterKey)
-
-		err = filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				return nil
-			}
-			relPath, err := filepath.Rel(snapDir, path)
-			if err != nil {
-				return err
-			}
-
-			if relPath == "meta.json" || relPath == "state.bin" {
-				return nil
-			}
-
-			handlers := []struct {
-				prefix  string
-				factory func() any
-			}{
-				{"games/", func() any { return &Game{} }},
-				{"teams/", func() any { return &Team{} }},
-				{"users/", func() any { return &UserIndex{} }},
-				{"team_games/", func() any { return &TeamGamesIndex{} }},
-				{"game_users/", func() any { return &GameUsersIndex{} }},
-				{"team_users/", func() any { return &TeamUsersIndex{} }},
-			}
-
-			for _, h := range handlers {
-				if strings.HasPrefix(relPath, h.prefix) {
-					obj := h.factory()
-					if err := tempStore.ReadDataFile(relPath, obj); err != nil {
-						return fmt.Errorf("failed to read %s: %w", relPath, err)
-					}
-					data, err := json.Marshal(obj)
-					if err != nil {
-						return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-					}
-					if err := writeFileToTar(tw, relPath, data); err != nil {
-						return err
-					}
-					return nil
+	// Check if cache exists
+	if _, err := os.Stat(cachePath); err == nil {
+		if sizeBytes, err := os.ReadFile(sizePath); err == nil {
+			var size int64
+			if _, err := fmt.Sscanf(string(sizeBytes), "%d", &size); err == nil {
+				// Cache hit
+				f, err := os.Open(cachePath)
+				if err != nil {
+					return nil, nil, err
 				}
+				
+				// Setup Decryption Reader
+				var decReader crypto.StreamReader
+				if s.ring != nil && s.ring.Active != nil {
+					decReader, err = s.ring.Active.Key.StartReader([]byte(snapshotCryptoCtx), f)
+				} else if s.masterKey != nil {
+					decReader, err = s.masterKey.StartReader([]byte(snapshotCryptoCtx), f)
+				} else {
+					decReader = &nopStreamReader{f}
+				}
+
+				if err == nil {
+					meta.Size = size
+					return meta, &DecryptedReadCloser{inner: f, stream: decReader}, nil
+				}
+				f.Close()
 			}
-
-			return nil
-		})
-		if err != nil {
-			pw.CloseWithError(err)
 		}
-	}()
+	}
 
-	return meta, pr, nil
+	// Regenerate Cache
+	f, err := os.Create(cachePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create replication cache: %w", err)
+	}
+	
+	// Setup Encryption Writer
+	var streamW crypto.StreamWriter
+	if s.ring != nil && s.ring.Active != nil {
+		streamW, err = s.ring.Active.Key.StartWriter([]byte(snapshotCryptoCtx), writerOnly{f})
+	} else if s.masterKey != nil {
+		streamW, err = s.masterKey.StartWriter([]byte(snapshotCryptoCtx), writerOnly{f})
+	} else {
+		streamW = &nopStreamWriter{f}
+	}
+	if err != nil {
+		f.Close()
+		return nil, nil, fmt.Errorf("failed to start encryption writer: %w", err)
+	}
+
+	// Counter to track Decrypted Size (GZIP stream size)
+	counter := &byteCounter{}
+	
+	// Pipeline: Content -> Tar -> Gzip -> Counter -> Encrypt -> File
+	// Note: We want to count what goes INTO Encrypt, which is what comes OUT of Gzip.
+	// So Writer is: Gzip -> MultiWriter(Counter, StreamW) -> File? 
+	// No, io.MultiWriter writes to both.
+	
+	// We want:
+	// content -> tar -> gzip -> [Counter] -> streamW -> file
+	// So gzip writes to Counter. Counter writes to streamW.
+	
+	counterW := &counterWriter{target: streamW, counter: counter}
+	gz := gzip.NewWriter(counterW)
+	tw := tar.NewWriter(gz)
+
+	// Write Manifest
+	if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
+		tw.Close()
+		gz.Close()
+		streamW.Close()
+		f.Close()
+		return nil, nil, err
+	}
+
+	// Write Entities
+	err = s.walkSnapshotEntities(id, func(path string, data []byte) error {
+		return writeFileToTar(tw, path, data)
+	})
+	if err != nil {
+		tw.Close()
+		gz.Close()
+		streamW.Close()
+		f.Close()
+		return nil, nil, err
+	}
+
+	// Close Writers (Order matters!)
+	if err := tw.Close(); err != nil {
+		return nil, nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, nil, err
+	}
+	if err := streamW.Close(); err != nil {
+		return nil, nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, nil, err
+	}
+
+	// Save Size
+	size := counter.count
+	if err := os.WriteFile(sizePath, []byte(fmt.Sprintf("%d", size)), 0644); err != nil {
+		// Non-fatal
+	}
+
+	// Re-open for reading
+	f, err = os.Open(cachePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var decReader crypto.StreamReader
+	if s.ring != nil && s.ring.Active != nil {
+		decReader, err = s.ring.Active.Key.StartReader([]byte(snapshotCryptoCtx), f)
+	} else if s.masterKey != nil {
+		decReader, err = s.masterKey.StartReader([]byte(snapshotCryptoCtx), f)
+	} else {
+		decReader = &nopStreamReader{f}
+	}
+
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+
+	meta.Size = size
+	return meta, &DecryptedReadCloser{inner: f, stream: decReader}, nil
+}
+
+type byteCounter struct {
+	count int64
+}
+
+type counterWriter struct {
+	target  io.Writer
+	counter *byteCounter
+}
+
+func (c *counterWriter) Write(p []byte) (int, error) {
+	n, err := c.target.Write(p)
+	// Count bytes successfully written
+	if n > 0 {
+		c.counter.count += int64(n)
+	}
+	return n, err
+}
+
+type nopStreamReader struct {
+	*os.File
+}
+func (n *nopStreamReader) Close() error { return nil }
+
+type nopStreamWriter struct {
+	io.Writer
+}
+func (n *nopStreamWriter) Close() error { return nil }
+
+type writerOnly struct {
+	io.Writer
+}
+
+func (s *LinkSnapshotStore) walkSnapshotEntities(id string, visitor func(relPath string, data []byte) error) error {
+	snapDir, err := s.resolveSnapshotPath(id)
+	if err != nil {
+		return err
+	}
+
+	tempStore := storage.New(snapDir, s.masterKey)
+
+	return filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath, err := filepath.Rel(snapDir, path)
+		if err != nil {
+			return err
+		}
+
+		if relPath == "meta.json" || relPath == "state.bin" || relPath == "replication.cache" || relPath == "replication.size" {
+			return nil
+		}
+
+		handlers := []struct {
+			prefix  string
+			factory func() any
+		}{
+			{"games/", func() any { return &Game{} }},
+			{"teams/", func() any { return &Team{} }},
+			{"users/", func() any { return &UserIndex{} }},
+			{"team_games/", func() any { return &TeamGamesIndex{} }},
+			{"game_users/", func() any { return &GameUsersIndex{} }},
+			{"team_users/", func() any { return &TeamUsersIndex{} }},
+		}
+
+		for _, h := range handlers {
+			if strings.HasPrefix(relPath, h.prefix) {
+				obj := h.factory()
+				if err := tempStore.ReadDataFile(relPath, obj); err != nil {
+					return fmt.Errorf("failed to read %s: %w", relPath, err)
+				}
+				data, err := json.Marshal(obj)
+				if err != nil {
+					return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+				}
+				
+				if err := visitor(relPath, data); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+		return nil
+	})
 }
 
 func (s *LinkSnapshotStore) decryptManifestStream(id string) (io.ReadCloser, error) {
