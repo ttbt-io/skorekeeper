@@ -23,6 +23,8 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -144,12 +146,30 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 		}
 	}
 
+	// 5. Write System Files
+	sysFiles := []string{"sys_access_policy"}
+	for _, fname := range sysFiles {
+		// Only link if exists in source directory
+		// We can't check existence easily without full path, but LinkFile checks it?
+		// LinkFile implementation: os.Link(src, dst).
+		// If src missing, it fails.
+		// So we must check existence.
+		if f.storage != nil {
+			// storage.Dir() gives root.
+			if _, err := os.Stat(filepath.Join(f.storage.Dir(), fname)); err == nil {
+				if err := link(fname); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return nil
 }
 func (f *FSM) restore(rc io.Reader) error {
 	br := bufio.NewReader(rc)
 	peek, err := br.Peek(2)
-	
+
 	var r io.Reader = br
 	if err == nil && len(peek) == 2 && peek[0] == 0x1f && peek[1] == 0x8b {
 		gz, err := gzip.NewReader(br)

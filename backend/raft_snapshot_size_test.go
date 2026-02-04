@@ -17,10 +17,10 @@ func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 
 	s := storage.New(dataDir, mk)
-	
+
 	// 1. Create dummy data file
 	dummyGame := &Game{
-		ID: "game-1",
+		ID:   "game-1",
 		Away: "Away Team",
 		Home: "Home Team",
 		// Add padding to make it large
@@ -33,6 +33,14 @@ func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
 
 	if err := s.SaveDataFile("games/game-1.json", dummyGame); err != nil {
 		t.Fatalf("SaveDataFile failed: %v", err)
+	}
+
+	// 1b. Create dummy system file
+	policy := &UserAccessPolicy{
+		Admins: []string{"admin"},
+	}
+	if err := s.SaveDataFile("sys_access_policy", policy); err != nil {
+		t.Fatalf("SaveDataFile policy failed: %v", err)
 	}
 
 	// 2. Setup LinkSnapshotStore
@@ -48,15 +56,22 @@ func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
 		t.Fatalf("Create sink failed: %v", err)
 	}
 
-	linker := sink.(SnapshotLinker)
-	linker.LinkFile("games/game-1.json", "games/game-1.json")
+		linker := sink.(SnapshotLinker)
+
+		linker.LinkFile("games/game-1.json", "games/game-1.json")
+
+		linker.LinkFile("sys_access_policy", "sys_access_policy")
+
+		
+
+		manifest := snapshotManifest{
+
 	
-	manifest := snapshotManifest{
 		RaftIndex: 10,
 	}
 	manifestBytes, _ := json.Marshal(manifest)
 	linker.WriteManifest(manifestBytes)
-	
+
 	if err := sink.Close(); err != nil {
 		t.Fatalf("Sink close failed: %v", err)
 	}
@@ -76,7 +91,7 @@ func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
 	}
 
 	realSize := int64(len(data))
-	
+
 	t.Logf("Meta Size: %d", meta.Size)
 	t.Logf("Real Stream Size: %d", realSize)
 

@@ -243,7 +243,7 @@ func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
 	if err := gz.Close(); err != nil {
 		t.Fatalf("Failed to close gzip: %v", err)
 	}
-	
+
 	// Close sink to finalize snapshot (writes meta.json with CRC)
 	if err := sink.Close(); err != nil {
 		t.Fatalf("Failed to close sink: %v", err)

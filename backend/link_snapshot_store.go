@@ -190,7 +190,7 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 				if err != nil {
 					return nil, nil, err
 				}
-				
+
 				// Setup Decryption Reader
 				var decReader crypto.StreamReader
 				if s.ring != nil && s.ring.Active != nil {
@@ -215,7 +215,7 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create replication cache: %w", err)
 	}
-	
+
 	// Setup Encryption Writer
 	var streamW crypto.StreamWriter
 	if s.ring != nil && s.ring.Active != nil {
@@ -232,16 +232,16 @@ func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, 
 
 	// Counter to track Decrypted Size (GZIP stream size)
 	counter := &byteCounter{}
-	
+
 	// Pipeline: Content -> Tar -> Gzip -> Counter -> Encrypt -> File
 	// Note: We want to count what goes INTO Encrypt, which is what comes OUT of Gzip.
-	// So Writer is: Gzip -> MultiWriter(Counter, StreamW) -> File? 
+	// So Writer is: Gzip -> MultiWriter(Counter, StreamW) -> File?
 	// No, io.MultiWriter writes to both.
-	
+
 	// We want:
 	// content -> tar -> gzip -> [Counter] -> streamW -> file
 	// So gzip writes to Counter. Counter writes to streamW.
-	
+
 	counterW := &counterWriter{target: streamW, counter: counter}
 	gz := gzip.NewWriter(counterW)
 	tw := tar.NewWriter(gz)
@@ -332,11 +332,13 @@ func (c *counterWriter) Write(p []byte) (int, error) {
 type nopStreamReader struct {
 	*os.File
 }
+
 func (n *nopStreamReader) Close() error { return nil }
 
 type nopStreamWriter struct {
 	io.Writer
 }
+
 func (n *nopStreamWriter) Close() error { return nil }
 
 type writerOnly struct {
@@ -367,6 +369,21 @@ func (s *LinkSnapshotStore) walkSnapshotEntities(id string, visitor func(relPath
 			return nil
 		}
 
+		if relPath == "sys_access_policy" {
+			obj := &UserAccessPolicy{}
+			if err := tempStore.ReadDataFile(relPath, obj); err != nil {
+				return fmt.Errorf("failed to read %s: %w", relPath, err)
+			}
+			data, err := json.Marshal(obj)
+			if err != nil {
+				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+			}
+			if err := visitor(relPath, data); err != nil {
+				return err
+			}
+			return nil
+		}
+
 		handlers := []struct {
 			prefix  string
 			factory func() any
@@ -389,7 +406,7 @@ func (s *LinkSnapshotStore) walkSnapshotEntities(id string, visitor func(relPath
 				if err != nil {
 					return fmt.Errorf("failed to marshal %s: %w", relPath, err)
 				}
-				
+
 				if err := visitor(relPath, data); err != nil {
 					return err
 				}
