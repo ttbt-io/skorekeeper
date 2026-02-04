@@ -69,14 +69,20 @@ func TestRaftScenarios(t *testing.T) {
 			nodeMKs[id] = mk
 		}
 
-		s := storage.New(dir, mk)
-		gs := NewGameStore(dir, s)
-		ts := NewTeamStore(dir, s)
-		us := NewUserIndexStore(dir, s, nil)
-		r := NewRegistry(gs, ts, us, true)
-		fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
+		dataDir := dir
+		raftDir := filepath.Join(dataDir, "raft")
+		// storage.New creates dirs if needed, but explicit is fine
+		
+		s := storage.New(dataDir, mk)
+		raftS := storage.New(raftDir, mk)
 
-		rm := NewRaftManager(dir, raftAddr, raftAddr, httpAddr, httpAddr, secret, mk, fsm)
+		gs := NewGameStore(dataDir, s)
+		ts := NewTeamStore(dataDir, s)
+		us := NewUserIndexStore(dataDir, s, nil)
+		r := NewRegistry(gs, ts, us, true)
+		fsm := NewFSM(gs, ts, r, NewHubManager(), raftS, us)
+
+		rm := NewRaftManager(raftDir, raftAddr, raftAddr, httpAddr, httpAddr, secret, mk, fsm)
 
 		// aggressive snapshot config for testing
 		// We modify the internal config before Start (a bit hacky but needed since Config is private/hardcoded in Start)

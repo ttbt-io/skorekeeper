@@ -13,16 +13,20 @@ import (
 )
 
 func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
-	tmpDir := t.TempDir()
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	st := storage.New(tmpDir, mk)
-	gs := NewGameStore(tmpDir, st)
-	ts := NewTeamStore(tmpDir, st)
-	us := NewUserIndexStore(tmpDir, st, nil)
+
+	st := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
+
+	gs := NewGameStore(dataDir, st)
+	ts := NewTeamStore(dataDir, st)
+	us := NewUserIndexStore(dataDir, st, nil)
 	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st, us)
+	fsm := NewFSM(gs, ts, r, hm, raftS, us)
 	fsm.rm = &RaftManager{} // Enable Raft mode (Delayed persistence)
 
 	// 1. Create Data (In Memory Only)
@@ -39,36 +43,25 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	}
 
 	// Verify NOT on disk yet
-	if _, err := os.Stat(filepath.Join(tmpDir, "games", gameId+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "games", gameId+".json")); !os.IsNotExist(err) {
 		t.Error("Game should not be on disk yet")
 	}
-	if _, err := os.Stat(filepath.Join(tmpDir, "teams", teamId+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "teams", teamId+".json")); !os.IsNotExist(err) {
 		t.Error("Team should not be on disk yet")
 	}
 
 	// 2. Take Snapshot (Should Flush)
-	// We call fsm.Snapshot() to get the FSMSnapshot object, then Persist it.
 	snap, err := fsm.Snapshot()
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
-	// Verify ON DISK now (Flush occurred)
-	// Flush happens inside persist? No, FSM.Snapshot doesn't flush. FSM.persist flushes.
-	// Wait, FSM.Snapshot() returns a struct. It doesn't do IO.
-	// Persist() does IO.
-	// So we can't verify flush here yet.
-	// Ah, the original test asserted Flush happened at Snapshot() call?
-	// The original `FSM.Snapshot` implementation might not have flushed.
-	// `LinkSnapshotStore` implementation of `persist` calls `FlushAll`.
-	// So we verify flush AFTER Persist.
-
 	// 3. Persist Snapshot to Sink (Hardlinks)
-	innerStore, err := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -78,24 +71,25 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	if err := snap.Persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
-	// Persist closes the sink.
 
 	// Now verify Flush occurred
-	if _, err := os.Stat(filepath.Join(tmpDir, "games", gameId+".json")); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "games", gameId+".json")); os.IsNotExist(err) {
 		t.Error("Game should be on disk after Persist call")
 	}
 
 	// 4. Restore from Snapshot (Simulate Crash/Restart)
-	// Create NEW FSM
 	tmpDir2 := t.TempDir()
+	raftDir2 := filepath.Join(tmpDir2, "raft")
 	st2 := storage.New(tmpDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(tmpDir2, st2)
 	ts2 := NewTeamStore(tmpDir2, st2)
 	us2 := NewUserIndexStore(tmpDir2, st2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, hm, st2, us2)
+	fsm2 := NewFSM(gs2, ts2, r2, hm, raftS2, us2)
 
-	// Open snapshot from linkStore (same source dir)
+	// Open snapshot from linkStore
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)

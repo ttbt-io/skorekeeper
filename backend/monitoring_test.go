@@ -145,12 +145,15 @@ func TestMetricSeries_IngestAggregation(t *testing.T) {
 func TestFSMMetricsPersistence(t *testing.T) {
 	// Setup FSM
 	tmpDir := t.TempDir()
+	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
+	raftS := storage.New(raftDir, nil)
+
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, NewHubManager(), s, us)
+	fsm := NewFSM(gs, ts, r, NewHubManager(), raftS, us)
 
 	// Apply Metrics Update
 	payload := &MetricsPayload{
@@ -176,9 +179,9 @@ func TestFSMMetricsPersistence(t *testing.T) {
 	}
 
 	// Snapshot
-	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
+	innerStore, _ := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, tmpDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -194,14 +197,14 @@ func TestFSMMetricsPersistence(t *testing.T) {
 	}
 
 	// Verify that `metrics.json` exists on disk.
-	metricsPath := filepath.Join(tmpDir, "metrics.json")
+	metricsPath := filepath.Join(raftDir, "metrics.json")
 	if _, err := os.Stat(metricsPath); os.IsNotExist(err) {
 		t.Fatalf("metrics.json not found on disk after Snapshot")
 	}
 
 	// Restore Verification (Check disk content)
 	var m2 MetricsStore
-	if err := s.ReadDataFile("metrics.json", &m2); err != nil {
+	if err := raftS.ReadDataFile("metrics.json", &m2); err != nil {
 		t.Fatalf("Failed to read metrics.json back: %v", err)
 	}
 

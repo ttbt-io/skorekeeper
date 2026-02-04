@@ -17,6 +17,7 @@ package backend
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -30,13 +31,17 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 	}
 
 	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
+
 	s := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
+
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, mk)
 	reg := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, reg, nil, s, us)
+	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
 
 	// UserIndexStore cache size is 1000. We'll create 1500 items.
 	numItems := 1500
@@ -54,19 +59,13 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 		reg.UpdateGame(g)
 	}
 
-	// Verify that we have 1500 dirty users (some might be evicted and flushed already)
-	// Actually, UpdateGame sets user index.
-	// If 1500 users are touched, 500 must have been evicted.
-	// Eviction triggers persistUserIndex.
-	// So we should have at least 500 files on disk even before Snapshot.
-
 	// Take Snapshot
 	t.Log("Taking snapshot...")
-	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -79,12 +78,15 @@ func TestSnapshot_LargeDataset_Eviction(t *testing.T) {
 
 	// Restore to new dir
 	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 	s2 := storage.New(dataDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
 	us2 := NewUserIndexStore(dataDir2, s2, mk)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, raftS2, us2)
 
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {

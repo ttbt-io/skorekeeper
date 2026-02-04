@@ -16,6 +16,7 @@ package backend
 
 import (
 	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -25,14 +26,17 @@ import (
 
 func TestFSMSnapshot(t *testing.T) {
 	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
+
 	s := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
 
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, reg, nil, s, us)
+	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
 
 	// 1. Add some data
 	gameId := "game-1"
@@ -46,11 +50,11 @@ func TestFSMSnapshot(t *testing.T) {
 	fsm.nodeMap.Store("node-1", &NodeMeta{NodeID: "node-1", HttpAddr: "127.0.0.1:8080"})
 
 	// 2. Snapshot using LinkSnapshotStore
-	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -63,15 +67,16 @@ func TestFSMSnapshot(t *testing.T) {
 	// persist closes the sink
 
 	// 3. Restore to new dir
-	// To test restore, we can use the SAME linkStore to Open the snapshot we just made.
-	// But we restore into a NEW FSM backed by a NEW DataDir.
 	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 	s2 := storage.New(dataDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
 	us2 := NewUserIndexStore(dataDir2, s2, nil)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, raftS2, us2)
 
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {

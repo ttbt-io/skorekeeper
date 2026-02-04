@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
@@ -16,12 +17,15 @@ import (
 func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	// Setup FSM
 	tmpDir := t.TempDir()
+	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
+	raftS := storage.New(raftDir, nil)
+
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, s, us)
+	fsm := NewFSM(gs, ts, r, nil, raftS, us)
 
 	// verify initial index
 	if fsm.LastAppliedIndex() != 0 {
@@ -53,9 +57,9 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 	}
 	defer snap.Release()
 
-	// Check fsm_state.json
+	// Check fsm_state.json (Stored in raft storage)
 	var state map[string]any
-	if err := s.ReadDataFile("fsm_state.json", &state); err != nil {
+	if err := raftS.ReadDataFile("fsm_state.json", &state); err != nil {
 		t.Fatalf("Failed to read fsm_state.json: %v", err)
 	}
 
@@ -80,8 +84,8 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 
 	// Check Manifest in Snapshot
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
+	innerStore, _ := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(raftDir, tmpDir, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
@@ -121,12 +125,15 @@ func TestSmartSnapshot_IndexTracking(t *testing.T) {
 func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// 1. Setup Local State (High Index)
 	tmpDir := t.TempDir()
+	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
+	raftS := storage.New(raftDir, nil)
+
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, s, us)
+	fsm := NewFSM(gs, ts, r, nil, raftS, us)
 
 	// Set initialized
 	fsm.setInitialized()
@@ -140,7 +147,7 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 		"lastAppliedIndex": 200,
 		"timestamp":        123456789,
 	}
-	s.SaveDataFile("fsm_state.json", state)
+	raftS.SaveDataFile("fsm_state.json", state)
 
 	// 2. Create a Snapshot (Low Index)
 	// We need to craft a snapshot manually or use FSM to generate one.
@@ -148,12 +155,15 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 	// So let's create a separate FSM2 with Low Index.
 
 	tmpDir2 := t.TempDir()
+	raftDir2 := filepath.Join(tmpDir2, "raft")
 	s2 := storage.New(tmpDir2, nil)
+	raftS2 := storage.New(raftDir2, nil)
+
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
 	us2 := NewUserIndexStore(tmpDir2, s2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, r2, nil, raftS2, us2)
 
 	// Set Index 100 on FSM2
 	fsm2.lastAppliedIndex.Store(100)
@@ -171,8 +181,8 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 
 	// Persist to LinkSnapshotStore
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	innerStore, _ := raft.NewFileSnapshotStore(tmpDir2, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir2, tmpDir2, innerStore, nil, mk)
+	innerStore, _ := raft.NewFileSnapshotStore(raftDir2, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(raftDir2, tmpDir2, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 100, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
@@ -206,13 +216,15 @@ func TestSmartSnapshot_SkipRestore(t *testing.T) {
 func TestSmartSnapshot_FastRestore(t *testing.T) {
 	// Setup FSM
 	tmpDir := t.TempDir()
+	raftDir := filepath.Join(tmpDir, "raft")
 	s := storage.New(tmpDir, nil)
+	raftS := storage.New(raftDir, nil)
 
 	gs := NewGameStore(tmpDir, s)
 	ts := NewTeamStore(tmpDir, s)
 	us := NewUserIndexStore(tmpDir, s, nil)
 	r := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, r, nil, s, us)
+	fsm := NewFSM(gs, ts, r, nil, raftS, us)
 
 	// Create Games
 	numGames := 10
@@ -229,8 +241,8 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 	}
 
 	mk, _ := crypto.CreateAESMasterKeyForTest()
-	innerStore, _ := raft.NewFileSnapshotStore(tmpDir, 1, io.Discard)
-	linkStore := NewLinkSnapshotStore(tmpDir, tmpDir, innerStore, nil, mk)
+	innerStore, _ := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	linkStore := NewLinkSnapshotStore(raftDir, tmpDir, innerStore, nil, mk)
 
 	sink, _ := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err := snap.Persist(sink); err != nil {
@@ -239,12 +251,15 @@ func TestSmartSnapshot_FastRestore(t *testing.T) {
 
 	// New FSM
 	tmpDir2 := t.TempDir()
+	raftDir2 := filepath.Join(tmpDir2, "raft")
 	s2 := storage.New(tmpDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(tmpDir2, s2)
 	ts2 := NewTeamStore(tmpDir2, s2)
 	us2 := NewUserIndexStore(tmpDir2, s2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, r2, nil, raftS2, us2)
 
 	// Restore
 	_, rc, err := linkStore.Open(sink.ID())

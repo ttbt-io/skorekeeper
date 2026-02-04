@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -78,18 +79,20 @@ func generateSelfSignedCert() (*tls.Certificate, ed25519.PublicKey, error) {
 
 // TestRaftTLSConfig verifies that RaftManager correctly configures TLS with dynamic keys.
 func TestRaftTLSConfig(t *testing.T) {
-	tempDir := t.TempDir()
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 
-	s := storage.New(tempDir, nil)
-	gStore := NewGameStore(tempDir, s)
-	tStore := NewTeamStore(tempDir, s)
-	us := NewUserIndexStore(tempDir, s, nil)
+	s := storage.New(dataDir, nil)
+	rs := storage.New(raftDir, nil)
+	gStore := NewGameStore(dataDir, s)
+	tStore := NewTeamStore(dataDir, s)
+	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
 	hm := NewHubManager()
-	fsm := NewFSM(gStore, tStore, reg, hm, s, us)
+	fsm := NewFSM(gStore, tStore, reg, hm, rs, us)
 
 	// Use random port
-	rm := NewRaftManager(tempDir, "127.0.0.1:0", "", "http://localhost", "127.0.0.1:0", "secret", nil, fsm)
+	rm := NewRaftManager(raftDir, "127.0.0.1:0", "", "http://localhost", "127.0.0.1:0", "secret", nil, fsm)
 
 	// Start Raft (bootstrapping single node)
 	if err := rm.Start(true); err != nil {
@@ -151,24 +154,21 @@ func TestForwardRequestToLeader(t *testing.T) {
 	l2.Close()
 
 	// 2. Start Leader
-	dir1 := t.TempDir()
-	s1 := storage.New(dir1, nil)
-	gStore1 := NewGameStore(dir1, s1)
-	tStore1 := NewTeamStore(dir1, s1)
-	us1 := NewUserIndexStore(dir1, s1, nil)
+	dataDir1 := t.TempDir()
+	raftDir1 := filepath.Join(dataDir1, "raft")
+	s1 := storage.New(dataDir1, nil)
+	rs1 := storage.New(raftDir1, nil)
+	gStore1 := NewGameStore(dataDir1, s1)
+	tStore1 := NewTeamStore(dataDir1, s1)
+	us1 := NewUserIndexStore(dataDir1, s1, nil)
 	reg1 := NewRegistry(gStore1, tStore1, us1, true)
-	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), s1, us1)
-
-	// Use leaderAddr for BOTH Raft and ClusterHTTP for simplicity, or separate?
-	// Start() uses Bind for Raft, ClusterAddr for HTTP. They must be different ports usually?
-	// If they are same, they might conflict if same protocol? No, Raft is custom TCP, HTTP is TCP.
-	// They cannot bind same port.
+	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), rs1, us1)
 
 	r1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := r1.Addr().String()
 	r1.Close()
 
-	rm1 := NewRaftManager(dir1, leaderRaft, leaderRaft, leaderAddr, leaderAddr, "secret", nil, fsm1)
+	rm1 := NewRaftManager(raftDir1, leaderRaft, leaderRaft, leaderAddr, leaderAddr, "secret", nil, fsm1)
 	if err := rm1.Start(true); err != nil {
 		t.Fatalf("Leader start: %v", err)
 	}
@@ -182,20 +182,22 @@ func TestForwardRequestToLeader(t *testing.T) {
 	}
 
 	// 3. Start Follower
-	dir2 := t.TempDir()
+	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 
 	r2, _ := net.Listen("tcp", "127.0.0.1:0")
 	followerRaft := r2.Addr().String()
 	r2.Close()
 
-	s2 := storage.New(dir2, nil)
-	gStore2 := NewGameStore(dir2, s2)
-	tStore2 := NewTeamStore(dir2, s2)
-	us2 := NewUserIndexStore(dir2, s2, nil)
+	s2 := storage.New(dataDir2, nil)
+	rs2 := storage.New(raftDir2, nil)
+	gStore2 := NewGameStore(dataDir2, s2)
+	tStore2 := NewTeamStore(dataDir2, s2)
+	us2 := NewUserIndexStore(dataDir2, s2, nil)
 	reg2 := NewRegistry(gStore2, tStore2, us2, true)
-	fsm2 := NewFSM(gStore2, tStore2, reg2, NewHubManager(), s2, us2)
+	fsm2 := NewFSM(gStore2, tStore2, reg2, NewHubManager(), rs2, us2)
 
-	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerAddr, followerAddr, "secret", nil, fsm2)
+	rm2 := NewRaftManager(raftDir2, followerRaft, followerRaft, followerAddr, followerAddr, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {
 		t.Fatalf("Follower start: %v", err)
 	}
@@ -253,20 +255,22 @@ func TestForwardRequestToLeader(t *testing.T) {
 }
 
 func TestJoinNonVoter(t *testing.T) {
-	dir := t.TempDir()
-	s := storage.New(dir, nil)
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
+	s := storage.New(dataDir, nil)
+	rs := storage.New(raftDir, nil)
 
-	gStore := NewGameStore(dir, s)
-	tStore := NewTeamStore(dir, s)
-	us := NewUserIndexStore(dir, s, nil)
+	gStore := NewGameStore(dataDir, s)
+	tStore := NewTeamStore(dataDir, s)
+	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
-	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), s, us)
+	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), rs, us)
 
 	r1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := r1.Addr().String()
 	r1.Close()
 
-	rm := NewRaftManager(dir, leaderRaft, leaderRaft, "127.0.0.1:0", "127.0.0.1:0", "secret", nil, fsm)
+	rm := NewRaftManager(raftDir, leaderRaft, leaderRaft, "127.0.0.1:0", "127.0.0.1:0", "secret", nil, fsm)
 	if err := rm.Start(true); err != nil {
 		t.Fatalf("Leader start: %v", err)
 	}
@@ -328,7 +332,8 @@ func TestForwardingLoop(t *testing.T) {
 
 func TestForwardAppRequest(t *testing.T) {
 	// 1. Setup Leader
-	dir1 := t.TempDir()
+	dataDir1 := t.TempDir()
+	raftDir1 := filepath.Join(dataDir1, "raft")
 
 	// Get two free ports for Leader
 	l1, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -339,12 +344,13 @@ func TestForwardAppRequest(t *testing.T) {
 	leaderRaft := r1.Addr().String()
 	r1.Close()
 
-	s1 := storage.New(dir1, nil)
+	s1 := storage.New(dataDir1, nil)
+	rs1 := storage.New(raftDir1, nil)
 	// Minimal deps
-	gStore1 := NewGameStore(dir1, s1)
-	tStore1 := NewTeamStore(dir1, s1)
-	us1 := NewUserIndexStore(dir1, s1, nil)
-	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1, us1, true), NewHubManager(), s1, us1)
+	gStore1 := NewGameStore(dataDir1, s1)
+	tStore1 := NewTeamStore(dataDir1, s1)
+	us1 := NewUserIndexStore(dataDir1, s1, nil)
+	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1, us1, true), NewHubManager(), rs1, us1)
 
 	// Mock App Handler on Leader
 	appHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +362,7 @@ func TestForwardAppRequest(t *testing.T) {
 		http.NotFound(w, r)
 	})
 
-	rm1 := NewRaftManager(dir1, leaderRaft, leaderRaft, leaderHTTP, leaderHTTP, "secret", nil, fsm1)
+	rm1 := NewRaftManager(raftDir1, leaderRaft, leaderRaft, leaderHTTP, leaderHTTP, "secret", nil, fsm1)
 	rm1.AppHandler = appHandler
 	if err := rm1.Start(true); err != nil {
 		t.Fatalf("Leader start: %v", err)
@@ -371,7 +377,8 @@ func TestForwardAppRequest(t *testing.T) {
 	}
 
 	// 2. Setup Follower
-	dir2 := t.TempDir()
+	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 
 	// Get two free ports for Follower
 	l2, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -382,13 +389,14 @@ func TestForwardAppRequest(t *testing.T) {
 	followerRaft := r2.Addr().String()
 	r2.Close()
 
-	s2 := storage.New(dir2, nil)
-	gStore2 := NewGameStore(dir2, s2)
-	tStore2 := NewTeamStore(dir2, s2)
-	us2 := NewUserIndexStore(dir2, s2, nil)
-	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2, us2, true), NewHubManager(), s2, us2)
+	s2 := storage.New(dataDir2, nil)
+	rs2 := storage.New(raftDir2, nil)
+	gStore2 := NewGameStore(dataDir2, s2)
+	tStore2 := NewTeamStore(dataDir2, s2)
+	us2 := NewUserIndexStore(dataDir2, s2, nil)
+	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2, us2, true), NewHubManager(), rs2, us2)
 
-	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerHTTP, followerHTTP, "secret", nil, fsm2)
+	rm2 := NewRaftManager(raftDir2, followerRaft, followerRaft, followerHTTP, followerHTTP, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {
 		t.Fatalf("Follower start: %v", err)
 	}

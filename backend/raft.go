@@ -625,10 +625,17 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	var raftSnapshotStore raft.SnapshotStore = snapshotStore
 	if rm.keyRing != nil {
 		// Use KeyRing for snapshots with Linking (Hardlink optimization)
-		sourceDir := rm.DataDir
-		if rm.FSM != nil && rm.FSM.storage != nil {
-			sourceDir = rm.FSM.storage.Dir()
+		var sourceDir string
+		if rm.FSM != nil {
+			if gs, _ := rm.FSM.GetStores(); gs != nil {
+				sourceDir = gs.DataDir
+			}
 		}
+
+		if sourceDir == "" {
+			return fmt.Errorf("failed to determine source directory for snapshot linking: GameStore not available")
+		}
+
 		// LinkSnapshotStore wraps FileSnapshotStore but links data files instead of copying
 		rm.snapStoreEnc = NewLinkSnapshotStore(rm.DataDir, sourceDir, snapshotStore, rm.keyRing, rm.MasterKey)
 		raftSnapshotStore = rm.snapStoreEnc

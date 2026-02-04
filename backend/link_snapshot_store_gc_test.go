@@ -27,11 +27,14 @@ import (
 
 func TestLinkSnapshotStore_GC(t *testing.T) {
 	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
+
 	s := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
 
 	gs := NewGameStore(dataDir, s)
-	fsm := NewFSM(gs, NewTeamStore(dataDir, s), nil, nil, s, nil)
+	fsm := NewFSM(gs, NewTeamStore(dataDir, s), nil, nil, raftS, nil)
 
 	// 1. Setup Data
 	game := Game{SchemaVersion: SchemaVersionV3, ID: "game-gc", Away: "A", Home: "B"}
@@ -47,11 +50,11 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	initialMode := info.Mode()
 
 	// 2. Setup Store with Retention=1
-	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
 
 	// 3. Create Snapshot 1
 	sink1, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
@@ -64,7 +67,7 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	id1 := sink1.ID()
 
 	// Verify hardlink exists in Snap 1
-	snap1Path := filepath.Join(dataDir, "snapshots", id1, "games", "game-gc.json")
+	snap1Path := filepath.Join(raftDir, "snapshots", id1, "games", "game-gc.json")
 	if _, err := os.Stat(snap1Path); err != nil {
 		t.Errorf("Snap 1 file missing: %v", err)
 	}
@@ -80,10 +83,6 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	id2 := sink2.ID()
 
 	// 5. Verify Snap 1 is reaped
-	// FileSnapshotStore reaps snapshots during Create (before returning sink).
-	// With retain=1, creating Snap 2 should leave us with 2 snapshots temporarily (Snap 1 and Snap 2).
-	// We force a third Create (even if cancelled) to ensure Snap 1 is reaped.
-
 	sink3, err := linkStore.Create(1, 30, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
 		t.Fatalf("Create 3 failed: %v", err)
@@ -91,12 +90,12 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	sink3.Cancel() // Abort 3, just wanted to trigger GC
 
 	// Verify Snap 1 is gone
-	if _, err := os.Stat(filepath.Join(dataDir, "snapshots", id1)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(raftDir, "snapshots", id1)); !os.IsNotExist(err) {
 		t.Errorf("Snapshot 1 %s should have been deleted", id1)
 	}
 
 	// Verify Snap 2 is still there
-	if _, err := os.Stat(filepath.Join(dataDir, "snapshots", id2)); err != nil {
+	if _, err := os.Stat(filepath.Join(raftDir, "snapshots", id2)); err != nil {
 		t.Errorf("Snapshot 2 %s should exist", id2)
 	}
 
@@ -110,7 +109,7 @@ func TestLinkSnapshotStore_GC(t *testing.T) {
 	}
 
 	// 7. Verify Snap 2 file is valid
-	snap2Path := filepath.Join(dataDir, "snapshots", id2, "games", "game-gc.json")
+	snap2Path := filepath.Join(raftDir, "snapshots", id2, "games", "game-gc.json")
 	if _, err := os.Stat(snap2Path); err != nil {
 		t.Errorf("Snap 2 file missing: %v", err)
 	}

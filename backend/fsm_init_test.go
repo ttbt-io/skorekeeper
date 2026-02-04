@@ -87,23 +87,27 @@ func TestFSMInitialization(t *testing.T) {
 
 func TestFSMSnapshotInitialization(t *testing.T) {
 	tempDir := t.TempDir()
+	raftDir := filepath.Join(tempDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
+
 	s := storage.New(tempDir, mk)
+	raftS := storage.New(raftDir, mk)
+
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
 
-	fsm := NewFSM(gs, ts, reg, nil, s, us)
+	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
 	fsm.initialized.Store(true)
 	fsm.nodeMap.Store("node-1", &NodeMeta{NodeID: "node-1"})
 
 	// Snapshot
-	innerStore, err := raft.NewFileSnapshotStore(tempDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(tempDir, tempDir, innerStore, nil, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, tempDir, innerStore, nil, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -116,13 +120,16 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 
 	// Restore
 	tempDir2 := t.TempDir()
+	raftDir2 := filepath.Join(tempDir2, "raft")
 	s2 := storage.New(tempDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(tempDir2, s2)
 	ts2 := NewTeamStore(tempDir2, s2)
 	us2 := NewUserIndexStore(tempDir2, s2, nil)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
 
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, raftS2, us2)
 
 	_, rc, err := linkStore.Open(sink.ID())
 	if err != nil {

@@ -30,14 +30,17 @@ import (
 
 func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
 	mk, _ := crypto.CreateAESMasterKeyForTest()
+
 	s := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
 
 	gs := NewGameStore(dataDir, s)
 	ts := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
-	fsm := NewFSM(gs, ts, reg, nil, s, us)
+	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
 
 	// 1. Setup Data
 	game := Game{SchemaVersion: SchemaVersionV3, ID: "game-1", Away: "Away Team", Home: "Home Team"}
@@ -61,11 +64,11 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	defer ring.Wipe()
 
 	// 3. Setup LinkSnapshotStore
-	innerStore, err := raft.NewFileSnapshotStore(dataDir, 1, io.Discard)
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(dataDir, dataDir, innerStore, ring, mk)
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, ring, mk)
 
 	// 4. Create Snapshot via FSM
 	sink, err := linkStore.Create(raft.SnapshotVersion(1), 10, 2, raft.Configuration{}, 1, nil)
@@ -79,7 +82,7 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 
 	// 5. Verify Hardlinks on Disk
 	snapID := sink.ID()
-	snapDir := filepath.Join(dataDir, "snapshots", snapID)
+	snapDir := filepath.Join(raftDir, "snapshots", snapID)
 
 	gamePath := filepath.Join(snapDir, "games", "game-1.json")
 	if _, err := os.Stat(gamePath); err != nil {
@@ -176,11 +179,14 @@ func TestLinkSnapshotStore_EndToEnd(t *testing.T) {
 	defer rc2.Close()
 
 	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 	s2 := storage.New(dataDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(dataDir2, s2)
 	ts2 := NewTeamStore(dataDir2, s2)
 	us2 := NewUserIndexStore(dataDir2, s2, nil)
-	fsm2 := NewFSM(gs2, ts2, NewRegistry(gs2, ts2, us2, true), nil, s2, us2)
+	fsm2 := NewFSM(gs2, ts2, NewRegistry(gs2, ts2, us2, true), nil, raftS2, us2)
 
 	if err := fsm2.restore(rc2); err != nil {
 		t.Fatalf("Restore from reconstructed stream failed: %v", err)
