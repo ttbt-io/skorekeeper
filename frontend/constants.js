@@ -121,4 +121,4 @@ export const AccessWrite = 'write';
 // App Versions
 export const CurrentSchemaVersion = SchemaVersionV3;
 export const CurrentProtocolVersion = 1;
-export const CurrentAppVersion = '0.2.13';
+export const CurrentAppVersion = '0.2.14';
