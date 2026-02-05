@@ -83,12 +83,21 @@ func TestRaftTLSConfig(t *testing.T) {
 	raftDir := filepath.Join(dataDir, "raft")
 
 	s := storage.New(dataDir, nil)
+
+	rs := storage.New(raftDir, nil)
+
 	gStore := NewGameStore(dataDir, s)
+
 	tStore := NewTeamStore(dataDir, s)
+
 	us := NewUserIndexStore(dataDir, s, nil)
+
 	reg := NewRegistry(gStore, tStore, us, true)
+
 	hm := NewHubManager()
-	fsm := NewFSM(gStore, tStore, reg, hm, s, us)
+
+	fsm := NewFSM(gStore, tStore, reg, hm, rs, us)
+
 	// Use random port
 	rm := NewRaftManager(raftDir, "127.0.0.1:0", "", "http://localhost", "127.0.0.1:0", "secret", nil, fsm)
 
@@ -155,11 +164,13 @@ func TestForwardRequestToLeader(t *testing.T) {
 	dataDir1 := t.TempDir()
 	raftDir1 := filepath.Join(dataDir1, "raft")
 	s1 := storage.New(dataDir1, nil)
+	rs1 := storage.New(raftDir1, nil)
 	gStore1 := NewGameStore(dataDir1, s1)
 	tStore1 := NewTeamStore(dataDir1, s1)
 	us1 := NewUserIndexStore(dataDir1, s1, nil)
 	reg1 := NewRegistry(gStore1, tStore1, us1, true)
-	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), s1, us1)
+	fsm1 := NewFSM(gStore1, tStore1, reg1, NewHubManager(), rs1, us1)
+
 	r1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := r1.Addr().String()
 	r1.Close()
@@ -254,11 +265,14 @@ func TestJoinNonVoter(t *testing.T) {
 	dataDir := t.TempDir()
 	raftDir := filepath.Join(dataDir, "raft")
 	s := storage.New(dataDir, nil)
+	rs := storage.New(raftDir, nil)
+
 	gStore := NewGameStore(dataDir, s)
 	tStore := NewTeamStore(dataDir, s)
 	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gStore, tStore, us, true)
-	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), s, us)
+	fsm := NewFSM(gStore, tStore, reg, NewHubManager(), rs, us)
+
 	r1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := r1.Addr().String()
 	r1.Close()
@@ -338,11 +352,19 @@ func TestForwardAppRequest(t *testing.T) {
 	r1.Close()
 
 	s1 := storage.New(dataDir1, nil)
+
+	rs1 := storage.New(raftDir1, nil)
+
 	// Minimal deps
+
 	gStore1 := NewGameStore(dataDir1, s1)
+
 	tStore1 := NewTeamStore(dataDir1, s1)
+
 	us1 := NewUserIndexStore(dataDir1, s1, nil)
-	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1, us1, true), NewHubManager(), s1, us1)
+
+	fsm1 := NewFSM(gStore1, tStore1, NewRegistry(gStore1, tStore1, us1, true), NewHubManager(), rs1, us1)
+
 	// Mock App Handler on Leader
 	appHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/test" {
@@ -381,10 +403,17 @@ func TestForwardAppRequest(t *testing.T) {
 	r2.Close()
 
 	s2 := storage.New(dataDir2, nil)
+
+	rs2 := storage.New(raftDir2, nil)
+
 	gStore2 := NewGameStore(dataDir2, s2)
+
 	tStore2 := NewTeamStore(dataDir2, s2)
+
 	us2 := NewUserIndexStore(dataDir2, s2, nil)
-	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2, us2, true), NewHubManager(), s2, us2)
+
+	fsm2 := NewFSM(gStore2, tStore2, NewRegistry(gStore2, tStore2, us2, true), NewHubManager(), rs2, us2)
+
 	rm2 := NewRaftManager(raftDir2, followerRaft, followerRaft, followerHTTP, followerHTTP, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {
 		t.Fatalf("Follower start: %v", err)

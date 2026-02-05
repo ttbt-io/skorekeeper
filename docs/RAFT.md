@@ -121,6 +121,7 @@ curl -X POST https://leader-host/api/cluster/join \
 The system uses an optimized **Hardlink Snapshot** mechanism (`LinkSnapshotStore`) to minimize I/O overhead and blocking time during snapshot creation.
 
 *   **Creation:** Instead of serializing and copying all data, the FSM creates filesystem hardlinks for active Game and Team files into the snapshot directory (`data/snapshots/{id}/`). This is a fast metadata-only operation.
+*   **System Files:** Critical system state files (`sys_access_policy`, `metrics.json`, `nodes.json`) are also linked into the snapshot (under a `raft/` subdirectory in the snapshot structure) to ensuring full cluster state replication.
 *   **Storage:**
     *   **Manifest (`state.bin`):** Contains snapshot metadata (Index, Term, Configuration) and is encrypted with the active **Raft Key**.
     *   **Data Files:** The hardlinked files remain encrypted on disk using the node's **Master Key**, ensuring zero data duplication.

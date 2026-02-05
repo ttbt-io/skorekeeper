@@ -18,6 +18,7 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	mk, _ := crypto.CreateAESMasterKeyForTest()
 
 	st := storage.New(dataDir, mk)
+	raftS := storage.New(raftDir, mk)
 
 	gs := NewGameStore(dataDir, st)
 	ts := NewTeamStore(dataDir, st)
@@ -25,7 +26,7 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	r := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 
-	fsm := NewFSM(gs, ts, r, hm, st, us)
+	fsm := NewFSM(gs, ts, r, hm, raftS, us)
 	fsm.rm = &RaftManager{} // Enable Raft mode (Delayed persistence)
 
 	// 1. Create Data (In Memory Only)
@@ -60,7 +61,8 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
+	ring := NewKeyRing(mk, "test-key")
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, ring, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {
@@ -78,13 +80,15 @@ func TestPersistence_Integration_SnapshotRestore(t *testing.T) {
 
 	// 4. Restore from Snapshot (Simulate Crash/Restart)
 	tmpDir2 := t.TempDir()
+	raftDir2 := filepath.Join(tmpDir2, "raft")
 	st2 := storage.New(tmpDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
 
 	gs2 := NewGameStore(tmpDir2, st2)
 	ts2 := NewTeamStore(tmpDir2, st2)
 	us2 := NewUserIndexStore(tmpDir2, st2, nil)
 	r2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, r2, hm, st2, us2)
+	fsm2 := NewFSM(gs2, ts2, r2, hm, raftS2, us2)
 
 	// Open snapshot from linkStore
 	_, rc, err := linkStore.Open(sink.ID())

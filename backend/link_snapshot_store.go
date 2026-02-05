@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,34 +30,6 @@ import (
 	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
 )
-
-const snapshotCryptoCtx = "raft-snapshot"
-
-// DecryptedReadCloser wraps the underlying reader.
-type DecryptedReadCloser struct {
-	inner  io.ReadCloser
-	stream crypto.StreamReader // io.Reader + io.Seeker + io.Closer
-}
-
-func (r *DecryptedReadCloser) Read(p []byte) (n int, err error) {
-	return r.stream.Read(p)
-}
-
-func (r *DecryptedReadCloser) Seek(offset int64, whence int) (int64, error) {
-	return r.stream.Seek(offset, whence)
-}
-
-func (r *DecryptedReadCloser) Close() error {
-	// Close stream first
-	r.stream.Close()
-	// Then close underlying file
-	return r.inner.Close()
-}
-
-type bufReadCloser struct {
-	*bufio.Reader
-	io.Closer
-}
 
 // SnapshotLinker is the interface that FSM.Persist uses to link files.
 type SnapshotLinker interface {
@@ -114,13 +87,10 @@ func (s *LinkSnapshotStore) Create(version raft.SnapshotVersion, index, term uin
 		return nil, err
 	}
 
-	var stream crypto.StreamWriter
-	if s.ring != nil && s.ring.Active != nil {
-		stream, err = s.ring.Active.Key.StartWriter([]byte(snapshotCryptoCtx), sink)
-		if err != nil {
-			sink.Cancel()
-			return nil, err
-		}
+	stream, err := s.ring.Active.Key.StartWriter([]byte(sink.ID()), sink)
+	if err != nil {
+		sink.Cancel()
+		return nil, err
 	}
 
 	return &LinkSnapshotSink{
@@ -135,335 +105,7 @@ func (s *LinkSnapshotStore) List() ([]*raft.SnapshotMeta, error) {
 	return s.inner.List()
 }
 
-func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, error) {
-	meta, rc, err := s.inner.Open(id)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 1. Decrypt Manifest Stream (state.bin)
-	var decryptedRC io.ReadCloser = rc
-	if s.ring != nil {
-		decryptedRC, err = s.decryptManifestStream(id)
-		if err != nil {
-			rc.Close()
-			return nil, nil, err
-		}
-	}
-
-	// 2. Peek to detect if this is a Remote Snapshot (GZIP TAR) or Local Snapshot (JSON Manifest)
-	br := bufio.NewReader(decryptedRC)
-	header, err := br.Peek(2)
-	if err == nil && len(header) == 2 && header[0] == 0x1f && header[1] == 0x8b {
-		// It's a GZIP stream (Remote Snapshot).
-		// Return the buffered reader wrapped to preserve Close.
-		return meta, &bufReadCloser{Reader: br, Closer: decryptedRC}, nil
-	}
-
-	// 3. If Local Snapshot (JSON), we must "hydrate" it into a TAR stream.
-	// To ensure meta.Size matches the stream exactly, we generate the full GZipped TAR
-	// into a temporary encrypted cache file, count its size, and then stream from there.
-
-	// Read manifest bytes eagerly
-	manifestBytes, err := io.ReadAll(br)
-	if err != nil {
-		decryptedRC.Close()
-		return nil, nil, fmt.Errorf("failed to read manifest: %w", err)
-	}
-	decryptedRC.Close() // Done with the original partial reader
-
-	snapDir, err := s.resolveSnapshotPath(id)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cachePath := filepath.Join(snapDir, "replication.cache")
-	sizePath := filepath.Join(snapDir, "replication.size")
-
-	// Check if cache exists
-	if _, err := os.Stat(cachePath); err == nil {
-		if sizeBytes, err := os.ReadFile(sizePath); err == nil {
-			var size int64
-			if _, err := fmt.Sscanf(string(sizeBytes), "%d", &size); err == nil {
-				// Cache hit
-				f, err := os.Open(cachePath)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				// Setup Decryption Reader
-				var decReader crypto.StreamReader
-				if s.ring != nil && s.ring.Active != nil {
-					decReader, err = s.ring.Active.Key.StartReader([]byte(snapshotCryptoCtx), f)
-				} else if s.masterKey != nil {
-					decReader, err = s.masterKey.StartReader([]byte(snapshotCryptoCtx), f)
-				} else {
-					decReader = &nopStreamReader{f}
-				}
-
-				if err == nil {
-					meta.Size = size
-					return meta, &DecryptedReadCloser{inner: f, stream: decReader}, nil
-				}
-				f.Close()
-			}
-		}
-	}
-
-	// Regenerate Cache
-	f, err := os.Create(cachePath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create replication cache: %w", err)
-	}
-
-	// Setup Encryption Writer
-	var streamW crypto.StreamWriter
-	if s.ring != nil && s.ring.Active != nil {
-		streamW, err = s.ring.Active.Key.StartWriter([]byte(snapshotCryptoCtx), writerOnly{f})
-	} else if s.masterKey != nil {
-		streamW, err = s.masterKey.StartWriter([]byte(snapshotCryptoCtx), writerOnly{f})
-	} else {
-		streamW = &nopStreamWriter{f}
-	}
-	if err != nil {
-		f.Close()
-		return nil, nil, fmt.Errorf("failed to start encryption writer: %w", err)
-	}
-
-	// Counter to track Decrypted Size (GZIP stream size)
-	counter := &byteCounter{}
-
-	// Pipeline: Content -> Tar -> Gzip -> Counter -> Encrypt -> File
-	// Note: We want to count what goes INTO Encrypt, which is what comes OUT of Gzip.
-	// So Writer is: Gzip -> MultiWriter(Counter, StreamW) -> File?
-	// No, io.MultiWriter writes to both.
-
-	// We want:
-	// content -> tar -> gzip -> [Counter] -> streamW -> file
-	// So gzip writes to Counter. Counter writes to streamW.
-
-	counterW := &counterWriter{target: streamW, counter: counter}
-	gz := gzip.NewWriter(counterW)
-	tw := tar.NewWriter(gz)
-
-	// Write Manifest
-	if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
-		tw.Close()
-		gz.Close()
-		streamW.Close()
-		f.Close()
-		return nil, nil, err
-	}
-
-	// Write Entities
-	err = s.walkSnapshotEntities(id, func(path string, data []byte) error {
-		return writeFileToTar(tw, path, data)
-	})
-	if err != nil {
-		tw.Close()
-		gz.Close()
-		streamW.Close()
-		f.Close()
-		return nil, nil, err
-	}
-
-	// Close Writers (Order matters!)
-	if err := tw.Close(); err != nil {
-		return nil, nil, err
-	}
-	if err := gz.Close(); err != nil {
-		return nil, nil, err
-	}
-	if err := streamW.Close(); err != nil {
-		return nil, nil, err
-	}
-	if err := f.Close(); err != nil {
-		return nil, nil, err
-	}
-
-	// Save Size
-	size := counter.count
-	if err := os.WriteFile(sizePath, []byte(fmt.Sprintf("%d", size)), 0644); err != nil {
-		f.Close()
-		return nil, nil, fmt.Errorf("failed to write snapshot size cache: %w", err)
-	}
-
-	// Re-open for reading
-	f, err = os.Open(cachePath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var decReader crypto.StreamReader
-	if s.ring != nil && s.ring.Active != nil {
-		decReader, err = s.ring.Active.Key.StartReader([]byte(snapshotCryptoCtx), f)
-	} else if s.masterKey != nil {
-		decReader, err = s.masterKey.StartReader([]byte(snapshotCryptoCtx), f)
-	} else {
-		decReader = &nopStreamReader{f}
-	}
-
-	if err != nil {
-		f.Close()
-		return nil, nil, err
-	}
-
-	meta.Size = size
-	return meta, &DecryptedReadCloser{inner: f, stream: decReader}, nil
-}
-
-type byteCounter struct {
-	count int64
-}
-
-type counterWriter struct {
-	target  io.Writer
-	counter *byteCounter
-}
-
-func (c *counterWriter) Write(p []byte) (int, error) {
-	n, err := c.target.Write(p)
-	// Count bytes successfully written
-	if n > 0 {
-		c.counter.count += int64(n)
-	}
-	return n, err
-}
-
-type nopStreamReader struct {
-	*os.File
-}
-
-func (n *nopStreamReader) Close() error { return nil }
-
-type nopStreamWriter struct {
-	io.Writer
-}
-
-func (n *nopStreamWriter) Close() error { return nil }
-
-type writerOnly struct {
-	io.Writer
-}
-
-func (s *LinkSnapshotStore) walkSnapshotEntities(id string, visitor func(relPath string, data []byte) error) error {
-	snapDir, err := s.resolveSnapshotPath(id)
-	if err != nil {
-		return err
-	}
-
-	tempStore := storage.New(snapDir, s.masterKey)
-
-	return filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		relPath, err := filepath.Rel(snapDir, path)
-		if err != nil {
-			return err
-		}
-
-		if relPath == "meta.json" || relPath == "state.bin" || relPath == "replication.cache" || relPath == "replication.size" {
-			return nil
-		}
-
-		if relPath == "sys_access_policy" {
-			obj := &UserAccessPolicy{}
-			if err := tempStore.ReadDataFile(relPath, obj); err != nil {
-				return fmt.Errorf("failed to read %s: %w", relPath, err)
-			}
-			data, err := json.Marshal(obj)
-			if err != nil {
-				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-			}
-			if err := visitor(relPath, data); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if relPath == "metrics.json" {
-			obj := &MetricsStore{}
-			if err := tempStore.ReadDataFile(relPath, obj); err != nil {
-				return fmt.Errorf("failed to read %s: %w", relPath, err)
-			}
-			data, err := json.Marshal(obj)
-			if err != nil {
-				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-			}
-			if err := visitor(relPath, data); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if relPath == "nodes.json" {
-			var obj map[string]*NodeMeta
-			if err := tempStore.ReadDataFile(relPath, &obj); err != nil {
-				return fmt.Errorf("failed to read %s: %w", relPath, err)
-			}
-			data, err := json.Marshal(obj)
-			if err != nil {
-				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-			}
-			if err := visitor(relPath, data); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if relPath == "fsm_state.json" {
-			var obj map[string]any
-			if err := tempStore.ReadDataFile(relPath, &obj); err != nil {
-				return fmt.Errorf("failed to read %s: %w", relPath, err)
-			}
-			data, err := json.Marshal(obj)
-			if err != nil {
-				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-			}
-			if err := visitor(relPath, data); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		handlers := []struct {
-			prefix  string
-			factory func() any
-		}{
-			{"games/", func() any { return &Game{} }},
-			{"teams/", func() any { return &Team{} }},
-			{"users/", func() any { return &UserIndex{} }},
-			{"team_games/", func() any { return &TeamGamesIndex{} }},
-			{"game_users/", func() any { return &GameUsersIndex{} }},
-			{"team_users/", func() any { return &TeamUsersIndex{} }},
-		}
-
-		for _, h := range handlers {
-			if strings.HasPrefix(relPath, h.prefix) {
-				obj := h.factory()
-				if err := tempStore.ReadDataFile(relPath, obj); err != nil {
-					return fmt.Errorf("failed to read %s: %w", relPath, err)
-				}
-				data, err := json.Marshal(obj)
-				if err != nil {
-					return fmt.Errorf("failed to marshal %s: %w", relPath, err)
-				}
-
-				if err := visitor(relPath, data); err != nil {
-					return err
-				}
-				return nil
-			}
-		}
-		return nil
-	})
-}
-
-func (s *LinkSnapshotStore) decryptManifestStream(id string) (io.ReadCloser, error) {
+func (s *LinkSnapshotStore) openEncrypted(id string) (*raft.SnapshotMeta, io.ReadCloser, error) {
 	s.ring.mu.RLock()
 	keys := make([]*KeyInfo, 0, 1+len(s.ring.Old))
 	if s.ring.Active != nil {
@@ -477,22 +119,185 @@ func (s *LinkSnapshotStore) decryptManifestStream(id string) (io.ReadCloser, err
 		if info == nil {
 			continue
 		}
-		_, rc, err := s.inner.Open(id)
+		meta, rc, err := s.inner.Open(id)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		decryptedReader, err := info.Key.StartReader([]byte(snapshotCryptoCtx), rc)
-		if err == nil {
-			return &DecryptedReadCloser{
-				inner:  rc,
-				stream: decryptedReader,
-			}, nil
+		reader, err := info.Key.StartReader([]byte(id), rc)
+		if err != nil {
+			rc.Close()
+			lastErr = err
+			continue
 		}
-		rc.Close()
-		lastErr = err
+		return meta, reader, nil
 	}
-	return nil, fmt.Errorf("failed to open snapshot with any key: %w", lastErr)
+	return nil, nil, fmt.Errorf("failed to open snapshot with any key: %w", lastErr)
+}
+
+func (s *LinkSnapshotStore) Open(id string) (*raft.SnapshotMeta, io.ReadCloser, error) {
+	meta, rc, err := s.openEncrypted(id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	br := bufio.NewReader(rc)
+	header, err := br.Peek(2)
+	if err == nil && len(header) == 2 && header[0] == 0x1f && header[1] == 0x8b {
+		// It's a GZIP stream (Remote Snapshot).
+		// Return the buffered reader wrapped to preserve Close.
+		type bufReadCloser struct {
+			*bufio.Reader
+			io.Closer
+		}
+		return meta, &bufReadCloser{Reader: br, Closer: rc}, nil
+	}
+
+	manifestBytes, err := io.ReadAll(br)
+	rc.Close() // Done with the original reader
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	snapDir, err := s.resolveSnapshotPath(id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	store := storage.New(snapDir, s.masterKey)
+	const fullSnapshotName = "full-snapshot"
+
+	reader, err := store.OpenBlobRead(fullSnapshotName)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := s.createTar(store, manifestBytes, fullSnapshotName); err != nil {
+			return nil, nil, err
+		}
+		reader, err = store.OpenBlobRead(fullSnapshotName)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	size, err := reader.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return nil, nil, err
+	}
+	meta.Size = size
+	return meta, reader, nil
+}
+
+func (s *LinkSnapshotStore) createTar(store *storage.Storage, manifestBytes []byte, filename string) error {
+	enc, err := store.OpenBlobWrite(filename, filename)
+	if err != nil {
+		return err
+	}
+
+	gz := gzip.NewWriter(enc)
+	tw := tar.NewWriter(gz)
+
+	if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
+		tw.Close()
+		gz.Close()
+		enc.Close()
+		return err
+	}
+
+	if err := s.walkSnapshotEntities(store, func(path string, data []byte) error {
+		return writeFileToTar(tw, path, data)
+	}); err != nil {
+		tw.Close()
+		gz.Close()
+		enc.Close()
+		return err
+	}
+
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	return enc.Close()
+}
+
+func (s *LinkSnapshotStore) walkSnapshotEntities(store *storage.Storage, visitor func(relPath string, data []byte) error) error {
+	dir := store.Dir()
+	tempRaftStore := storage.New(filepath.Join(store.Dir(), "raft"), s.masterKey)
+
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+
+		if strings.HasPrefix(relPath, "raft/") {
+			raftPath := relPath[5:]
+			var obj any
+
+			switch raftPath {
+			case "sys_access_policy":
+				obj = &UserAccessPolicy{}
+			case "metrics.json":
+				obj = &MetricsStore{}
+			case "nodes.json":
+				var o map[string]*NodeMeta
+				obj = &o
+			default:
+				return nil
+			}
+
+			if err := tempRaftStore.ReadDataFile(raftPath, obj); err != nil {
+				return fmt.Errorf("failed to read %s: %w", relPath, err)
+			}
+			data, err := json.Marshal(obj)
+			if err != nil {
+				return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+			}
+			if err := visitor(relPath, data); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		var obj any
+		switch {
+		case strings.HasPrefix(relPath, "games/"):
+			obj = &Game{}
+		case strings.HasPrefix(relPath, "teams/"):
+			obj = &Team{}
+		case strings.HasPrefix(relPath, "users/"):
+			obj = &UserIndex{}
+		case strings.HasPrefix(relPath, "team_games/"):
+			obj = &TeamGamesIndex{}
+		case strings.HasPrefix(relPath, "game_users/"):
+			obj = &GameUsersIndex{}
+		case strings.HasPrefix(relPath, "team_users/"):
+			obj = &TeamUsersIndex{}
+		default:
+			return nil
+		}
+		if err := store.ReadDataFile(relPath, obj); err != nil {
+			return fmt.Errorf("failed to read %s: %w", relPath, err)
+		}
+		data, err := json.Marshal(obj)
+		if err != nil {
+			return fmt.Errorf("failed to marshal %s: %w", relPath, err)
+		}
+
+		if err := visitor(relPath, data); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // LinkSnapshotSink implements raft.SnapshotSink
@@ -504,20 +309,15 @@ type LinkSnapshotSink struct {
 }
 
 func (s *LinkSnapshotSink) Write(p []byte) (n int, err error) {
-	if s.stream != nil {
-		return s.stream.Write(p)
-	}
-	return s.inner.Write(p)
+	return s.stream.Write(p)
 }
 
 func (s *LinkSnapshotSink) Close() error {
-	if s.stream != nil {
-		if err := s.stream.Close(); err != nil {
-			s.inner.Cancel()
-			return err
-		}
+	if err := s.stream.Close(); err != nil {
+		s.inner.Cancel()
+		return err
 	}
-	return s.inner.Close()
+	return nil
 }
 
 func (s *LinkSnapshotSink) ID() string {
@@ -525,9 +325,7 @@ func (s *LinkSnapshotSink) ID() string {
 }
 
 func (s *LinkSnapshotSink) Cancel() error {
-	if s.stream != nil {
-		s.stream.Close()
-	}
+	s.stream.Close()
 	return s.inner.Cancel()
 }
 

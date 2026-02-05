@@ -107,7 +107,8 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(raftDir, tempDir, innerStore, nil, mk)
+	ring := NewKeyRing(mk, "test-key")
+	linkStore := NewLinkSnapshotStore(raftDir, tempDir, innerStore, ring, mk)
 
 	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
 	if err != nil {

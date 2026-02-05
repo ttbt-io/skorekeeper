@@ -1043,15 +1043,7 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		}
 	}
 
-	// Persist local state marker
-	state := map[string]any{
-		"lastAppliedIndex": f.LastAppliedIndex(),
-		"timestamp":        time.Now().UnixNano(),
-	}
 	if f.storage != nil {
-		if err := f.storage.SaveDataFile("fsm_state.json", state); err != nil {
-			log.Printf("Warning: failed to save fsm_state.json: %v", err)
-		}
 		// Persist Metrics
 		f.metricsMu.RLock()
 		if err := f.storage.SaveDataFile("metrics.json", f.metrics); err != nil {

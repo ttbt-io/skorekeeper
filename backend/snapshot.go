@@ -147,7 +147,7 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 	}
 
 	// 5. Write System Files
-	sysFiles := []string{"sys_access_policy", "metrics.json", "nodes.json", "fsm_state.json"}
+	sysFiles := []string{"sys_access_policy", "metrics.json", "nodes.json"}
 	for _, fname := range sysFiles {
 		// Only link if exists in source directory
 		// We can't check existence easily without full path, but LinkFile checks it?
@@ -157,7 +157,7 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 		if f.storage != nil {
 			// storage.Dir() gives root.
 			if _, err := os.Stat(filepath.Join(f.storage.Dir(), fname)); err == nil {
-				if err := link(fname); err != nil {
+				if err := link(filepath.Join("raft", fname)); err != nil {
 					return err
 				}
 			}
@@ -166,6 +166,7 @@ func (f *FSM) persist(sink io.WriteCloser) (err error) {
 
 	return nil
 }
+
 func (f *FSM) restore(rc io.Reader) error {
 	br := bufio.NewReader(rc)
 	peek, err := br.Peek(2)
@@ -184,7 +185,6 @@ func (f *FSM) restore(rc io.Reader) error {
 
 	processedGames := make(map[string]bool)
 	processedTeams := make(map[string]bool)
-	shouldSkipRestore := false
 
 	// Worker Pool Setup (for heavy Game/Team restore)
 	numWorkers := runtime.NumCPU()
@@ -246,35 +246,10 @@ func (f *FSM) restore(rc io.Reader) error {
 			if manifest.Initialized {
 				f.setInitialized()
 			}
-
-			// Smart Snapshot Check
-			if f.IsInitialized() && f.storage != nil {
-				var state map[string]any
-				if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
-					var localIndex uint64
-					if v, ok := state["lastAppliedIndex"]; ok {
-						// ... conversion logic ...
-						switch val := v.(type) {
-						case float64:
-							localIndex = uint64(val)
-						case int:
-							localIndex = uint64(val)
-						case int64:
-							localIndex = uint64(val)
-						case uint64:
-							localIndex = val
-						}
-					}
-					if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
-						log.Printf("Smart Restore: Local state (Index %d) is fresh enough. Skipping.", localIndex)
-						shouldSkipRestore = true
-					}
-				}
-			}
 			continue
 		}
 
-		if header.Name == "sys_access_policy" {
+		if header.Name == "raft/sys_access_policy" {
 			var policy UserAccessPolicy
 			if err := json.NewDecoder(tr).Decode(&policy); err == nil {
 				if f.storage != nil {
@@ -287,7 +262,7 @@ func (f *FSM) restore(rc io.Reader) error {
 			continue
 		}
 
-		if header.Name == "metrics.json" {
+		if header.Name == "raft/metrics.json" {
 			var m MetricsStore
 			if err := json.NewDecoder(tr).Decode(&m); err == nil {
 				if f.storage != nil {
@@ -299,7 +274,7 @@ func (f *FSM) restore(rc io.Reader) error {
 			continue
 		}
 
-		if header.Name == "nodes.json" {
+		if header.Name == "raft/nodes.json" {
 			var nodes map[string]*NodeMeta
 			if err := json.NewDecoder(tr).Decode(&nodes); err == nil {
 				for k, v := range nodes {
@@ -311,22 +286,6 @@ func (f *FSM) restore(rc io.Reader) error {
 			} else {
 				log.Printf("Restore Warning: failed to decode nodes.json: %v", err)
 			}
-			continue
-		}
-
-		if header.Name == "fsm_state.json" {
-			var state map[string]any
-			if err := json.NewDecoder(tr).Decode(&state); err == nil {
-				if f.storage != nil {
-					f.storage.SaveDataFile("fsm_state.json", state)
-				}
-			} else {
-				log.Printf("Restore Warning: failed to decode fsm_state.json: %v", err)
-			}
-			continue
-		}
-
-		if shouldSkipRestore {
 			continue
 		}
 
@@ -394,10 +353,6 @@ func (f *FSM) restore(rc io.Reader) error {
 	}
 
 	f.saveNodes()
-
-	if shouldSkipRestore {
-		return nil
-	}
 
 	// Cleanup Zombies (Games and Teams only).
 	// We delete any local entities that were not present in the snapshot to maintain consistency.

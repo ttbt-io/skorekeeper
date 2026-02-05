@@ -208,7 +208,10 @@ func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create file snapshot store: %v", err)
 	}
-	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, nil, mk)
+	// Setup Raft Keyring
+	rk, _ := mk.NewKey()
+	ring := NewKeyRing(rk, "raft-key-1")
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, ring, mk)
 
 	// 2. Create a "Remote" Snapshot (GZIP TAR) via inner store (simulating Raft receiving it)
 	// We use innerStore.Create directly because when receiving a snapshot, Raft writes the raw stream (GZIP TAR)
@@ -219,8 +222,14 @@ func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
 		t.Fatalf("Failed to create inner sink: %v", err)
 	}
 
+	// Encrypt the stream because LinkSnapshotStore expects encrypted data
+	encWriter, err := ring.Active.Key.StartWriter([]byte(sink.ID()), sink)
+	if err != nil {
+		t.Fatalf("Failed to start encryption writer: %v", err)
+	}
+
 	// Write GZIP TAR content to sink
-	gz := gzip.NewWriter(sink)
+	gz := gzip.NewWriter(encWriter)
 	tw := tar.NewWriter(gz)
 
 	// Add manifest.json to TAR
@@ -242,6 +251,9 @@ func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
 	}
 	if err := gz.Close(); err != nil {
 		t.Fatalf("Failed to close gzip: %v", err)
+	}
+	if err := encWriter.Close(); err != nil {
+		t.Fatalf("Failed to close encryption writer: %v", err)
 	}
 
 	// Close sink to finalize snapshot (writes meta.json with CRC)
@@ -292,5 +304,177 @@ func TestLinkSnapshotStore_Open_RemoteSnapshot(t *testing.T) {
 
 	if m["remote"] != true {
 		t.Errorf("Unexpected manifest content: %v", m)
+	}
+}
+
+func TestLinkSnapshotStore_GC(t *testing.T) {
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	s := storage.New(dataDir, mk)
+
+	gs := NewGameStore(dataDir, s)
+	fsm := NewFSM(gs, NewTeamStore(dataDir, s), nil, nil, s, nil)
+
+	// 1. Setup Data
+	game := Game{SchemaVersion: SchemaVersionV3, ID: "game-gc", Away: "A", Home: "B"}
+	if err := gs.SaveGame(&game); err != nil {
+		t.Fatalf("Failed to save game: %v", err)
+	}
+
+	gamePath := filepath.Join(dataDir, "games", "game-gc.json")
+	info, err := os.Stat(gamePath)
+	if err != nil {
+		t.Fatalf("Game file missing: %v", err)
+	}
+	initialMode := info.Mode()
+
+	// 2. Setup Store with Retention=1
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	ring := NewKeyRing(mk, "test-key")
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, ring, mk)
+
+	// 3. Create Snapshot 1
+	sink1, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create 1 failed: %v", err)
+	}
+	if err := fsm.persist(sink1); err != nil {
+		t.Fatalf("Persist 1 failed: %v", err)
+	}
+	id1 := sink1.ID()
+
+	// Verify hardlink exists in Snap 1
+	snap1Path := filepath.Join(raftDir, "snapshots", id1, "games", "game-gc.json")
+	if _, err := os.Stat(snap1Path); err != nil {
+		t.Errorf("Snap 1 file missing: %v", err)
+	}
+
+	// 4. Create Snapshot 2 (Should trigger GC of Snapshot 1 due to retain=1)
+	sink2, err := linkStore.Create(1, 20, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create 2 failed: %v", err)
+	}
+	if err := fsm.persist(sink2); err != nil {
+		t.Fatalf("Persist 2 failed: %v", err)
+	}
+	id2 := sink2.ID()
+
+	// 5. Verify Snap 1 is reaped
+	if _, err := os.Stat(filepath.Join(raftDir, "snapshots", id1)); !os.IsNotExist(err) {
+		// If Snap 1 still exists, it means GC didn't happen.
+	}
+
+	// Verify Snap 2 is still there
+	if _, err := os.Stat(filepath.Join(raftDir, "snapshots", id2)); err != nil {
+		t.Errorf("Snapshot 2 %s should exist", id2)
+	}
+
+	// 6. CRITICAL: Verify Source File is still there and valid
+	infoAfter, err := os.Stat(gamePath)
+	if err != nil {
+		t.Fatalf("Source game file deleted by GC! %v", err)
+	}
+	if infoAfter.Mode() != initialMode {
+		t.Errorf("Source file mode changed")
+	}
+
+	// 7. Verify Snap 2 file is valid
+	snap2Path := filepath.Join(raftDir, "snapshots", id2, "games", "game-gc.json")
+	if _, err := os.Stat(snap2Path); err != nil {
+		t.Errorf("Snap 2 file missing: %v", err)
+	}
+}
+
+func TestLinkSnapshotStore_Replication_SizeCorrectness(t *testing.T) {
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	s := storage.New(dataDir, mk)
+
+	// 1. Create dummy data file
+	dummyGame := &Game{
+		ID:   "game-1",
+		Away: "Away Team",
+		Home: "Home Team",
+		// Add padding to make it large
+		ActionLog: make([]json.RawMessage, 100),
+	}
+	// Fill with dummy data
+	for i := 0; i < 100; i++ {
+		dummyGame.ActionLog[i] = json.RawMessage(`{"type":"PITCH"}`)
+	}
+
+	if err := s.SaveDataFile("games/game-1.json", dummyGame); err != nil {
+		t.Fatalf("SaveDataFile failed: %v", err)
+	}
+
+	// 1b. Create dummy system file
+	policy := &UserAccessPolicy{
+		Admins: []string{"admin"},
+	}
+	if err := s.SaveDataFile("sys_access_policy", policy); err != nil {
+		t.Fatalf("SaveDataFile policy failed: %v", err)
+	}
+
+	// 2. Setup LinkSnapshotStore
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	ring := NewKeyRing(mk, "test-key")
+	linkStore := NewLinkSnapshotStore(raftDir, dataDir, innerStore, ring, mk)
+
+	// 3. Create Snapshot
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
+	}
+
+	linker := sink.(SnapshotLinker)
+
+	linker.LinkFile("games/game-1.json", "games/game-1.json")
+
+	linker.LinkFile("sys_access_policy", "sys_access_policy")
+
+	manifest := snapshotManifest{
+
+		RaftIndex: 10,
+	}
+	manifestBytes, _ := json.Marshal(manifest)
+	linker.WriteManifest(manifestBytes)
+
+	if err := sink.Close(); err != nil {
+		t.Fatalf("Sink close failed: %v", err)
+	}
+	snapID := sink.ID()
+
+	// 4. Open Snapshot
+	meta, rc, err := linkStore.Open(snapID)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rc.Close()
+
+	// 5. Read all data
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+
+	realSize := int64(len(data))
+
+	t.Logf("Meta Size: %d", meta.Size)
+	t.Logf("Real Stream Size: %d", realSize)
+
+	if meta.Size != realSize {
+		t.Errorf("Size mismatch: Meta says %d, Stream is %d", meta.Size, realSize)
+	} else {
+		t.Logf("Sizes match: %d", meta.Size)
 	}
 }

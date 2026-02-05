@@ -110,6 +110,8 @@ type Options struct {
 	RaftManager           *RaftManager      // Allow injecting pre-configured RaftManager
 	RaftManagerChan       chan *RaftManager // For testing: receive the created RaftManager
 	UseProductionTimeouts bool              // Set to true to use longer timeouts (e.g. for production)
+	SnapshotThreshold     uint64            // For testing: override Raft snapshot threshold
+	TrailingLogs          uint64            // For testing: override Raft trailing logs
 
 	// Auth Options
 	AuthCookieName string
@@ -296,6 +298,8 @@ func NewServerHandler(opts Options) (*RaftManager, *Registry, http.Handler) {
 
 			raftMgr = NewRaftManager(raftDataDir, opts.RaftBind, opts.RaftAdvertise, opts.ClusterAdvertise, opts.ClusterAddr, opts.RaftSecret, opts.MasterKey, fsm)
 			raftMgr.UseProductionTimeouts = opts.UseProductionTimeouts
+			raftMgr.SnapshotThreshold = opts.SnapshotThreshold
+			raftMgr.TrailingLogs = opts.TrailingLogs
 
 			if opts.UseMockAuth {
 				raftMgr.AuthMiddleware = func(next http.Handler) http.Handler {

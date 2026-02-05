@@ -544,19 +544,21 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 		config.LeaderLeaseTimeout = 500 * time.Millisecond
 	}
 	config.CommitTimeout = 500 * time.Millisecond
-
 	config.SnapshotInterval = 120 * time.Second
+
+	config.SnapshotThreshold = 200 // Test
+	config.TrailingLogs = 100      // Test
+
 	if rm.SnapshotThreshold > 0 {
 		config.SnapshotThreshold = rm.SnapshotThreshold
-	} else {
-		config.SnapshotThreshold = 20480
 	}
 	if rm.TrailingLogs > 0 {
 		config.TrailingLogs = rm.TrailingLogs
 	}
 
 	//config.ShutdownOnRemove = true
-	//config.NoSnapshotRestoreOnStart = true
+	config.NoSnapshotRestoreOnStart = true
+	config.NoLegacyTelemetry = true
 	config.LogLevel = "INFO"
 	config.MaxAppendEntries = 200
 	if rm.LogOutput != nil {
