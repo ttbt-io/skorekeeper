@@ -16,6 +16,7 @@ package backend
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -212,7 +213,7 @@ func TestGarbageCollectKeys(t *testing.T) {
 	}
 
 	// Setup snapshot store mock (manual LinkSnapshotStore with empty inner)
-	innerSnap, _ := raft.NewFileSnapshotStore(tempDir, 1, nil)
+	innerSnap, _ := raft.NewFileSnapshotStore(tempDir, 1, io.Discard)
 	rm.snapStoreEnc = NewLinkSnapshotStore(tempDir, tempDir, innerSnap, ring, mk)
 
 	// 6. Run GC (Oldest log is 1, needs Key 1. So all keys kept)
