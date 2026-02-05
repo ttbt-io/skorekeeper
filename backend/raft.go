@@ -37,6 +37,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -235,8 +236,10 @@ func parseKeyIndex(id string) uint64 {
 	if len(parts) < 2 {
 		return 0
 	}
-	var res uint64
-	fmt.Sscanf(parts[1], "%d", &res)
+	res, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0
+	}
 	return res
 }
 
