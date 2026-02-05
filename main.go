@@ -49,6 +49,8 @@ var (
 	bootstrapAdmin   = flag.String("admin", "", "Email of temporary admin user for bootstrapping access policy")
 	minifyMode       = flag.Bool("minify", false, "Serve minified frontend assets from dist/")
 	forceRebuild     = flag.Bool("force-rebuild", false, "Force rebuild of Registry indices on startup")
+	snapshotThreshold = flag.Uint64("snapshot-threshold", 0, "Number of logs before snapshotting (default: 8192)")
+	trailingLogs      = flag.Uint64("trailing-logs", 0, "Number of logs to retain after snapshotting (default: 1024)")
 )
 
 // main starts the web server and registers the API handlers.
@@ -133,6 +135,8 @@ func main() {
 		BootstrapAdmin:        *bootstrapAdmin,
 		MinifyMode:            *minifyMode,
 		ForceRebuild:          *forceRebuild,
+		SnapshotThreshold:     *snapshotThreshold,
+		TrailingLogs:          *trailingLogs,
 	})
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
