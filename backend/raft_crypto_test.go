@@ -15,7 +15,12 @@
 package backend
 
 import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
@@ -101,6 +106,7 @@ func TestLogKeyRotation(t *testing.T) {
 
 	inner := &mockLogStore{logs: make(map[uint64]*raft.Log)}
 	logStore := NewEncryptedLogStore(inner, rm.keyRing)
+	rm.logStore = logStore
 	rm.logStoreEnc = logStore
 
 	// 1. Store log with key 1
@@ -160,6 +166,95 @@ func TestLogKeyRotation(t *testing.T) {
 	// Log 2 should still be readable
 	if err := logStore.GetLog(2, &out2); err != nil {
 		t.Errorf("Log 2 should be readable: %v", err)
+	}
+}
+
+func TestGarbageCollectKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	// 1. Initial Key
+	key1, _ := mk.NewKey()
+	id1 := fmt.Sprintf("idx-%020d-%d.key", 0, time.Now().UnixNano())
+	ring := NewKeyRing(key1, id1)
+
+	// 2. Setup Stores
+	innerLog := &mockLogStore{logs: make(map[uint64]*raft.Log)}
+	logStoreEnc := NewEncryptedLogStore(innerLog, ring)
+
+	// Write log 1 with key 1
+	logStoreEnc.StoreLog(&raft.Log{Index: 1, Data: []byte("log 1")})
+
+	// 3. Rotate to Key 2
+	key2, _ := mk.NewKey()
+	id2 := fmt.Sprintf("idx-%020d-%d.key", 1, time.Now().UnixNano())
+	ring.Rotate(key2, id2)
+
+	// Write log 2 with key 2
+	logStoreEnc.StoreLog(&raft.Log{Index: 2, Data: []byte("log 2")})
+
+	// 4. Rotate to Key 3
+	key3, _ := mk.NewKey()
+	id3 := fmt.Sprintf("idx-%020d-%d.key", 2, time.Now().UnixNano())
+	ring.Rotate(key3, id3)
+
+	// Write log 3 with key 3
+	logStoreEnc.StoreLog(&raft.Log{Index: 3, Data: []byte("log 3")})
+
+	// Current ring: Active=Key3, Old=[Key2, Key1]
+
+	// 5. Mock RaftManager
+	rm := &RaftManager{
+		DataDir:     tempDir,
+		keyRing:     ring,
+		logStore:    logStoreEnc,
+		logStoreEnc: logStoreEnc,
+		// snapStoreEnc is needed but we can mock its List() to return empty for now
+	}
+
+	// Setup snapshot store mock (manual LinkSnapshotStore with empty inner)
+	innerSnap, _ := raft.NewFileSnapshotStore(tempDir, 1, io.Discard)
+	rm.snapStoreEnc = NewLinkSnapshotStore(tempDir, tempDir, innerSnap, ring, mk)
+
+	// 6. Run GC (Oldest log is 1, needs Key 1. So all keys kept)
+	if err := rm.GarbageCollectKeys(); err != nil {
+		t.Fatalf("GC failed: %v", err)
+	}
+	if len(ring.Old) != 2 {
+		t.Errorf("Expected 2 old keys, got %d", len(ring.Old))
+	}
+
+	// 7. Compact logs (Delete log 1)
+	innerLog.DeleteRange(1, 1)
+	// Now oldest log is 2, needs Key 2. Key 1 should be deletable.
+
+	// Create keys dir and files to simulate disk
+	keysDir := filepath.Join(tempDir, "keys")
+	os.MkdirAll(keysDir, 0755)
+	os.WriteFile(filepath.Join(keysDir, id1), []byte("fake"), 0600)
+	os.WriteFile(filepath.Join(keysDir, id2), []byte("fake"), 0600)
+	os.WriteFile(filepath.Join(keysDir, id3), []byte("fake"), 0600)
+
+	// 8. Run GC again
+	if err := rm.GarbageCollectKeys(); err != nil {
+		t.Fatalf("GC 2 failed: %v", err)
+	}
+
+	// Key 1 should be gone from ring
+	ring.mu.RLock()
+	found1 := false
+	for _, k := range ring.Old {
+		if k.ID == id1 {
+			found1 = true
+		}
+	}
+	ring.mu.RUnlock()
+
+	if found1 {
+		t.Error("Key 1 should have been garbage collected")
+	}
+	if len(ring.Old) != 1 || ring.Old[0].ID != id2 {
+		t.Errorf("Expected only Key 2 in Old, got %v", ring.Old)
 	}
 }
 

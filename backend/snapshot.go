@@ -16,15 +16,20 @@ package backend
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/hashicorp/raft"
 )
 
 type snapshotManifest struct {
@@ -33,18 +38,45 @@ type snapshotManifest struct {
 	RaftIndex   uint64               `json:"raftIndex"`
 }
 
-func (f *FSM) persist(sink io.WriteCloser) error {
-	defer sink.Close()
+func (f *FSM) persist(sink io.WriteCloser) (err error) {
+	defer func() {
+		if s, ok := sink.(raft.SnapshotSink); ok && err != nil {
+			s.Cancel()
+			return
+		}
+		if closeErr := sink.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
-	// 1. Gzip Layer
-	gz := gzip.NewWriter(sink)
-	defer gz.Close()
+	// Ensure all in-memory state is flushed to disk before linking
+	if err := f.gs.FlushAll(); err != nil {
+		return fmt.Errorf("failed to flush games: %w", err)
+	}
+	if err := f.ts.FlushAll(); err != nil {
+		return fmt.Errorf("failed to flush teams: %w", err)
+	}
+	if f.us != nil {
+		if err := f.us.FlushAll(); err != nil {
+			return fmt.Errorf("failed to flush user indices: %w", err)
+		}
+	}
 
-	// 2. Tar Layer
-	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	// Check if sink supports linking
+	linker, ok := sink.(SnapshotLinker)
+	if !ok {
+		return fmt.Errorf("sink does not support SnapshotLinker interface")
+	}
 
-	// 3. Write Manifest
+	// Helper to link files
+	link := func(relPath string) error {
+		if err := linker.LinkFile(relPath, relPath); err != nil {
+			return fmt.Errorf("failed to link %s: %w", relPath, err)
+		}
+		return nil
+	}
+
+	// 1. Prepare Manifest
 	nodes := make(map[string]*NodeMeta)
 	f.nodeMap.Range(func(key, value interface{}) bool {
 		nodes[key.(string)] = value.(*NodeMeta)
@@ -56,71 +88,78 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 		RaftIndex:   f.LastAppliedIndex(),
 	}
 	manifestBytes, _ := json.Marshal(manifest)
-	if err := writeFileToTar(tw, "manifest.json", manifestBytes); err != nil {
+
+	if _, err := linker.WriteManifest(manifestBytes); err != nil {
 		return err
 	}
 
-	// 4. Write Games (Logical Export)
-	for g, err := range f.gs.ListAllGames() {
-		if err != nil {
-			return err
-		}
-		data, err := json.Marshal(g)
-		if err != nil {
-			log.Printf("Snapshot Warning: failed to marshal game %s: %v", g.ID, err)
-			continue
-		}
-		if err := writeFileToTar(tw, fmt.Sprintf("games/%s.json", g.ID), data); err != nil {
+	// 2. Write Games
+	gameIDs, err := f.gs.ListAllGameIDs()
+	if err != nil {
+		return err
+	}
+	for _, id := range gameIDs {
+		rel := fmt.Sprintf("games/%s.json", url.PathEscape(id))
+		if err := link(rel); err != nil {
 			return err
 		}
 	}
 
-	// 5. Write Teams (Logical Export)
-	for t, err := range f.ts.ListAllTeams() {
-		if err != nil {
-			return err
-		}
-		data, err := json.Marshal(t)
-		if err != nil {
-			log.Printf("Snapshot Warning: failed to marshal team %s: %v", t.ID, err)
-			continue
-		}
-		if err := writeFileToTar(tw, fmt.Sprintf("teams/%s.json", t.ID), data); err != nil {
+	// 3. Write Teams
+	teamIDs, err := f.ts.ListAllTeamIDs()
+	if err != nil {
+		return err
+	}
+	for _, id := range teamIDs {
+		rel := fmt.Sprintf("teams/%s.json", url.PathEscape(id))
+		if err := link(rel); err != nil {
 			return err
 		}
 	}
 
-	// 6. Write User Indices
+	// 4. Write User Indices
 	if f.us != nil {
-		users, _ := f.us.ListAllUserIndices()
-		for _, idx := range users {
-			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("users/%s.json", url.PathEscape(idx.UserID)), data); err != nil {
+		linkGroup := func(listFiles func() ([]string, error)) error {
+			files, err := listFiles()
+			if err != nil {
 				return err
 			}
-		}
-
-		teamGames, _ := f.us.ListAllTeamGames()
-		for _, idx := range teamGames {
-			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("team_games/%s.json", url.PathEscape(idx.TeamID)), data); err != nil {
-				return err
+			for _, path := range files {
+				if err := link(path); err != nil {
+					return err
+				}
 			}
+			return nil
 		}
 
-		gameUsers, _ := f.us.ListAllGameUsers()
-		for _, idx := range gameUsers {
-			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("game_users/%s.json", url.PathEscape(idx.GameID)), data); err != nil {
-				return err
-			}
+		if err := linkGroup(f.us.ListUserIndexFiles); err != nil {
+			return err
 		}
+		if err := linkGroup(f.us.ListTeamGamesFiles); err != nil {
+			return err
+		}
+		if err := linkGroup(f.us.ListGameUsersFiles); err != nil {
+			return err
+		}
+		if err := linkGroup(f.us.ListTeamUsersFiles); err != nil {
+			return err
+		}
+	}
 
-		teamUsers, _ := f.us.ListAllTeamUsers()
-		for _, idx := range teamUsers {
-			data, _ := json.Marshal(idx)
-			if err := writeFileToTar(tw, fmt.Sprintf("team_users/%s.json", url.PathEscape(idx.TeamID)), data); err != nil {
-				return err
+	// 5. Write System Files
+	sysFiles := []string{"sys_access_policy", "metrics.json", "nodes.json"}
+	for _, fname := range sysFiles {
+		// Only link if exists in source directory
+		// We can't check existence easily without full path, but LinkFile checks it?
+		// LinkFile implementation: os.Link(src, dst).
+		// If src missing, it fails.
+		// So we must check existence.
+		if f.storage != nil {
+			// storage.Dir() gives root.
+			if _, err := os.Stat(filepath.Join(f.storage.Dir(), fname)); err == nil {
+				if err := link(filepath.Join("raft", fname)); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -129,17 +168,23 @@ func (f *FSM) persist(sink io.WriteCloser) error {
 }
 
 func (f *FSM) restore(rc io.Reader) error {
-	gz, err := gzip.NewReader(rc)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
+	br := bufio.NewReader(rc)
+	peek, err := br.Peek(2)
 
-	tr := tar.NewReader(gz)
+	var r io.Reader = br
+	if err == nil && len(peek) == 2 && peek[0] == 0x1f && peek[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			return err
+		}
+		defer gz.Close()
+		r = gz
+	}
+
+	tr := tar.NewReader(r)
 
 	processedGames := make(map[string]bool)
 	processedTeams := make(map[string]bool)
-	shouldSkipRestore := false
 
 	// Worker Pool Setup (for heavy Game/Team restore)
 	numWorkers := runtime.NumCPU()
@@ -189,18 +234,6 @@ func (f *FSM) restore(rc io.Reader) error {
 			return err
 		}
 
-		select {
-		case err := <-errCh:
-			teardown()
-			return err
-		default:
-		}
-
-		if header.Size > 10*1024*1024 {
-			teardown()
-			return fmt.Errorf("snapshot entry %s too large: %d bytes", header.Name, header.Size)
-		}
-
 		if header.Name == "manifest.json" {
 			var manifest snapshotManifest
 			if err := json.NewDecoder(tr).Decode(&manifest); err != nil {
@@ -213,35 +246,46 @@ func (f *FSM) restore(rc io.Reader) error {
 			if manifest.Initialized {
 				f.setInitialized()
 			}
+			continue
+		}
 
-			// Smart Snapshot Check
-			if f.IsInitialized() && f.storage != nil {
-				var state map[string]any
-				if err := f.storage.ReadDataFile("fsm_state.json", &state); err == nil {
-					var localIndex uint64
-					if v, ok := state["lastAppliedIndex"]; ok {
-						// ... conversion logic ...
-						switch val := v.(type) {
-						case float64:
-							localIndex = uint64(val)
-						case int:
-							localIndex = uint64(val)
-						case int64:
-							localIndex = uint64(val)
-						case uint64:
-							localIndex = val
-						}
-					}
-					if localIndex >= manifest.RaftIndex && manifest.RaftIndex > 0 {
-						log.Printf("Smart Restore: Local state (Index %d) is fresh enough. Skipping.", localIndex)
-						shouldSkipRestore = true
-					}
+		if header.Name == "raft/sys_access_policy" {
+			var policy UserAccessPolicy
+			if err := json.NewDecoder(tr).Decode(&policy); err == nil {
+				if f.storage != nil {
+					f.storage.SaveDataFile("sys_access_policy", &policy)
 				}
+				f.r.UpdateAccessPolicy(&policy)
+			} else {
+				log.Printf("Restore Warning: failed to decode sys_access_policy: %v", err)
 			}
 			continue
 		}
 
-		if shouldSkipRestore {
+		if header.Name == "raft/metrics.json" {
+			var m MetricsStore
+			if err := json.NewDecoder(tr).Decode(&m); err == nil {
+				if f.storage != nil {
+					f.storage.SaveDataFile("metrics.json", &m)
+				}
+			} else {
+				log.Printf("Restore Warning: failed to decode metrics.json: %v", err)
+			}
+			continue
+		}
+
+		if header.Name == "raft/nodes.json" {
+			var nodes map[string]*NodeMeta
+			if err := json.NewDecoder(tr).Decode(&nodes); err == nil {
+				for k, v := range nodes {
+					f.nodeMap.Store(k, v)
+				}
+				if f.storage != nil {
+					f.storage.SaveDataFile("nodes.json", nodes)
+				}
+			} else {
+				log.Printf("Restore Warning: failed to decode nodes.json: %v", err)
+			}
 			continue
 		}
 
@@ -310,25 +354,10 @@ func (f *FSM) restore(rc io.Reader) error {
 
 	f.saveNodes()
 
-	if shouldSkipRestore {
-		return nil
-	}
-
-	// Cleanup Zombies (games/teams only, indices cleaned up by overwrite or we accept staleness until next update)
-	// Ideally we clean up indices too, but listing all files is expensive.
-	// Since we overwrote active ones, stale ones might remain on disk but won't be in active set?
-	// Actually, if we restore, we might want to clear directory first?
-	// Raft usually snapshots FULL state.
-	// Current cleanup only handles games/teams.
-	// For indices, if a user was deleted, their index file remains.
-	// It's acceptable for indices to be "additive" or we need to list and delete.
-	// Given "Scalability", listing all users to delete zombies is slow.
-	// We'll accept zombie index files for now (they are just disk space, not logically reachable if user doesn't exist).
-	// But wait, if user exists but lost access, the file is overwritten.
-	// If user is completely gone?
-	// We don't have a list of "active users" in memory to check against.
-	// So we skip zombie cleanup for users for now.
-
+	// Cleanup Zombies (Games and Teams only).
+	// We delete any local entities that were not present in the snapshot to maintain consistency.
+	// User index cleanup is currently skipped as listing all users is prohibitively expensive
+	// for large datasets; zombie index files remain on disk but are logically unreachable.
 	gameIDs, err := f.gs.ListAllGameIDs()
 	if err == nil {
 		for _, id := range gameIDs {

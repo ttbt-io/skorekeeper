@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -130,13 +131,14 @@ func TestRaftSingleNode(t *testing.T) {
 }
 
 func TestRaftGetters(t *testing.T) {
-	tempDir := t.TempDir()
-	rm := NewRaftManager(tempDir, "127.0.0.1:0", "", "127.0.0.1:0", "127.0.0.1:0", "secret", nil, nil)
+	dataDir := t.TempDir()
+	raftDir := filepath.Join(dataDir, "raft")
+	rm := NewRaftManager(raftDir, "127.0.0.1:0", "", "127.0.0.1:0", "127.0.0.1:0", "secret", nil, nil)
 
-	s := storage.New(tempDir, nil)
-	gs := NewGameStore(tempDir, s)
-	ts := NewTeamStore(tempDir, s)
-	us := NewUserIndexStore(tempDir, s, nil)
+	s := storage.New(dataDir, nil)
+	gs := NewGameStore(dataDir, s)
+	ts := NewTeamStore(dataDir, s)
+	us := NewUserIndexStore(dataDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
 	hm := NewHubManager()
 	fsm := NewFSM(gs, ts, reg, hm, s, us)

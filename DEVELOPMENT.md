@@ -41,6 +41,13 @@ To run a local 3-node Raft cluster for development:
     
     *For E2E tests, the test runner handles this automatically.*
 
+### Directory Structure
+Skorekeeper uses a nested directory structure for persistent data:
+- **Root Data Directory** (`--data-dir`): Contains application entities (`games/`, `teams/`, `users/`).
+- **Raft Subdirectory** (`--data-dir/raft`): Contains Raft consensus logs, stable state, and snapshots.
+
+Snapshots are stored in `raft/snapshots/` and use hardlinks to reference files in the root `games/` and `teams/` directories for efficiency.
+
 ### Mock Authentication
 When `--use-mock-auth` is enabled, the system looks for a `mock_auth_user` cookie. This is used extensively in E2E tests to simulate multiple users (e.g., Owner vs. Viewer).
 

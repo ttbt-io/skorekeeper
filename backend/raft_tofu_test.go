@@ -35,11 +35,10 @@ func TestRaftTOFU(t *testing.T) {
 
 	tempDir := t.TempDir()
 
-	dataDir1 := filepath.Join(tempDir, "node1", "data")
-
-	raftDir1 := filepath.Join(tempDir, "node1", "raft")
-	dataDir2 := filepath.Join(tempDir, "node2", "data")
-	raftDir2 := filepath.Join(tempDir, "node2", "raft")
+	dataDir1 := filepath.Join(tempDir, "node1")
+	raftDir1 := filepath.Join(dataDir1, "raft")
+	dataDir2 := filepath.Join(tempDir, "node2")
+	raftDir2 := filepath.Join(dataDir2, "raft")
 
 	bind1 := getFreePort()
 	cluster1 := getFreePort()

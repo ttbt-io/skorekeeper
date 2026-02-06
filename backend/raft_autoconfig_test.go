@@ -17,6 +17,7 @@ package backend
 import (
 	"encoding/base64"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,7 +27,8 @@ import (
 
 func TestNonVoterRemainsNonVoter(t *testing.T) {
 	// 1. Setup Leader
-	dir1 := t.TempDir()
+	dataDir1 := t.TempDir()
+	raftDir1 := filepath.Join(dataDir1, "raft")
 
 	l1, _ := net.Listen("tcp", "127.0.0.1:0")
 	leaderRaft := l1.Addr().String()
@@ -36,14 +38,21 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	leaderCluster := l2.Addr().String()
 	l2.Close()
 
-	s1 := storage.New(dir1, nil)
-	gs1 := NewGameStore(dir1, s1)
-	ts1 := NewTeamStore(dir1, s1)
-	us1 := NewUserIndexStore(dir1, s1, nil)
-	reg1 := NewRegistry(gs1, ts1, us1, true)
-	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), s1, us1)
+	s1 := storage.New(dataDir1, nil)
 
-	rm1 := NewRaftManager(dir1, leaderRaft, leaderRaft, leaderCluster, leaderCluster, "secret", nil, fsm1)
+	rs1 := storage.New(raftDir1, nil)
+
+	gs1 := NewGameStore(dataDir1, s1)
+
+	ts1 := NewTeamStore(dataDir1, s1)
+
+	us1 := NewUserIndexStore(dataDir1, s1, nil)
+
+	reg1 := NewRegistry(gs1, ts1, us1, true)
+
+	fsm1 := NewFSM(gs1, ts1, reg1, NewHubManager(), rs1, us1)
+
+	rm1 := NewRaftManager(raftDir1, leaderRaft, leaderRaft, leaderCluster, leaderCluster, "secret", nil, fsm1)
 	if err := rm1.Start(true); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +61,8 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	waitForLeader(t, []*RaftManager{rm1})
 
 	// 2. Follower Setup
-	dir2 := t.TempDir()
+	dataDir2 := t.TempDir()
+	raftDir2 := filepath.Join(dataDir2, "raft")
 
 	l3, _ := net.Listen("tcp", "127.0.0.1:0")
 	followerRaft := l3.Addr().String()
@@ -62,14 +72,21 @@ func TestNonVoterRemainsNonVoter(t *testing.T) {
 	followerCluster := l4.Addr().String()
 	l4.Close()
 
-	s2 := storage.New(dir2, nil)
-	gs2 := NewGameStore(dir2, s2)
-	ts2 := NewTeamStore(dir2, s2)
-	us2 := NewUserIndexStore(dir2, s2, nil)
-	reg2 := NewRegistry(gs2, ts2, us2, true)
-	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), s2, us2)
+	s2 := storage.New(dataDir2, nil)
 
-	rm2 := NewRaftManager(dir2, followerRaft, followerRaft, followerCluster, followerCluster, "secret", nil, fsm2)
+	rs2 := storage.New(raftDir2, nil)
+
+	gs2 := NewGameStore(dataDir2, s2)
+
+	ts2 := NewTeamStore(dataDir2, s2)
+
+	us2 := NewUserIndexStore(dataDir2, s2, nil)
+
+	reg2 := NewRegistry(gs2, ts2, us2, true)
+
+	fsm2 := NewFSM(gs2, ts2, reg2, NewHubManager(), rs2, us2)
+
+	rm2 := NewRaftManager(raftDir2, followerRaft, followerRaft, followerCluster, followerCluster, "secret", nil, fsm2)
 	if err := rm2.Start(false); err != nil {
 		t.Fatal(err)
 	}

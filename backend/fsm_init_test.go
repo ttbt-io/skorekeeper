@@ -15,12 +15,13 @@
 package backend
 
 import (
-	"bytes"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"testing"
 
 	"github.com/c2FmZQ/storage"
+	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
 )
 
@@ -86,33 +87,58 @@ func TestFSMInitialization(t *testing.T) {
 
 func TestFSMSnapshotInitialization(t *testing.T) {
 	tempDir := t.TempDir()
-	s := storage.New(tempDir, nil)
+	raftDir := filepath.Join(tempDir, "raft")
+	mk, _ := crypto.CreateAESMasterKeyForTest()
+
+	s := storage.New(tempDir, mk)
+	raftS := storage.New(raftDir, mk)
+
 	gs := NewGameStore(tempDir, s)
 	ts := NewTeamStore(tempDir, s)
 	us := NewUserIndexStore(tempDir, s, nil)
 	reg := NewRegistry(gs, ts, us, true)
 
-	fsm := NewFSM(gs, ts, reg, nil, s, us)
+	fsm := NewFSM(gs, ts, reg, nil, raftS, us)
 	fsm.initialized.Store(true)
 	fsm.nodeMap.Store("node-1", &NodeMeta{NodeID: "node-1"})
 
 	// Snapshot
-	snap, _ := fsm.Snapshot()
-	sink := &mockSnapshotSink{Buffer: &bytes.Buffer{}}
-	if err := snap.Persist(sink); err != nil {
+	innerStore, err := raft.NewFileSnapshotStore(raftDir, 1, io.Discard)
+	if err != nil {
+		t.Fatalf("Failed to create file snapshot store: %v", err)
+	}
+	ring := NewKeyRing(mk, "test-key")
+	linkStore := NewLinkSnapshotStore(raftDir, tempDir, innerStore, ring, mk)
+
+	sink, err := linkStore.Create(1, 10, 1, raft.Configuration{}, 1, nil)
+	if err != nil {
+		t.Fatalf("Create sink failed: %v", err)
+	}
+
+	if err := fsm.persist(sink); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
 
 	// Restore
 	tempDir2 := t.TempDir()
-	s2 := storage.New(tempDir2, nil)
+	raftDir2 := filepath.Join(tempDir2, "raft")
+	s2 := storage.New(tempDir2, mk)
+	raftS2 := storage.New(raftDir2, mk)
+
 	gs2 := NewGameStore(tempDir2, s2)
 	ts2 := NewTeamStore(tempDir2, s2)
 	us2 := NewUserIndexStore(tempDir2, s2, nil)
 	reg2 := NewRegistry(gs2, ts2, us2, true)
 
-	fsm2 := NewFSM(gs2, ts2, reg2, nil, s2, us2)
-	if err := fsm2.Restore(&mockReadCloser{sink.Buffer}); err != nil {
+	fsm2 := NewFSM(gs2, ts2, reg2, nil, raftS2, us2)
+
+	_, rc, err := linkStore.Open(sink.ID())
+	if err != nil {
+		t.Fatalf("Open snapshot failed: %v", err)
+	}
+	defer rc.Close()
+
+	if err := fsm2.restore(rc); err != nil {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
@@ -120,18 +146,3 @@ func TestFSMSnapshotInitialization(t *testing.T) {
 		t.Error("FSM should be initialized after restore")
 	}
 }
-
-type mockSnapshotSink struct {
-	*bytes.Buffer
-}
-
-func (m *mockSnapshotSink) Write(p []byte) (n int, err error) { return m.Buffer.Write(p) }
-func (m *mockSnapshotSink) Close() error                      { return nil }
-func (m *mockSnapshotSink) ID() string                        { return "id" }
-func (m *mockSnapshotSink) Cancel() error                     { return nil }
-
-type mockReadCloser struct {
-	*bytes.Buffer
-}
-
-func (m *mockReadCloser) Close() error { return nil }

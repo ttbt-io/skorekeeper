@@ -37,6 +37,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -65,6 +66,8 @@ type RaftManager struct {
 	Cert                  *tls.Certificate
 	Bootstrap             bool
 	UseProductionTimeouts bool
+	SnapshotThreshold     uint64
+	TrailingLogs          uint64
 
 	nodeAddrMap sync.Map // map[raft.ServerID]string (ClusterAdvertise Addr)
 
@@ -80,7 +83,7 @@ type RaftManager struct {
 	stableStore  raft.StableStore
 	logStoreEnc  *EncryptedLogStore
 	stabStoreEnc *EncryptedStableStore
-	snapStoreEnc *EncryptedSnapshotStore
+	snapStoreEnc *LinkSnapshotStore
 	keyRing      *KeyRing
 	logKeyMu     sync.Mutex
 
@@ -212,7 +215,8 @@ func (rm *RaftManager) loadKeyRing() error {
 			return fmt.Errorf("failed to generate new key: %v", err)
 		}
 		ts := time.Now().UnixNano()
-		path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+		// Initial key uses index 0
+		path := filepath.Join(keysDir, fmt.Sprintf("idx-%020d-%d.key", 0, ts))
 		if err := rm.saveLogKey(k, path); err != nil {
 			return err
 		}
@@ -222,6 +226,21 @@ func (rm *RaftManager) loadKeyRing() error {
 	rm.keyRing = &KeyRing{}
 	rm.keyRing.SetKeys(active, old)
 	return nil
+}
+
+func parseKeyIndex(id string) uint64 {
+	if !strings.HasPrefix(id, "idx-") {
+		return 0
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) < 2 {
+		return 0
+	}
+	res, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return res
 }
 
 func (rm *RaftManager) RotateLogKey() error {
@@ -239,8 +258,15 @@ func (rm *RaftManager) RotateLogKey() error {
 		return fmt.Errorf("failed to ensure keys dir: %v", err)
 	}
 
+	var lastIdx uint64
+	if rm.logStore != nil {
+		if idx, err := rm.logStore.LastIndex(); err == nil {
+			lastIdx = idx
+		}
+	}
+
 	ts := time.Now().UnixNano()
-	path := filepath.Join(keysDir, fmt.Sprintf("%d.key", ts))
+	path := filepath.Join(keysDir, fmt.Sprintf("idx-%020d-%d.key", lastIdx, ts))
 
 	if err := rm.saveLogKey(newKey, path); err != nil {
 		return fmt.Errorf("failed to save new log key: %v", err)
@@ -253,7 +279,7 @@ func (rm *RaftManager) RotateLogKey() error {
 	}
 
 	log.Printf("Raft log key rotated successfully. New key: %s", filepath.Base(path))
-	return nil
+	return rm.GarbageCollectKeys()
 }
 
 func (rm *RaftManager) GarbageCollectKeys() error {
@@ -282,85 +308,67 @@ func (rm *RaftManager) GarbageCollectKeys() error {
 		}
 	}
 
-	// 2. Scan Snapshots to find the oldest key in use.
+	// 2. Determine the minimum Raft index we need to support.
+	// Log entry N is encrypted with the key active at that time, which is
+	// the key with the largest idx such that idx < N.
+	// Snapshot S is encrypted with the key active at that time, which is
+	// the key with the largest idx such that idx <= S (due to rotation in Snapshot()).
 	snapshots, err := rm.snapStoreEnc.List()
 	if err != nil {
 		return fmt.Errorf("failed to list snapshots: %v", err)
 	}
 
-	if len(snapshots) == 0 {
-		// No snapshots, keep all keys to be safe (or keep just Active?).
-		// If no snapshots, logs might be infinite?
-		// Better to do nothing.
-		return nil
+	firstIdx, err := rm.logStore.FirstIndex()
+	if err != nil {
+		return fmt.Errorf("failed to get log first index: %w", err)
+	}
+	if firstIdx == 0 {
+		firstIdx = ^uint64(0)
+	}
+
+	// We need to cover log index firstIdx, so we need a key with idx <= firstIdx-1.
+	minNeededIdx := firstIdx - 1
+	if firstIdx == 0 {
+		minNeededIdx = ^uint64(0)
+	}
+
+	for _, snap := range snapshots {
+		if snap.Index < minNeededIdx {
+			minNeededIdx = snap.Index
+		}
 	}
 
 	rm.keyRing.mu.RLock()
 	oldKeys := make([]*KeyInfo, len(rm.keyRing.Old))
 	copy(oldKeys, rm.keyRing.Old)
+	activeID := rm.keyRing.Active.ID
 	rm.keyRing.mu.RUnlock()
 
-	// Map KeyID to Index in Old list (higher index = older)
-	// Actually, Old is sorted Newest -> Oldest.
-	// So index 0 is newest old key.
-	// Index N is oldest.
+	// Find the oldest key in rm.keyRing.Old that we need to keep.
+	// Index 0 is newest, Index N is oldest.
+	maxUsedIndex := -1
 
-	// We want to find the "Oldest Used Key".
-	// Any key *older* than that (higher index) can be deleted.
-
-	oldestUsedIndex := -1
-
-	for _, snap := range snapshots {
-		keyID, err := rm.snapStoreEnc.GetSnapshotKeyID(snap.ID)
-		if err != nil {
-			log.Printf("Warning: Failed to identify key for snapshot %s: %v", snap.ID, err)
-			// If we can't identify, we should be conservative and NOT delete anything?
-			// Or assume it's a very old key?
-			// Safest: Abort GC.
-			return fmt.Errorf("aborting GC: cannot identify key for snapshot %s: %v", snap.ID, err)
-		}
-
-		// Find where this key is in the ring
-		if rm.keyRing.Active.ID == keyID {
-			continue // Active key is always kept, effectively index -1
-		}
-
-		found := false
+	if parseKeyIndex(activeID) > minNeededIdx {
+		// Active key is too new, we need at least some old keys to cover minNeededIdx.
 		for i, k := range oldKeys {
-			if k.ID == keyID {
-				if i > oldestUsedIndex {
-					oldestUsedIndex = i
-				}
-				found = true
+			maxUsedIndex = i
+			if parseKeyIndex(k.ID) <= minNeededIdx {
+				// This key covers the minNeededIdx.
 				break
 			}
 		}
-
-		if !found {
-			// Key not in ring? Should not happen if we can decrypt.
-			// Unless it WAS in Active and we just checked.
-			// Or it's missing? (GetSnapshotKeyID checks ring).
-		}
 	}
 
-	// If oldestUsedIndex is -1, it means all snapshots use Active key.
-	// We can delete ALL old keys?
-	// YES, provided logs are also covered.
-	// Raft logs are truncated at the snapshot.
-	// So if all snapshots use Active key, and logs are newer than snapshots,
-	// then logs also use Active key (or newer, but Active is newest).
-	// So we can delete ALL old keys.
-
-	// If oldestUsedIndex is K. We keep 0..K. We delete K+1..End.
-
-	cutoff := oldestUsedIndex + 1
+	// Calculate cutoff
+	// We keep 0..maxUsedIndex.
+	// We delete maxUsedIndex+1..End.
+	cutoff := maxUsedIndex + 1
 	if cutoff >= len(oldKeys) {
 		return nil // Nothing to delete
 	}
 
 	keysToDelete := oldKeys[cutoff:]
-
-	log.Printf("GC: Found %d keys to delete (older than key for oldest snapshot)", len(keysToDelete))
+	log.Printf("GC: Found %d keys to delete (older than oldest used key index %d)", len(keysToDelete), maxUsedIndex)
 
 	// 3. Delete from Disk
 	keysDir := filepath.Join(rm.DataDir, "keys")
@@ -539,12 +547,18 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 		config.LeaderLeaseTimeout = 500 * time.Millisecond
 	}
 	config.CommitTimeout = 500 * time.Millisecond
-
 	config.SnapshotInterval = 120 * time.Second
-	config.SnapshotThreshold = 20480
+
+	if rm.SnapshotThreshold > 0 {
+		config.SnapshotThreshold = rm.SnapshotThreshold
+	}
+	if rm.TrailingLogs > 0 {
+		config.TrailingLogs = rm.TrailingLogs
+	}
 
 	//config.ShutdownOnRemove = true
-	//config.NoSnapshotRestoreOnStart = true
+	config.NoSnapshotRestoreOnStart = true
+	config.NoLegacyTelemetry = true
 	config.LogLevel = "INFO"
 	config.MaxAppendEntries = 200
 	if rm.LogOutput != nil {
@@ -620,8 +634,20 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 
 	var raftSnapshotStore raft.SnapshotStore = snapshotStore
 	if rm.keyRing != nil {
-		// Use KeyRing for snapshots
-		rm.snapStoreEnc = NewEncryptedSnapshotStore(snapshotStore, rm.keyRing)
+		// Use KeyRing for snapshots with Linking (Hardlink optimization)
+		var sourceDir string
+		if rm.FSM != nil {
+			if gs, _ := rm.FSM.GetStores(); gs != nil {
+				sourceDir = gs.DataDir
+			}
+		}
+
+		if sourceDir == "" {
+			return fmt.Errorf("failed to determine source directory for snapshot linking: GameStore not available")
+		}
+
+		// LinkSnapshotStore wraps FileSnapshotStore but links data files instead of copying
+		rm.snapStoreEnc = NewLinkSnapshotStore(rm.DataDir, sourceDir, snapshotStore, rm.keyRing, rm.MasterKey)
 		raftSnapshotStore = rm.snapStoreEnc
 	} else if rm.MasterKey != nil {
 		// Fallback for transition/testing if KeyRing not loaded?
@@ -785,34 +811,8 @@ func (rm *RaftManager) Start(bootstrap bool) error {
 	go rm.monitorConfiguration()
 	go rm.monitorMetrics()
 	go rm.monitorLeadership(notifyCh)
-	go rm.monitorKeyGC()
 
 	return nil
-}
-
-func (rm *RaftManager) monitorKeyGC() {
-	// GC keys periodically.
-	// Keys are only deleted if they are older than the key used by the oldest snapshot.
-	// Since snapshots happen every ~2 mins (default), running this every 10-30 mins is fine.
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-rm.shutdownCh:
-			return
-		case <-ticker.C:
-			// Only Leader needs to worry?
-			// No, every node has its own keys and snapshots.
-			// Persistence is local.
-			if err := rm.GarbageCollectKeys(); err != nil {
-				// Don't log "no key found" as error if it's just startup or empty
-				if !strings.Contains(err.Error(), "no key found") && !strings.Contains(err.Error(), "aborting") {
-					log.Printf("Key GC error: %v", err)
-				}
-			}
-		}
-	}
 }
 
 // GetHTTPClient returns the reusable HTTP client for internal cluster communication.
