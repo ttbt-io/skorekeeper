@@ -1062,12 +1062,12 @@ func (rm *RaftManager) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if data.HttpAddr == "" || data.PubKey == "" {
+	if data.HttpAddr == "" {
 		http.Error(w, "Missing required fields: httpAddr and pubKey are required", http.StatusBadRequest)
 		return
 	}
 
-	if data.NodeID == "" {
+	if data.NodeID == "" || data.PubKey == "" {
 		// Attempt Discovery
 		status, err := rm.discoverNode(data.HttpAddr, data.PubKey)
 		if err != nil {
@@ -1075,6 +1075,7 @@ func (rm *RaftManager) handleJoin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Discovery failed: %v", err), http.StatusBadGateway)
 			return
 		}
+		data.PubKey, _ = status["pubKey"].(string)
 
 		// Fill in discovered details
 		var ok bool
@@ -1136,6 +1137,27 @@ func (rm *RaftManager) discoverNode(targetAddr, expectedPubKeyBase64 string) (ma
 	}
 	u.Path = "/api/cluster/status"
 	url := u.String()
+
+	if expectedPubKeyBase64 == "" {
+		conn, err := tls.Dial("tcp", u.Host, &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         u.Host,
+			Certificates:       []tls.Certificate{*rm.Cert},
+		})
+		if err != nil {
+			return nil, err
+		}
+		certs := conn.ConnectionState().PeerCertificates
+		conn.Close()
+		if len(certs) == 0 {
+			return nil, fmt.Errorf("no peer certificate")
+		}
+		pubKey, ok := certs[0].PublicKey.(ed25519.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("peer public key is not ed25519: %T", certs[0].PublicKey)
+		}
+		expectedPubKeyBase64 = base64.StdEncoding.EncodeToString(pubKey)
+	}
 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
