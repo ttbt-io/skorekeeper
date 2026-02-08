@@ -1139,9 +1139,18 @@ func (rm *RaftManager) discoverNode(targetAddr, expectedPubKeyBase64 string) (ma
 	url := u.String()
 
 	if expectedPubKeyBase64 == "" {
-		conn, err := tls.Dial("tcp", u.Host, &tls.Config{
+		addr := u.Host
+		host, _, err := net.SplitHostPort(u.Host)
+		if err != nil {
+			// If SplitHostPort fails, it's likely because the port is missing.
+			// In that case, u.Host is the host, and we'll add the default port.
+			host = u.Host
+			addr = net.JoinHostPort(u.Host, "443")
+		}
+
+		conn, err := tls.Dial("tcp", addr, &tls.Config{
 			InsecureSkipVerify: true,
-			ServerName:         u.Host,
+			ServerName:         host,
 			Certificates:       []tls.Certificate{*rm.Cert},
 		})
 		if err != nil {
