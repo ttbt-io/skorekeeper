@@ -1063,7 +1063,7 @@ func (rm *RaftManager) handleJoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if data.HttpAddr == "" {
-		http.Error(w, "Missing required fields: httpAddr and pubKey are required", http.StatusBadRequest)
+		http.Error(w, "Missing required field: httpAddr is required", http.StatusBadRequest)
 		return
 	}
 
