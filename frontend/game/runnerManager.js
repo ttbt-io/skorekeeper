@@ -100,16 +100,23 @@ export class RunnerManager {
     /**
      * Identifies which runners are currently on base.
      */
+    _parseColSubIndex(colId) {
+        return parseInt((colId || '').split('-')[2] || '0', 10);
+    }
+
     /**
      * Identifies which runners are currently on base.
      */
     getRunnersOnBase(game, team, ctx) {
         const runners = [];
         const roster = game.roster[team];
-        const inningCols = game.columns
-            .filter(c => c.inning === ctx.i)
-            .map(c => c.id);
+        const inningColsData = game.columns.filter(c => c.inning === ctx.i);
+        const inningCols = inningColsData.map(c => c.id);
 
+        // Find the lead-off batter for this inning to determine sequence
+        const leadRow = inningColsData[0]?.leadRow?.[team] || 0;
+        const rosterLen = roster.length;
+        const currentPos = (ctx.b - leadRow + rosterLen) % rosterLen;
 
         roster.forEach((p, idx) => {
             if (idx === ctx.b) {
@@ -119,10 +126,29 @@ export class RunnerManager {
             let d = null;
             let key = '';
             for (let i = inningCols.length - 1; i >= 0; i--) {
-                const k = `${team}-${idx}-${inningCols[i]}`;
-                if (game.events[k]) {
-                    d = game.events[k];
-                    key = k;
+                const colId = inningCols[i];
+
+                // Determine if this (batter, column) is prior to the current context
+                const subIdx = this._parseColSubIndex(colId);
+                const currentSubIdx = this._parseColSubIndex(ctx.col);
+
+                const isPriorCol = subIdx < currentSubIdx;
+                const isSameCol = (colId === ctx.col);
+
+                const pos = (idx - leadRow + rosterLen) % rosterLen;
+                const isPriorBatter = pos < currentPos;
+
+                const event = game.events[`${team}-${idx}-${colId}`];
+                if (!event) {
+                    continue;
+                }
+
+                const hasActualPitches = event.pitchSequence && event.pitchSequence.some(p => p.type !== 'substitution');
+                const isPlacedRunner = !event.outcome && !hasActualPitches && event.paths && event.paths.some(p => p !== 0);
+
+                if (isPriorCol || (isSameCol && (isPriorBatter || isPlacedRunner))) {
+                    d = event;
+                    key = `${team}-${idx}-${colId}`;
                     break;
                 }
             }

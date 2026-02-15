@@ -211,16 +211,7 @@ export class HistoryManager {
     }
 
     getEffectiveLog(log) {
-        const effectivelyUndone = new Set();
-        for (let i = log.length - 1; i >= 0; i--) {
-            const action = log[i];
-            if (effectivelyUndone.has(action.id)) {
-                continue;
-            }
-            if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
-                effectivelyUndone.add(action.payload.refId);
-            }
-        }
+        const effectivelyUndone = this._getEffectivelyUndoneSet(log);
         return log.filter(a => !effectivelyUndone.has(a.id) && a.type !== ActionTypes.UNDO);
     }
 
@@ -439,13 +430,7 @@ export class HistoryManager {
         if (!log || log.length === 0) {
             return null;
         }
-        const effectivelyUndone = new Set();
-        for (let i = log.length - 1; i >= 0; i--) {
-            const action = log[i];
-            if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
-                effectivelyUndone.add(action.payload.refId);
-            }
-        }
+        const effectivelyUndone = this._getEffectivelyUndoneSet(log);
         for (let i = log.length - 1; i >= 0; i--) {
             const action = log[i];
             if (action.type === ActionTypes.UNDO || effectivelyUndone.has(action.id)) {
@@ -460,15 +445,10 @@ export class HistoryManager {
         if (!log || log.length === 0) {
             return null;
         }
-        const effectivelyUndone = new Set();
+        const effectivelyUndone = this._getEffectivelyUndoneSet(log);
         const actionMap = new Map();
         log.forEach(a => actionMap.set(a.id, a));
-        for (let i = log.length - 1; i >= 0; i--) {
-            const action = log[i];
-            if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
-                effectivelyUndone.add(action.payload.refId);
-            }
-        }
+
         for (let i = log.length - 1; i >= 0; i--) {
             const action = log[i];
             if (action.type !== ActionTypes.UNDO && !effectivelyUndone.has(action.id)) {
@@ -486,6 +466,20 @@ export class HistoryManager {
             }
         }
         return null;
+    }
+
+    _getEffectivelyUndoneSet(log) {
+        const effectivelyUndone = new Set();
+        for (let i = log.length - 1; i >= 0; i--) {
+            const action = log[i];
+            if (effectivelyUndone.has(action.id)) {
+                continue;
+            }
+            if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
+                effectivelyUndone.add(action.payload.refId);
+            }
+        }
+        return effectivelyUndone;
     }
 
     async undo(log, isReadOnly) {
