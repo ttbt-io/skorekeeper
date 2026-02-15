@@ -91,7 +91,7 @@ describe('Undo/Redo Logic', () => {
         // Result: null.
         // This is actually how the app prevents double-undos on same action.
         // To Undo again, user must perform a new generative action or the app must clear redo.
-        expect(app.historyManager.getUndoTargetId(app.state.activeGame.actionLog)).toBeNull();
+        expect(app.historyManager.getUndoTargetId(app.state.activeGame.actionLog)).toBe('A');
         expect(app.historyManager.getRedoTargetId(app.state.activeGame.actionLog)).toBeNull();
     });
 

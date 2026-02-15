@@ -447,7 +447,11 @@ function applyScoreOverride(state, payload) {
     const { team, inning, score } = payload;
     state.overrides = { ...state.overrides };
     state.overrides[team] = { ...state.overrides[team] };
-    state.overrides[team][inning] = score;
+    if (score === null || score === undefined || (typeof score === 'string' && score.trim() === '')) {
+        delete state.overrides[team][inning];
+    } else {
+        state.overrides[team][inning] = score;
+    }
     return state;
 }
 
