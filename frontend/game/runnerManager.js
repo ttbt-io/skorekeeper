@@ -100,6 +100,10 @@ export class RunnerManager {
     /**
      * Identifies which runners are currently on base.
      */
+    _parseColSubIndex(colId) {
+        return parseInt((colId || '').split('-')[2] || '0', 10);
+    }
+
     /**
      * Identifies which runners are currently on base.
      */
@@ -125,8 +129,8 @@ export class RunnerManager {
                 const colId = inningCols[i];
 
                 // Determine if this (batter, column) is prior to the current context
-                const subIdx = parseInt(colId.split('-')[2] || 0);
-                const currentSubIdx = parseInt(ctx.col.split('-')[2] || 0);
+                const subIdx = this._parseColSubIndex(colId);
+                const currentSubIdx = this._parseColSubIndex(ctx.col);
 
                 const isPriorCol = subIdx < currentSubIdx;
                 const isSameCol = (colId === ctx.col);

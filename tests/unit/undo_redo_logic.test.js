@@ -87,10 +87,9 @@ describe('Undo/Redo Logic', () => {
         // Scan backwards for first action that is NOT an UNDO and NOT targeted.
         // 1. RUA is UNDO. Skip.
         // 2. UA is UNDO. Skip.
-        // 3. A is targeted by UA. Skip.
-        // Result: null.
-        // This is actually how the app prevents double-undos on same action.
-        // To Undo again, user must perform a new generative action or the app must clear redo.
+        // 3. A is targeted by UA. But UA is targeted by RUA (effectively undone).
+        // So A is NOT targeted by an effective undo.
+        // Result: 'A'.
         expect(app.historyManager.getUndoTargetId(app.state.activeGame.actionLog)).toBe('A');
         expect(app.historyManager.getRedoTargetId(app.state.activeGame.actionLog)).toBeNull();
     });
