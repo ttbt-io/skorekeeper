@@ -45,7 +45,7 @@ import (
 
 	"github.com/c2FmZQ/storage/crypto"
 	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
+	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 )
 
 var ErrNotLeader = errors.New("not leader")
