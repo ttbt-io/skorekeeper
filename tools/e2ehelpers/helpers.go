@@ -397,8 +397,15 @@ func RecordBallInPlay(ctx context.Context, result, playType, location string) er
 		// Set Location (if provided)
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if location != "" {
-				// Location buttons are .pos-key[data-pos="X"]
-				return chromedp.Click(fmt.Sprintf(".pos-key[data-pos=\"%s\"]", location)).Do(ctx)
+				return chromedp.Evaluate(fmt.Sprintf(`
+					(() => {
+						const el = document.querySelector('.pos-key[data-pos="%s"]');
+						if(el) {
+							const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+							el.dispatchEvent(event);
+						}
+					})()
+				`, location), nil).Do(ctx)
 			}
 			return nil
 		}),
