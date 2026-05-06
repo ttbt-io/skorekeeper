@@ -254,8 +254,10 @@ export class ContextMenuManager {
      * @param {Function} options.onToggleLead
      * @param {boolean} options.canMove
      * @param {Function} options.onMovePlay
+     * @param {string} options.lastActionId
+     * @param {Function} options.onInsertAfter
      */
-    showCellMenu(e, { isLead, onToggleLead, canMove, onMovePlay }) {
+    showCellMenu(e, { isLead, onToggleLead, canMove, onMovePlay, lastActionId, onInsertAfter }) {
         this.setDelayFromEvent(e);
         this.hide();
         this.activeContextMenu = document.getElementById('column-context-menu');
@@ -284,6 +286,18 @@ export class ContextMenuManager {
                 },
             });
             this.activeContextMenu.appendChild(moveBtn);
+        }
+
+        if (lastActionId) {
+            const insertBtn = createElement('button', {
+                className: 'block w-full text-left p-2 hover:bg-gray-700 text-blue-400',
+                text: 'Insert PA After',
+                onClick: () => {
+                    onInsertAfter();
+                    this.hide();
+                },
+            });
+            this.activeContextMenu.appendChild(insertBtn);
         }
 
         this.position(e);
