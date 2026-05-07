@@ -17,29 +17,30 @@ Each action in the log is a discrete object containing:
 *   `id`: A unique identifier (UUID).
 *   `type`: The category of the event (e.g., `PITCH`, `SUBSTITUTION`).
 *   `payload`: The data specific to that action.
+*   `refId`: (Optional) The ID of a previous action this action is modifying.
+*   `insertAfterId`: (Optional) The ID of a previous action this action should be logically inserted after.
 *   `timestamp`: When the action occurred.
 *   `userId`: The user who performed the action.
 
-## 2. Deterministic State Derivation (The Reducer)
+## 2. Deterministic State Derivation (Dual-Timeline Pipeline)
 
-The game state is derived by replaying the Action Log through a pure, deterministic **Reducer Function**.
+The game state is derived by processing the Action Log through a three-phase **Dual-Timeline Pipeline** (`computeStateFromLog`).
 
-### 2.1 Pure Function
-The reducer follows the pattern `(state, action) => newState`. It must be pure:
-*   No side effects (no network calls, no random numbers).
-*   Given the same state and action, it must always return the same resulting state.
-*   This allows any client to reconstruct the exact same game state by replaying the same log.
+### 2.1 Phase 1: Timeline Builder (`buildTimeline`)
+Transforms the append-only Action Log (the Scorekeeper Timeline) into a 1D, chronological array of game events (the Game Timeline).
+*   **Tombstones:** Filters out actions targeted by `UNDO`.
+*   **Edits:** Replaces original actions with their latest edited versions (using `refId`).
+*   **Insertions:** Logically inserts actions into the timeline at their requested historical position (using `insertAfterId`).
 
-### 2.2 Replay Logic
-To compute the current state:
-1.  Initialize a fresh state object (Initial State).
-2.  Iterate through the Action Log from oldest to newest.
-3.  Apply each valid action sequentially to the state.
-4.  The final result is the "Snapshot" used for rendering and UI logic.
+### 2.2 Phase 2: Logical Reducer (`reassignGridCoordinates`)
+Iterates through the 1D Game Timeline to calculate the logical flow of the game (innings, outs, batter index) without relying on grid coordinates. It dynamically tracks actual roster sizes and handles batting around the order.
 
-## 3. Append-Only Undo Mechanism
+### 2.3 Phase 3: Grid Projection (`gameReducer`)
+Applies the logically corrected actions sequentially to generate the 2D grid structure (`state.events` and `state.columns`) required by the legacy UI and scoresheet renderers.
 
-Skorekeeper implements Undo/Redo without mutating the historical log.
+## 3. Append-Only Undo and Edit Mechanism
+
+Skorekeeper implements Undo/Redo and historical edits without mutating the historical log.
 
 ### 3.1 The UNDO Action
 An `UNDO` is a standard action type that targets a specific historical action ID (`refId`).

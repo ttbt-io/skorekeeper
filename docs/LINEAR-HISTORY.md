@@ -15,36 +15,28 @@ The `LinearHistory` is an array of `HistoryItem` objects.
 *   **stateBefore**: A snapshot of the game state (outs, runners, score) immediately *before* this item occurred.
 *   **stateAfter**: A snapshot of the game state immediately *after* this item occurred (only for non-stricken items).
 
-## 2. The Three-Pass Generation Process
+## 2. The Generation Process
 
-To ensure data integrity, especially when historical plays are edited, the history is generated in three distinct passes.
+To ensure data integrity, especially when historical plays are edited, the history is generated using the core **Dual-Timeline** pipeline.
 
-### Pass 1: Undo Reduction
-Filter the raw `actionLog` to remove any actions that have been targeted by an `UNDO` command. This results in an "effective log" containing only generative actions.
+### Phase 1: Build Chronological Timeline
+The system parses the raw `actionLog` using `buildTimeline` to resolve all `UNDO` tombstones, in-place edits (via `refId`), and timeline insertions (via `insertAfterId`). This produces a single, chronological 1D array of effective generative actions.
 
-### Pass 2: Replay and Insertion
-Perform a sequential replay of the effective log to build the initial array:
-1.  **New Context**: When a generative action for a previously unseen `ctxKey` is encountered, append a new `HistoryItem` to the `LinearHistory` array.
-2.  **Existing Context (Edit)**: When a generative action for a `ctxKey` that already exists in the array is encountered:
-    *   Locate the original `HistoryItem` in the array.
-    *   Mark the original item as `isStricken: true`.
-    *   Create a new `HistoryItem` marked as `isCorrection: true`.
-    *   **Insert the new item immediately following the stricken one.**
+### Phase 2: Grouping and Replay
+The linear timeline is iterated to build the `LinearHistory` array:
+1.  **Plate Appearance Detection**: Actions are grouped into Plate Appearances (PAs) based on their sequential progression.
+2.  **Context Contextualization**: The `HistoryManager` groups events under a stable `ctxKey`.
 
-### Pass 3: State Propagation & High-Fidelity Resolution
-Iterate through the final `LinearHistory` array from beginning to end to calculate and attach game states using the core `gameReducer`:
+### Phase 3: State Propagation & High-Fidelity Resolution
+Iterate through the `LinearHistory` array from beginning to end to calculate and attach game states using the core `gameReducer`:
 
 1.  Maintain a running "Authoritative State" initialized with `getInitialState()` and the game roster.
-2.  For every item (even stricken ones):
+2.  For every item:
     *   Set `stateBefore` equal to a narrative-mapped snapshot of the current Authoritative State.
     *   **Batter Resolution:** Resolve the batter's name using the roster state at this exact moment in history.
     *   **Augmentation:** Replay the item's events against a temporary clone of the state to resolve runner names (e.g., mapping "Runner on 1st" to "Alice").
-3.  If the item is **not stricken** (`isStricken: false`):
-    *   Update the running Authoritative State by applying the events via `gameReducer`.
-    *   Set `stateAfter` equal to the updated Authoritative State.
-4.  If the item **is stricken**:
-    *   Perform the reduction locally to resolve names within the stricken block, but **discard** the resulting state.
-    *   Do **not** update the running Authoritative State. Its effects are ignored by subsequent plays.
+3.  Update the running Authoritative State by applying the events via `gameReducer`.
+4.  Set `stateAfter` equal to the updated Authoritative State.
 
 ## 3. Narrative Feed Integration Strategy
 
@@ -61,6 +53,6 @@ The `NarrativeEngine` is refactored into a stateless transformer:
 
 ### Transparent UI Updates ("Smart Refresh")
 The `ScoresheetRenderer` implements a key-based update mechanism:
-*   **In-Place Correction**: When a play is edited, the existing DOM node for that play remains but receives a `line-through` style. The new version is inserted immediately following it.
+*   **Chronological Re-rendering**: When a play is edited or inserted, the Dual-Timeline pipeline completely recalculates the game state. The renderer updates the feed immediately, naturally reflecting the new chronological order without needing visual hacks like "strike-through" text.
 *   **Reactive State Propagation**: If a historical edit changes the context of subsequent plays (e.g., an Out becomes a Hit), the renderer updates the context headers of following plays without re-rendering their entire event lists, minimizing visual churn.
 *   **Dispatch Integration**: The app automatically re-generates the narrative whenever the `actionLog` is updated (locally or via sync), ensuring real-time authoritative consistency.
