@@ -4186,6 +4186,7 @@ export class AppController {
 
         await this.dispatch({
             type: ActionTypes.PLAY_RESULT,
+            refId: this.state.activeData.playResultId || null,
             payload: {
                 activeCtx: this.state.activeCtx,
                 activeTeam: this.state.activeTeam,

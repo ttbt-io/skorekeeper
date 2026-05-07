@@ -31,6 +31,7 @@ export function reassignGridCoordinates(timeline) {
         home: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0' },
         activeTeam: TeamAway,
         currentInning: 1,
+        rosterSizes: { away: 9, home: 9 },
     };
 
     // To group actions into Plate Appearances (PAs), we detect when the underlying
@@ -51,10 +52,31 @@ export function reassignGridCoordinates(timeline) {
         const payload = newAction.payload || {};
 
         if (newAction.type === ActionTypes.GAME_METADATA_UPDATE ||
-            newAction.type === ActionTypes.LINEUP_UPDATE ||
-            newAction.type === ActionTypes.GAME_START ||
-            newAction.type === ActionTypes.GAME_IMPORT ||
             newAction.type === ActionTypes.PITCHER_UPDATE) {
+            return newAction;
+        }
+
+        if (newAction.type === ActionTypes.GAME_START || newAction.type === ActionTypes.GAME_IMPORT) {
+            if (payload.away) {
+                state.rosterSizes.away = payload.away.length;
+            }
+            if (payload.home) {
+                state.rosterSizes.home = payload.home.length;
+            }
+            return newAction;
+        }
+
+        if (newAction.type === ActionTypes.LINEUP_UPDATE) {
+            if (payload.team && payload.lineup) {
+                state.rosterSizes[payload.team] = payload.lineup.length;
+            }
+            return newAction;
+        }
+
+        if (newAction.type === ActionTypes.ADD_COLUMN) {
+            if (payload.team && payload.colId) {
+                state[payload.team].columnId = payload.colId;
+            }
             return newAction;
         }
 
@@ -95,7 +117,16 @@ export function reassignGridCoordinates(timeline) {
 
                     // If this isn't the very first PA, advance the batter index
                     if (lastLegacyContext[team] !== null) {
-                        state[team].batterIndex = (state[team].batterIndex + 1) % 9;
+                        const prevIndex = state[team].batterIndex;
+                        const rLen = state.rosterSizes[team] || 9;
+                        state[team].batterIndex = (state[team].batterIndex + 1) % rLen;
+
+                        if (state[team].batterIndex === 0 && prevIndex === rLen - 1) {
+                            // Batted around, increment column suffix
+                            const parts = state[team].columnId.split('-');
+                            const suffix = parseInt(parts[2] || '0', 10) + 1;
+                            state[team].columnId = `col-${state[team].inning}-${suffix}`;
+                        }
                     }
 
                     // Save mapping
@@ -123,16 +154,10 @@ export function reassignGridCoordinates(timeline) {
                 // Actually, the reducer calculates outs perfectly. We just need to know if
                 // we should advance the inning.
             } else if (newAction.type === ActionTypes.PLAY_RESULT) {
-                if (payload.bipState && payload.bipState.res !== 'Safe') {
-                    // An out occurred
-                    let outsOnPlay = 1;
-                    if (payload.bipState.type === 'DP') {
-                        outsOnPlay = 2;
-                    }
-                    if (payload.bipState.type === 'TP') {
-                        outsOnPlay = 3;
-                    }
-                    state[team].outs += outsOnPlay;
+                if (payload.bipState) {
+                    const isBatterOut = payload.bipState.res !== 'Safe';
+                    const runnerOuts = (payload.runnerAdvancements || []).filter(r => r.outcome === RunnerActionOut).length;
+                    state[team].outs += (isBatterOut ? 1 : 0) + runnerOuts;
                 }
             } else if (newAction.type === ActionTypes.RUNNER_ADVANCE) {
                 if (payload.runners) {

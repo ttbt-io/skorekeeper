@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { ActionTypes, gameReducer, getInitialState } from '../reducer.js';
+import { buildTimeline } from './timeline.js';
 
 /**
  * HistoryManager transforms the raw action log into a stable, linear representation
@@ -33,10 +34,12 @@ export class HistoryManager {
             return [];
         }
 
-        // Pass 1: Undo Reduction
-        const effectiveLog = this.getEffectiveLog(game.actionLog);
+        // Pass 1: Build Chronological Game Timeline
+        // We only use buildTimeline here, as reassignGridCoordinates is applied
+        // during the main reducer pass to generate state.events.
+        const effectiveLog = buildTimeline(game.actionLog);
 
-        // Pass 2: Replay and Insertion
+        // Pass 2: Replay and Group by Plate Appearance
         let history = [];
         const contextMap = new Map(); // ctxKey -> number of items seen for this context
         let currentCtxKey = null;

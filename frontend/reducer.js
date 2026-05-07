@@ -158,6 +158,18 @@ export function gameReducer(state, action) {
             break;
         case ActionTypes.PLAY_RESULT:
             resultState = applyPlayResult(newState, action.payload);
+            if (action.payload && action.payload.activeCtx && action.payload.activeTeam && resultState.events) {
+                const key = `${action.payload.activeTeam}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+                if (resultState.events[key]) {
+                    resultState.events = {
+                        ...resultState.events,
+                        [key]: {
+                            ...resultState.events[key],
+                            playResultId: action.id,
+                        },
+                    };
+                }
+            }
             break;
         case ActionTypes.RUNNER_ADVANCE:
             resultState = applyRunnerAdvance(newState, action.payload);
