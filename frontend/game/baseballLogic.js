@@ -27,8 +27,8 @@ import { TeamAway, TeamHome, RunnerActionOut } from '../constants.js';
 export function reassignGridCoordinates(timeline) {
     // We need to track the logical state of the game to assign correct grid coordinates.
     const state = {
-        away: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0' },
-        home: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0' },
+        away: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0 },
+        home: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0 },
         activeTeam: TeamAway,
         currentInning: 1,
         rosterSizes: { away: 9, home: 9 },
@@ -45,6 +45,8 @@ export function reassignGridCoordinates(timeline) {
     // We maintain a map of Legacy Ctx String -> New Logical Ctx
     // This handles actions that belong to the same PA.
     const ctxMapping = new Map();
+    // Map of legacy runner keys (team-b-col) -> new runner keys (team-b-col)
+    const runnerKeyMapping = new Map();
 
     return timeline.map(action => {
         // Deep clone the action so we can mutate its payload
@@ -57,10 +59,14 @@ export function reassignGridCoordinates(timeline) {
         }
 
         if (newAction.type === ActionTypes.GAME_START || newAction.type === ActionTypes.GAME_IMPORT) {
-            if (payload.away) {
+            if (payload.initialRosters && payload.initialRosters.away) {
+                state.rosterSizes.away = payload.initialRosters.away.length;
+            } else if (payload.away) {
                 state.rosterSizes.away = payload.away.length;
             }
-            if (payload.home) {
+            if (payload.initialRosters && payload.initialRosters.home) {
+                state.rosterSizes.home = payload.initialRosters.home.length;
+            } else if (payload.home) {
                 state.rosterSizes.home = payload.home.length;
             }
             return newAction;
@@ -84,6 +90,7 @@ export function reassignGridCoordinates(timeline) {
             // Apply manual inning lead overrides to our tracker
             if (payload.team && payload.rowId !== undefined && payload.rowId !== null) {
                 state[payload.team].batterIndex = payload.rowId;
+                state[payload.team].justSetLead = true;
             }
             return newAction;
         }
@@ -103,6 +110,7 @@ export function reassignGridCoordinates(timeline) {
                     lastLegacyContext[team] = legacyKey;
                 } else {
                     // This is a truly NEW Plate Appearance!
+                    state[team].strikes = 0; // Reset strikes for new PA
 
                     // Have we reached 3 outs? Move to next half-inning.
                     if (state[team].outs >= 3) {
@@ -117,15 +125,20 @@ export function reassignGridCoordinates(timeline) {
 
                     // If this isn't the very first PA, advance the batter index
                     if (lastLegacyContext[team] !== null) {
-                        const prevIndex = state[team].batterIndex;
-                        const rLen = state.rosterSizes[team] || 9;
-                        state[team].batterIndex = (state[team].batterIndex + 1) % rLen;
+                        if (state[team].justSetLead) {
+                            // Lead was explicitly set, do not auto-increment this time
+                            state[team].justSetLead = false;
+                        } else {
+                            const prevIndex = state[team].batterIndex;
+                            const rLen = state.rosterSizes[team] || 9;
+                            state[team].batterIndex = (state[team].batterIndex + 1) % rLen;
 
-                        if (state[team].batterIndex === 0 && prevIndex === rLen - 1) {
-                            // Batted around, increment column suffix
-                            const parts = state[team].columnId.split('-');
-                            const suffix = parseInt(parts[2] || '0', 10) + 1;
-                            state[team].columnId = `col-${state[team].inning}-${suffix}`;
+                            if (state[team].batterIndex === 0 && prevIndex === rLen - 1) {
+                                // Batted around, increment column suffix
+                                const parts = state[team].columnId.split('-');
+                                const suffix = parseInt(parts[2] || '0', 10) + 1;
+                                state[team].columnId = `col-${state[team].inning}-${suffix}`;
+                            }
                         }
                     }
 
@@ -135,6 +148,10 @@ export function reassignGridCoordinates(timeline) {
                         i: state[team].inning,
                         col: state[team].columnId,
                     });
+
+                    const legacyRunnerKey = `${team}-${payload.activeCtx.b}-${payload.activeCtx.col}`;
+                    const newRunnerKey = `${team}-${state[team].batterIndex}-${state[team].columnId}`;
+                    runnerKeyMapping.set(legacyRunnerKey, newRunnerKey);
 
                     lastLegacyContext[team] = legacyKey;
                 }
@@ -146,13 +163,30 @@ export function reassignGridCoordinates(timeline) {
                 payload.activeCtx = { ...logicalCtx };
             }
 
+            // Rewrite runner advancements keys to match the new logical coordinates
+            if (payload.runnerAdvancements) {
+                payload.runnerAdvancements.forEach(runner => {
+                    const mappedKey = runnerKeyMapping.get(runner.key);
+                    if (mappedKey) {
+                        runner.key = mappedKey;
+                    }
+                });
+            }
+
             // Track outs to know when inning ends
             if (newAction.type === ActionTypes.PITCH) {
-                // Heuristic: If it's a Strikeout or out, increment out (for tracking only)
-                // We don't need perfect out tracking here, just enough to break innings if
-                // the user didn't explicitly use SET_INNING_LEAD.
-                // Actually, the reducer calculates outs perfectly. We just need to know if
-                // we should advance the inning.
+                if (payload.type === 'strike') {
+                    state[team].strikes++;
+                } else if (payload.type === 'foul' && state[team].strikes < 2) {
+                    state[team].strikes++;
+                }
+
+                // If strikes hit 3, count as out
+                if (state[team].strikes === 3) {
+                    state[team].outs++;
+                    // We increment to 4 just to prevent it from counting multiple outs if there are bugged extra strikes
+                    state[team].strikes++;
+                }
             } else if (newAction.type === ActionTypes.PLAY_RESULT) {
                 if (payload.bipState) {
                     const isBatterOut = payload.bipState.res !== 'Safe';
