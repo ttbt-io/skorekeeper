@@ -60,7 +60,7 @@ export class ActiveGameController {
         let nextGameState;
 
         // Recompute entire state for actions that modify the past or alter the timeline sequence.
-        if (actionData.type === ActionTypes.UNDO || actionData.refId || actionData.insertAfterId) {
+        if (actionData.type === ActionTypes.UNDO || actionData.type === ActionTypes.CLEAR_DATA || actionData.refId || actionData.insertAfterId) {
             nextGameState = computeStateFromLog(this.app.state.activeGame.actionLog);
         } else {
             // Optimization: Apply incrementally for standard chronological appends

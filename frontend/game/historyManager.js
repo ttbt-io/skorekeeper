@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { ActionTypes, gameReducer, getInitialState } from '../reducer.js';
-import { buildTimeline } from './timeline.js';
+import { buildTimeline, migrateLegacyActionLog } from './timeline.js';
 
 /**
  * HistoryManager transforms the raw action log into a stable, linear representation
@@ -34,10 +34,13 @@ export class HistoryManager {
             return [];
         }
 
+        // Phase 0: Migrate legacy logs
+        const migratedLog = migrateLegacyActionLog(game.actionLog);
+
         // Pass 1: Build Chronological Game Timeline
         // We only use buildTimeline here, as reassignGridCoordinates is applied
         // during the main reducer pass to generate state.events.
-        const effectiveLog = buildTimeline(game.actionLog);
+        const effectiveLog = buildTimeline(migratedLog);
 
         // Pass 2: Replay and Group by Plate Appearance
         let history = [];

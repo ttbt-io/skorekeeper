@@ -383,6 +383,15 @@ describe('AppController', () => {
 
         app = new AppController(mockDB, mockModalPrompt, mockModalConfirm);
 
+        app.auth = {
+            checkStatus: jest.fn().mockResolvedValue({ email: 'test@example.com' }),
+            getUser: jest.fn().mockReturnValue({ email: 'test@example.com' }),
+            getLocalId: jest.fn().mockReturnValue('mock_local_id'),
+            logout: jest.fn(),
+        };
+        app.data = {
+            reconcileLocalData: jest.fn().mockResolvedValue(true),
+        };
     });
 
     afterEach(() => {
@@ -1406,6 +1415,12 @@ describe('AppController', () => {
         const originalPrint = window.print;
         window.print = jest.fn();
 
+        const originalRaf = window.requestAnimationFrame;
+        window.requestAnimationFrame = (cb) => cb();
+
+        const originalSetTimeout = window.setTimeout;
+        window.setTimeout = (cb) => cb();
+
         // Spy on prototype since generatePDF creates new instances
         const gridSpy = jest.spyOn(ScoresheetRenderer.prototype, 'renderGrid');
 
@@ -1432,5 +1447,7 @@ describe('AppController', () => {
 
         gridSpy.mockRestore();
         window.print = originalPrint; // Restore
+        window.requestAnimationFrame = originalRaf;
+        window.setTimeout = originalSetTimeout;
     });
 });

@@ -60,7 +60,7 @@ import {
     RunnerActionStay,
 } from './constants.js';
 
-import { buildTimeline } from './game/timeline.js';
+import { buildTimeline, migrateLegacyActionLog } from './game/timeline.js';
 import { reassignGridCoordinates } from './game/baseballLogic.js';
 
 /**
@@ -102,8 +102,11 @@ export function computeStateFromLog(log) {
         return getInitialState();
     }
 
+    // Phase 0: Migrate legacy logs if needed
+    const migratedLog = migrateLegacyActionLog(log);
+
     // Phase 1: Build the 1D Game Timeline (Resolves UNDOs, Edits, Insertions)
-    const timeline = buildTimeline(log);
+    const timeline = buildTimeline(migratedLog);
 
     // Phase 2 & 3: Rewrite legacy grid coordinates based on logical progression
     const mappedTimeline = reassignGridCoordinates(timeline);

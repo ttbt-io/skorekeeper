@@ -355,7 +355,7 @@ func verifyDemoGame(ctx context.Context, baseURL string) error {
 	return chromedp.Run(ctx, chromedp.Tasks{
 		chromedp.Navigate(baseURL + "/#game/demo"),
 		chromedp.WaitVisible(".grid-cell", chromedp.ByQuery),
-		chromedp.Sleep(1000 * time.Millisecond),
+		chromedp.Sleep(2000 * time.Millisecond),
 		chromedp.Evaluate(`
 			(() => {
 				const game = app.state.activeGame;

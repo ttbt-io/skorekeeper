@@ -15,6 +15,76 @@
 import { ActionTypes } from '../reducer.js';
 
 /**
+ * Migrates a legacy action log to the new Dual-Timeline format by inferring
+ * `refId` for historical edits (e.g. repeated PLAY_RESULT actions for the same grid context).
+ *
+ * @param {Array} log - The raw action log.
+ * @returns {Array} A new log array with retrofitted `refId`s where appropriate.
+ */
+export function migrateLegacyActionLog(log) {
+    if (!log || log.length === 0) {
+        return [];
+    }
+
+    const lastGenerativeMap = new Map(); // legacyCtxKey -> action.id
+    let requiresMigration = false;
+
+    // First pass to check if any migration is needed to avoid unnecessary cloning
+    for (const action of log) {
+        if (!action.payload || action.type === ActionTypes.UNDO) {
+            continue;
+        }
+        const team = action.payload.activeTeam || action.payload.team;
+        if (!team || !action.payload.activeCtx) {
+            continue;
+        }
+
+        const ctxKey = `${team}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+        if (action.type === ActionTypes.PLAY_RESULT || action.type === ActionTypes.CLEAR_DATA) {
+            const prevId = lastGenerativeMap.get(ctxKey);
+            if (prevId && !action.refId && !action.insertAfterId) {
+                requiresMigration = true;
+                break;
+            }
+            lastGenerativeMap.set(ctxKey, action.id);
+        }
+    }
+
+    if (!requiresMigration) {
+        return log;
+    }
+
+    lastGenerativeMap.clear();
+
+    return log.map(action => {
+        if (!action.payload || action.type === ActionTypes.UNDO) {
+            return action;
+        }
+
+        const team = action.payload.activeTeam || action.payload.team;
+        if (!team || !action.payload.activeCtx) {
+            return action;
+        }
+
+        const ctxKey = `${team}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+
+        if (action.type === ActionTypes.PLAY_RESULT || action.type === ActionTypes.CLEAR_DATA) {
+            const prevId = lastGenerativeMap.get(ctxKey);
+
+            if (prevId && !action.refId && !action.insertAfterId) {
+                const migratedAction = { ...action, refId: prevId };
+                lastGenerativeMap.set(ctxKey, migratedAction.id);
+                return migratedAction;
+            }
+
+            lastGenerativeMap.set(ctxKey, action.id);
+        }
+
+        return action;
+    });
+}
+
+/**
  * Phase 1: Build the Game Timeline from the Action Log.
  * This function resolves UNDO tombstones, in-place edits (refId),
  * and insertions (insertAfterId) to produce a 1D chronological array
@@ -28,8 +98,10 @@ export function buildTimeline(log) {
         return [];
     }
 
-    // 1. Identify Tombstones (UNDO logic)
+    // 1. Identify Tombstones (UNDO logic and CLEAR_DATA wipes)
     const effectivelyUndone = new Set();
+    const clearedContexts = new Set(); // tracks contexts cleared by a later CLEAR_DATA
+
     for (let i = log.length - 1; i >= 0; i--) {
         const action = log[i];
         if (effectivelyUndone.has(action.id)) {
@@ -38,6 +110,27 @@ export function buildTimeline(log) {
 
         if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
             effectivelyUndone.add(action.payload.refId);
+        } else if (action.type === ActionTypes.CLEAR_DATA && !action.insertAfterId) {
+            // Wipe everything before this in the same context
+            const p = action.payload;
+            if (p && p.activeCtx) {
+                const team = p.activeTeam || p.team;
+                if (team) {
+                    clearedContexts.add(`${team}-${p.activeCtx.b}-${p.activeCtx.col}`);
+                }
+            }
+            // The CLEAR_DATA itself should also be omitted from the final timeline
+            // as its only purpose is to act as a tombstone for prior actions.
+            effectivelyUndone.add(action.id);
+        } else if (action.payload && action.payload.activeCtx) {
+            const p = action.payload;
+            const team = p.activeTeam || p.team;
+            if (team) {
+                const ctxKey = `${team}-${p.activeCtx.b}-${p.activeCtx.col}`;
+                if (clearedContexts.has(ctxKey)) {
+                    effectivelyUndone.add(action.id);
+                }
+            }
         }
     }
 

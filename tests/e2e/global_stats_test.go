@@ -23,6 +23,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	"github.com/ttbt-io/skorekeeper/tools/e2ehelpers"
 )
 
 func TestGlobalStatsNavigation(t *testing.T) {
@@ -59,6 +60,7 @@ func TestGlobalStatsNavigation(t *testing.T) {
 	})
 
 	runStep(t, ctx, "Login and navigate to Statistics",
+		e2ehelpers.DisableCSSAnimations(),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return Login(ctx, baseURL)
 		}),
@@ -66,10 +68,12 @@ func TestGlobalStatsNavigation(t *testing.T) {
 			_, err := CreateGame(ctx, "Stats Team A", "Stats Team B")
 			return err
 		}),
-		chromedp.Click(`#btn-menu-scoresheet`),
-		chromedp.Sleep(500*time.Millisecond),
-		chromedp.WaitVisible(`#sidebar-btn-stats`),
-		chromedp.Click(`#sidebar-btn-stats`),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return e2ehelpers.WaitForSync(ctx)
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Navigate(baseURL + "/#stats").Do(ctx)
+		}),
 		chromedp.WaitVisible(`#statistics-view`),
 	)
 

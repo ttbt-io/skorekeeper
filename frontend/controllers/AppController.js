@@ -2041,6 +2041,7 @@ export class AppController {
             this.toggleSidebar(false);
         });
         click('sidebar-btn-stats', () => {
+            console.log('AppController: sidebar-btn-stats clicked');
             window.location.hash = 'stats'; this.toggleSidebar(false);
         });
         click('sidebar-btn-profile', () => {
@@ -5499,6 +5500,7 @@ export class AppController {
      * @async
      */
     async loadStatisticsView() {
+        console.log('AppController: loadStatisticsView called');
         this.state.view = 'statistics';
         window.location.hash = 'stats';
 
