@@ -82,6 +82,7 @@ export function getInitialState() {
         homeTeamId: '',
         pitchers: { away: '', home: '' },
         overrides: { away: {}, home: {} },
+        score: { away: 0, home: 0 },
         events: {},
         columns: [],
         pitchLog: [],
@@ -247,7 +248,29 @@ export function gameReducer(state, action) {
         }
     }
 
+    // Update calculated score
+    resultState.score = calculateScore(resultState);
+
     return resultState;
+}
+
+/**
+ * Calculates the current total score from the events in the state.
+ * @param {object} state - The game state.
+ * @returns {object} The total score.
+ */
+export function calculateScore(state) {
+    const score = { away: 0, home: 0 };
+    if (!state.events) {
+        return score;
+    }
+    Object.keys(state.events).forEach(key => {
+        const team = key.split('-')[0];
+        if (state.events[key].paths && state.events[key].paths[3] === 1) {
+            score[team]++;
+        }
+    });
+    return score;
 }
 
 function applyGameFinalize(state, _payload) {

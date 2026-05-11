@@ -20,6 +20,16 @@ import { TeamAway, TeamHome, RunnerActionOut } from '../constants.js';
  * Takes the chronological 1D Game Timeline and recalculates the `activeCtx`
  * for all gameplay actions. This effectively translates the logical chronological
  * order back into grid coordinates for the legacy `gameReducer`.
+ * 
+ * BACKWARD COMPATIBILITY NOTE:
+ * This rewriter allows the legacy grid-based UI to function with the new 1D timeline.
+ * It will be safe to remove this logic ONLY after:
+ * 1. The entire UI is refactored to use stable PA IDs (paId) instead of grid coordinates (team-b-col).
+ * 2. All scoresheet and CSO components are updated to look up events by paId.
+ * 
+ * TO REMOVE:
+ * - Delete this function.
+ * - Remove its usage in reducer.js (computeStateFromLog).
  *
  * @param {Array} timeline - The ordered timeline of effective actions.
  * @returns {Array} A new array of actions with rewritten payloads.
@@ -59,16 +69,14 @@ export function reassignGridCoordinates(timeline) {
         }
 
         if (newAction.type === ActionTypes.GAME_START || newAction.type === ActionTypes.GAME_IMPORT) {
-            if (payload.initialRosters && payload.initialRosters.away) {
-                state.rosterSizes.away = payload.initialRosters.away.length;
-            } else if (payload.away) {
-                state.rosterSizes.away = payload.away.length;
-            }
-            if (payload.initialRosters && payload.initialRosters.home) {
-                state.rosterSizes.home = payload.initialRosters.home.length;
-            } else if (payload.home) {
-                state.rosterSizes.home = payload.home.length;
-            }
+            ['away', 'home'].forEach(team => {
+                if (payload.initialRosters && payload.initialRosters[team]) {
+                    state.rosterSizes[team] = payload.initialRosters[team].length;
+                } else {
+                    // Default to 9 if roster is not explicitly provided in payload
+                    state.rosterSizes[team] = 9;
+                }
+            });
             return newAction;
         }
 
