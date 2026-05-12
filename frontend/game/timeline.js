@@ -17,14 +17,14 @@ import { ActionTypes } from '../reducer.js';
 /**
  * Migrates a legacy action log to the new Dual-Timeline format by inferring
  * `refId` for historical edits (e.g. repeated PLAY_RESULT actions for the same grid context).
- * 
+ *
  * BACKWARD COMPATIBILITY NOTE:
  * This function handles data created before the Dual-Timeline update (May 2026).
  * It will be safe to remove this logic ONLY after:
  * 1. A full production database migration has been performed to explicitly add refIds to all logs.
  * 2. OR enough time has passed (e.g., 24 months) that legacy data is no longer supported.
- * 
- * TO REMOVE: 
+ *
+ * TO REMOVE:
  * - Delete this function.
  * - Remove calls in reducer.js (computeStateFromLog) and historyManager.js (propagateStates).
  *

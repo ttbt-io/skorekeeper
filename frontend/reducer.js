@@ -200,7 +200,7 @@ export function gameReducer(state, action) {
             resultState = applyRunnerBatchUpdate(newState, action.payload);
             break;
         case ActionTypes.ADD_INNING:
-            resultState = applyAddInning(newState, action.payload);
+            resultState = applyAddInning(newState);
             break;
         case ActionTypes.ADD_COLUMN:
             resultState = applyAddColumn(newState, action.payload);

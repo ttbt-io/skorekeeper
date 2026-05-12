@@ -20,13 +20,13 @@ import { TeamAway, TeamHome, RunnerActionOut } from '../constants.js';
  * Takes the chronological 1D Game Timeline and recalculates the `activeCtx`
  * for all gameplay actions. This effectively translates the logical chronological
  * order back into grid coordinates for the legacy `gameReducer`.
- * 
+ *
  * BACKWARD COMPATIBILITY NOTE:
  * This rewriter allows the legacy grid-based UI to function with the new 1D timeline.
  * It will be safe to remove this logic ONLY after:
  * 1. The entire UI is refactored to use stable PA IDs (paId) instead of grid coordinates (team-b-col).
  * 2. All scoresheet and CSO components are updated to look up events by paId.
- * 
+ *
  * TO REMOVE:
  * - Delete this function.
  * - Remove its usage in reducer.js (computeStateFromLog).
@@ -37,8 +37,8 @@ import { TeamAway, TeamHome, RunnerActionOut } from '../constants.js';
 export function reassignGridCoordinates(timeline) {
     // We need to track the logical state of the game to assign correct grid coordinates.
     const state = {
-        away: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0 },
-        home: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0 },
+        away: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0, batterIsOut: false },
+        home: { batterIndex: 0, inning: 1, outs: 0, runs: 0, columnId: 'col-1-0', strikes: 0, batterIsOut: false },
         activeTeam: TeamAway,
         currentInning: 1,
         rosterSizes: { away: 9, home: 9 },
@@ -119,6 +119,7 @@ export function reassignGridCoordinates(timeline) {
                 } else {
                     // This is a truly NEW Plate Appearance!
                     state[team].strikes = 0; // Reset strikes for new PA
+                    state[team].batterIsOut = false; // Reset out flag for new PA
 
                     // Have we reached 3 outs? Move to next half-inning.
                     if (state[team].outs >= 3) {
@@ -192,12 +193,16 @@ export function reassignGridCoordinates(timeline) {
                 // If strikes hit 3, count as out
                 if (state[team].strikes === 3) {
                     state[team].outs++;
+                    state[team].batterIsOut = true;
                     // We increment to 4 just to prevent it from counting multiple outs if there are bugged extra strikes
                     state[team].strikes++;
                 }
             } else if (newAction.type === ActionTypes.PLAY_RESULT) {
                 if (payload.bipState) {
-                    const isBatterOut = payload.bipState.res !== 'Safe';
+                    const isBatterOut = payload.bipState.res !== 'Safe' && !state[team].batterIsOut;
+                    if (isBatterOut) {
+                        state[team].batterIsOut = true;
+                    }
                     const runnerOuts = (payload.runnerAdvancements || []).filter(r => r.outcome === RunnerActionOut).length;
                     state[team].outs += (isBatterOut ? 1 : 0) + runnerOuts;
                 }
