@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const CACHE_NAME = 'skorekeeper-v0.2.28';
+const CACHE_NAME = 'skorekeeper-v0.2.30';
 const CORE_ASSETS = [
     './',
     './.sso/proxy.mjs',
@@ -23,6 +23,7 @@ const CORE_ASSETS = [
     './controllers/ProfileController.js',
     './controllers/TeamController.js',
     './css/style.css',
+    './game/baseballLogic.js',
     './game/csoManager.js',
     './game/historyManager.js',
     './game/lineupManager.js',
@@ -30,6 +31,7 @@ const CORE_ASSETS = [
     './game/runnerManager.js',
     './game/statsEngine.js',
     './game/substitutionManager.js',
+    './game/timeline.js',
     './icon-144x144.png',
     './icon-192x192.png',
     './icon-512x512.png',

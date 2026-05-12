@@ -59,11 +59,11 @@ export class ActiveGameController {
 
         let nextGameState;
 
-        if (actionData.type === ActionTypes.UNDO) {
-            // Must recompute entire state to handle tombstones
+        // Recompute entire state for actions that modify the past or alter the timeline sequence.
+        if (actionData.type === ActionTypes.UNDO || actionData.type === ActionTypes.CLEAR_DATA || actionData.refId || actionData.insertAfterId) {
             nextGameState = computeStateFromLog(this.app.state.activeGame.actionLog);
         } else {
-            // Optimization: Apply incrementally
+            // Optimization: Apply incrementally for standard chronological appends
             nextGameState = gameReducer(this.app.state.activeGame, actionData);
             // Ensure log is preserved in new state object
             nextGameState.actionLog = this.app.state.activeGame.actionLog;

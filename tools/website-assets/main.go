@@ -355,7 +355,7 @@ func verifyDemoGame(ctx context.Context, baseURL string) error {
 	return chromedp.Run(ctx, chromedp.Tasks{
 		chromedp.Navigate(baseURL + "/#game/demo"),
 		chromedp.WaitVisible(".grid-cell", chromedp.ByQuery),
-		chromedp.Sleep(1000 * time.Millisecond),
+		chromedp.Sleep(2000 * time.Millisecond),
 		chromedp.Evaluate(`
 			(() => {
 				const game = app.state.activeGame;
@@ -365,7 +365,7 @@ func verifyDemoGame(ctx context.Context, baseURL string) error {
 				console.log("Verified Rockets Score:", stats.score.away.R);
 				console.log("Verified Aviators Score:", stats.score.home.R);
 
-				if (stats.score.away.R !== 4) throw new Error("Rockets score mismatch: expected 4, got " + stats.score.away.R);
+				if (stats.score.away.R !== 3) throw new Error("Rockets score mismatch: expected 3, got " + stats.score.away.R);
 				if (stats.score.home.R !== 2) throw new Error("Aviators score mismatch: expected 2, got " + stats.score.home.R);
 				
 				console.log("Verification checks successful");

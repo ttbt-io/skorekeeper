@@ -2041,6 +2041,7 @@ export class AppController {
             this.toggleSidebar(false);
         });
         click('sidebar-btn-stats', () => {
+            console.log('AppController: sidebar-btn-stats clicked');
             window.location.hash = 'stats'; this.toggleSidebar(false);
         });
         click('sidebar-btn-profile', () => {
@@ -3209,6 +3210,7 @@ export class AppController {
         const currentEventKey = `${team}-${batterIdx}-${colId}`;
         const currentEvent = this.state.activeGame.events[currentEventKey];
         const canMove = currentEvent && currentEvent.outcome;
+        const lastActionId = currentEvent ? currentEvent.lastActionId : null;
 
         this.contextMenuManager.showCellMenu(e, {
             isLead,
@@ -3246,6 +3248,27 @@ export class AppController {
                         await this.movePlay(batterIdx, colId, targetBatterIdx, colId);
                     }
                 }
+            },
+            lastActionId,
+            onInsertAfter: async() => {
+                if (!lastActionId) {
+                    return;
+                }
+
+                // Dispatch a CLEAR_DATA action with a unique context to create a new placeholder PA
+                await this.dispatch({
+                    type: ActionTypes.CLEAR_DATA,
+                    insertAfterId: lastActionId,
+                    payload: {
+                        // Unique temporary coordinates, will be rewritten by Dual-Timeline logic
+                        activeCtx: { b: 999, i: 999, col: 'temp' },
+                        activeTeam: team,
+                        batterId: this.getBatterId(), // Fallback
+                    },
+                });
+
+                // Redraw the grid to show the newly inserted blank cell
+                this.renderGrid();
             },
         });
     }
@@ -4164,6 +4187,7 @@ export class AppController {
 
         await this.dispatch({
             type: ActionTypes.PLAY_RESULT,
+            refId: this.state.activeData.playResultId || null,
             payload: {
                 activeCtx: this.state.activeCtx,
                 activeTeam: this.state.activeTeam,
@@ -5476,6 +5500,7 @@ export class AppController {
      * @async
      */
     async loadStatisticsView() {
+        console.log('AppController: loadStatisticsView called');
         this.state.view = 'statistics';
         window.location.hash = 'stats';
 

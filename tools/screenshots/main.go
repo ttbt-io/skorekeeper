@@ -58,7 +58,7 @@ func main() {
 	ctx, cancel = chromedp.NewContext(ctx, chromedp.WithLogf(log.Printf))
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 180*time.Second) // very generous timeout
+	ctx, cancel = context.WithTimeout(ctx, 600*time.Second) // very generous timeout
 	defer cancel()
 
 	// Ensure output dir exists
@@ -730,6 +730,9 @@ func captureHits(ctx context.Context, baseURL string) error {
 		chromedp.ActionFunc(func(c context.Context) error {
 			return e2ehelpers.FinishTurn(c)
 		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
+		}),
 	}, 30*time.Second); err != nil {
 		return err
 	}
@@ -769,7 +772,10 @@ func captureOuts(ctx context.Context, baseURL string) error {
 	if err := runAction(ctx, "save-ground-out", chromedp.Tasks{
 		chromedp.Click("#btn-save-bip"),
 		chromedp.ActionFunc(func(c context.Context) error {
-			return e2ehelpers.FinishTurn(c)
+			return e2ehelpers.WaitUntilDisplayNone(`#cso-modal`).Do(c)
+		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
 		}),
 	}, 30*time.Second); err != nil {
 		return err
@@ -797,7 +803,10 @@ func captureOuts(ctx context.Context, baseURL string) error {
 	if err := runAction(ctx, "save-fly-out", chromedp.Tasks{
 		chromedp.Click("#btn-save-bip"),
 		chromedp.ActionFunc(func(c context.Context) error {
-			return e2ehelpers.FinishTurn(c)
+			return e2ehelpers.WaitUntilDisplayNone(`#cso-modal`).Do(c)
+		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
 		}),
 	}, 30*time.Second); err != nil {
 		return err
@@ -865,6 +874,9 @@ func captureBaseRunning(ctx context.Context, baseURL string) error {
 		chromedp.ActionFunc(func(c context.Context) error {
 			return e2ehelpers.FinishTurn(c)
 		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
+		}),
 	}, 30*time.Second); err != nil {
 		return err
 	}
@@ -881,33 +893,42 @@ func captureUnusual(ctx context.Context, baseURL string) error {
 	}
 
 	// Double Play
-	if err := e2ehelpers.SelectCell(ctx, 1, 1); err != nil {
-		return err
-	}
-	if err := chromedp.Run(ctx,
+	if err := runAction(ctx, "setup-unusual-dp", chromedp.Tasks{
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.SelectCell(c, 1, 1)
+		}),
 		chromedp.Click("#btn-show-bip"),
 		chromedp.WaitVisible("#cso-bip-view"),
 		e2ehelpers.CycleTo(nil, "#btn-res", "Safe"),
 		e2ehelpers.CycleTo(nil, "#btn-base", "1B"),
 		e2ehelpers.CycleTo(nil, "#btn-type", "HIT"),
 		chromedp.Click("#btn-save-bip"),
-	); err != nil {
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.FinishTurn(c)
+		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
+		}),
+	}, 30*time.Second); err != nil {
 		return err
 	}
-	if err := e2ehelpers.FinishTurn(ctx); err != nil {
+
+	if err := runAction(ctx, "select-unusual-dp-cell", chromedp.Tasks{
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.SelectCell(c, 2, 1)
+		}),
+	}, 10*time.Second); err != nil {
 		return err
 	}
-	if err := e2ehelpers.SelectCell(ctx, 2, 1); err != nil {
-		return err
-	}
+
 	if err := runAction(ctx, "capture-dp", chromedp.Tasks{
 		chromedp.Click("#btn-show-bip"),
 		chromedp.WaitVisible("#cso-bip-view"),
 		e2ehelpers.CycleTo(nil, "#btn-res", "Ground"),
 		e2ehelpers.CycleTo(nil, "#btn-type", "OUT"),
-		chromedp.Click(".pos-key[data-pos=\"6\"]"),
-		chromedp.Click(".pos-key[data-pos=\"4\"]"),
-		chromedp.Click(".pos-key[data-pos=\"3\"]"),
+		chromedp.Click(`.pos-key[data-pos="6"]`),
+		chromedp.Click(`.pos-key[data-pos="4"]`),
+		chromedp.Click(`.pos-key[data-pos="3"]`),
 		chromedp.Sleep(200 * time.Millisecond),
 		chromedp.ActionFunc(func(c context.Context) error {
 			return captureScreenshot(c, "play-dp.png")
@@ -917,17 +938,26 @@ func captureUnusual(ctx context.Context, baseURL string) error {
 	}
 
 	log.Println("Capturing: Dropped 3rd Strike View")
-	if err := chromedp.Run(ctx,
+	if err := runAction(ctx, "save-dp", chromedp.Tasks{
 		chromedp.Click("#btn-save-bip"),
-	); err != nil {
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.FinishTurn(c)
+		}),
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.WaitForSync(c)
+		}),
+	}, 30*time.Second); err != nil {
 		return err
 	}
-	if err := e2ehelpers.FinishTurn(ctx); err != nil {
+
+	if err := runAction(ctx, "select-dropped-3rd-cell", chromedp.Tasks{
+		chromedp.ActionFunc(func(c context.Context) error {
+			return e2ehelpers.SelectCell(c, 3, 1)
+		}),
+	}, 10*time.Second); err != nil {
 		return err
 	}
-	if err := e2ehelpers.SelectCell(ctx, 3, 1); err != nil {
-		return err
-	}
+
 	if err := runAction(ctx, "capture-dropped-3rd", chromedp.Tasks{
 		chromedp.Click("#btn-strike"),
 		chromedp.Click("#btn-strike"),

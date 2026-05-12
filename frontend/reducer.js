@@ -60,6 +60,9 @@ import {
     RunnerActionStay,
 } from './constants.js';
 
+import { buildTimeline, migrateLegacyActionLog } from './game/timeline.js';
+import { reassignGridCoordinates } from './game/baseballLogic.js';
+
 /**
  * Returns the initial state for a new game.
  * @returns {object} The initial game state.
@@ -79,6 +82,7 @@ export function getInitialState() {
         homeTeamId: '',
         pitchers: { away: '', home: '' },
         overrides: { away: {}, home: {} },
+        score: { away: 0, home: 0 },
         events: {},
         columns: [],
         pitchLog: [],
@@ -90,7 +94,7 @@ export function getInitialState() {
 }
 
 /**
- * Computes the current game state from the action log, handling Append-Only Undo.
+ * Computes the current game state from the action log using the Dual-Timeline pipeline.
  * @param {Array} log - The full array of actions.
  * @returns {object} The computed state.
  */
@@ -99,92 +103,26 @@ export function computeStateFromLog(log) {
         return getInitialState();
     }
 
-    // Pass 1: Identify Tombstones
-    // Iterate through the log to determine the validity of each action.
-    // An UNDO action invalidates its target ('refId').
-    // We maintain a validity map where actions are valid by default unless targeted by an active UNDO.
-    // Note: This logic assumes a linear history where UNDO actions target previous actions.
+    // Phase 0: Migrate legacy logs if needed
+    const migratedLog = migrateLegacyActionLog(log);
 
-    const validMap = new Map(); // ActionID -> Boolean (Is Valid?)
+    // Phase 1: Build the 1D Game Timeline (Resolves UNDOs, Edits, Insertions)
+    const timeline = buildTimeline(migratedLog);
 
-    log.forEach(action => {
-        if (action.type === ActionTypes.UNDO) {
-            // An UNDO action is valid by default (unless we allow undoing undos later)
-            // If this UNDO targets an existing action, we mark that target as invalid.
-            if (action.payload && action.payload.refId) {
-                // Mark the target as invalid
-                validMap.set(action.payload.refId, false);
-                // The UNDO action itself is "valid" in the sense that it occurred,
-                // but it doesn't affect state directly, only via side-effect on map.
-                validMap.set(action.id, true);
-            }
-        } else {
-            // Normal action, valid by default
-            validMap.set(action.id, true);
-        }
-    });
+    // Phase 2 & 3: Rewrite legacy grid coordinates based on logical progression
+    const mappedTimeline = reassignGridCoordinates(timeline);
 
-    // Now reduce, skipping invalid actions
-    // Note: This simple map approach works for:
-    // 1. Action A
-    // 2. Undo A (A becomes invalid)
-    // 3. Redo A (We need to Undo the Undo A).
-    //    If Redo is just "Undo(UndoA)", then:
-    //    3. Undo (refId: IdOfAction2).
-    //    Map processing:
-    //    1. A: Valid
-    //    2. UndoA: Valid. Sets A -> Invalid.
-    //    3. UndoUndoA: Valid. Sets UndoA -> Invalid.
-    //    Result: A is Invalid?
-    //    Wait, if UndoA is Invalid, it should NOT have invalidated A.
-    //    So we DO need to process validity carefully.
-
-    // Correct logic:
-    // We need to determine if an action is effective.
-    // An action is effective if it is NOT targeted by an *effective* UNDO.
-    // This is recursive.
-    // Since actions can only target *past* actions, we can resolve this?
-    // No, future actions invalidate past actions.
-    // A <- Undo A <- Undo Undo A
-    // We need to process from End to Start?
-    // If we see UndoUndoA (active), it invalidates UndoA.
-    // If UndoA is invalid, it DOES NOT invalidate A.
-    // Yes! Reverse iteration is the key.
-
-    const effectivelyUndone = new Set(); // IDs of actions that are effectively undone
-
-    // Iterate backwards
-    for (let i = log.length - 1; i >= 0; i--) {
-        const action = log[i];
-        if (effectivelyUndone.has(action.id)) {
-            // This action (whether regular or UNDO) is already neutralized.
-            // It cannot affect anything else.
-            continue;
-        }
-
-        if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
-            // This is an ACTIVE Undo action.
-            // It neutralizes its target.
-            effectivelyUndone.add(action.payload.refId);
-        }
-    }
-
-    // Pass 2: Reduce forward, skipping tombstoned (effectivelyUndone) actions
-    // Also skip UNDO actions themselves as they have no state effect other than the tombstone logic we just handled.
-
+    // Final Reducer Pass (using legacy reducer on logically corrected actions)
     let state = getInitialState();
 
     // Preserve the full log in the state for future appends
     state.actionLog = log;
 
-    log.forEach(action => {
-        if (!effectivelyUndone.has(action.id) && action.type !== ActionTypes.UNDO) {
-            state = gameReducer(state, action);
-        }
+    mappedTimeline.forEach(action => {
+        state = gameReducer(state, action);
     });
 
-    // Ensure actionLog is attached (gameReducer might spread it out or create new object without it if not careful,
-    // though our gameReducer implementation tries to keep it or we re-attach it)
+    // Ensure actionLog is attached
     state.actionLog = log;
 
     return state;
@@ -210,80 +148,129 @@ export function gameReducer(state, action) {
         newState.columns = [];
     }
 
+    let resultState = newState;
+
     switch (action.type) {
         case ActionTypes.GAME_IMPORT:
-            return applyGameImport(newState, action.payload);
-
+            resultState = applyGameImport(newState, action.payload);
+            break;
         case ActionTypes.GAME_START:
-            // GAME_START replaces the state mostly, so deep clone or fresh object is fine/expected there
-            // But let's stick to the function contract
-            return applyGameStart(newState, action.payload);
-
+            resultState = applyGameStart(newState, action.payload);
+            break;
         case ActionTypes.PITCH:
-            return applyPitch(newState, action.payload);
-
+            resultState = applyPitch(newState, action.payload);
+            break;
         case ActionTypes.PLAY_RESULT:
-            return applyPlayResult(newState, action.payload);
-
+            resultState = applyPlayResult(newState, action.payload);
+            if (action.payload && action.payload.activeCtx && action.payload.activeTeam && resultState.events) {
+                const key = `${action.payload.activeTeam}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+                if (resultState.events[key]) {
+                    resultState.events = {
+                        ...resultState.events,
+                        [key]: {
+                            ...resultState.events[key],
+                            playResultId: action.id,
+                        },
+                    };
+                }
+            }
+            break;
         case ActionTypes.RUNNER_ADVANCE:
-            return applyRunnerAdvance(newState, action.payload);
-
+            resultState = applyRunnerAdvance(newState, action.payload);
+            break;
         case ActionTypes.SUBSTITUTION:
-            return applySubstitution(newState, action.payload);
-
+            resultState = applySubstitution(newState, action.payload);
+            break;
         case ActionTypes.LINEUP_UPDATE:
-            return applyLineupUpdate(newState, action.payload);
-
+            resultState = applyLineupUpdate(newState, action.payload);
+            break;
         case ActionTypes.SCORE_OVERRIDE:
-            return applyScoreOverride(newState, action.payload);
-
+            resultState = applyScoreOverride(newState, action.payload);
+            break;
         case ActionTypes.PITCHER_UPDATE:
-            return applyPitcherUpdate(newState, action.payload);
-
+            resultState = applyPitcherUpdate(newState, action.payload);
+            break;
         case ActionTypes.MOVE_PLAY:
-            return applyMovePlay(newState, action.payload);
-
+            resultState = applyMovePlay(newState, action.payload);
+            break;
         case ActionTypes.CLEAR_DATA:
-            return applyClearData(newState, action.payload);
-
+            resultState = applyClearData(newState, action.payload);
+            break;
         case ActionTypes.RUNNER_BATCH_UPDATE:
-            return applyRunnerBatchUpdate(newState, action.payload);
-
+            resultState = applyRunnerBatchUpdate(newState, action.payload);
+            break;
         case ActionTypes.ADD_INNING:
-            return applyAddInning(newState, action.payload);
-
+            resultState = applyAddInning(newState);
+            break;
         case ActionTypes.ADD_COLUMN:
-            return applyAddColumn(newState, action.payload);
-
+            resultState = applyAddColumn(newState, action.payload);
+            break;
         case ActionTypes.REMOVE_COLUMN:
-            return applyRemoveColumn(newState, action.payload);
-
+            resultState = applyRemoveColumn(newState, action.payload);
+            break;
         case ActionTypes.GAME_METADATA_UPDATE:
-            return applyGameMetadataUpdate(newState, action.payload);
-
+            resultState = applyGameMetadataUpdate(newState, action.payload);
+            break;
         case ActionTypes.SET_INNING_LEAD:
-            return applySetInningLead(newState, action.payload);
-
+            resultState = applySetInningLead(newState, action.payload);
+            break;
         case ActionTypes.GAME_FINALIZE:
-            return applyGameFinalize(newState, action.payload);
-
+            resultState = applyGameFinalize(newState, action.payload);
+            break;
         case ActionTypes.RBI_EDIT:
-            return applyRBIEdit(newState, action.payload);
-
+            resultState = applyRBIEdit(newState, action.payload);
+            break;
         case ActionTypes.OUT_NUM_UPDATE:
-            return applyOutNumUpdate(newState, action.payload);
-
+            resultState = applyOutNumUpdate(newState, action.payload);
+            break;
         case ActionTypes.MANUAL_PATH_OVERRIDE:
-            return applyManualPathOverride(newState, action.payload);
-
+            resultState = applyManualPathOverride(newState, action.payload);
+            break;
         case ActionTypes.UNDO:
-            // UNDO is handled by computeStateFromLog, but if passed directly here (shouldn't be in normal flow), return state.
-            return newState;
-
+            resultState = newState;
+            break;
         default:
             console.warn('Unknown action type:', action.type);
-            return newState;
+            resultState = newState;
     }
+
+    // Attach the action ID to the event that was modified, if applicable
+    if (action.payload && action.payload.activeCtx && action.payload.activeTeam && resultState.events) {
+        const key = `${action.payload.activeTeam}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+        if (resultState.events[key]) {
+            resultState.events = {
+                ...resultState.events,
+                [key]: {
+                    ...resultState.events[key],
+                    lastActionId: action.id,
+                },
+            };
+        }
+    }
+
+    // Update calculated score
+    resultState.score = calculateScore(resultState);
+
+    return resultState;
+}
+
+/**
+ * Calculates the current total score from the events in the state.
+ * @param {object} state - The game state.
+ * @returns {object} The total score.
+ */
+export function calculateScore(state) {
+    const score = { away: 0, home: 0 };
+    if (!state.events) {
+        return score;
+    }
+    Object.keys(state.events).forEach(key => {
+        const team = key.split('-')[0];
+        if (state.events[key].paths && state.events[key].paths[3] === 1) {
+            score[team]++;
+        }
+    });
+    return score;
 }
 
 function applyGameFinalize(state, _payload) {

@@ -236,10 +236,10 @@ export class CSOManager {
         if (key === 'type') {
             const types = {
                 [BiPResultSafe]: [BiPTypeCodeHit, BiPTypeCodeErr, BiPResultFC],
-                [BiPResultOut]: [BiPTypeCodeOut, BiPTypeCodeSH, BiPTypeCodeSF],
-                [BiPResultGround]: [BiPTypeCodeOut, BiPTypeCodeSH],
-                [BiPResultFly]: [BiPTypeCodeOut, BiPTypeCodeSF],
-                [BiPResultLine]: [BiPTypeCodeOut],
+                [BiPResultOut]: [BiPTypeCodeOut, BiPTypeCodeDP, BiPTypeCodeTP, BiPTypeCodeSH, BiPTypeCodeSF],
+                [BiPResultGround]: [BiPTypeCodeOut, BiPTypeCodeDP, BiPTypeCodeTP, BiPTypeCodeSH],
+                [BiPResultFly]: [BiPTypeCodeOut, BiPTypeCodeDP, BiPTypeCodeTP, BiPTypeCodeSF],
+                [BiPResultLine]: [BiPTypeCodeOut, BiPTypeCodeDP, BiPTypeCodeTP],
                 [BiPResultIFF]: [BiPTypeCodeOut],
             };
             return types[currentRes] || [];

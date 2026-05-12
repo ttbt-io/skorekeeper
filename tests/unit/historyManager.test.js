@@ -103,7 +103,7 @@ describe('HistoryManager.generateLinearHistory', () => {
         expect(history[1].events[0].id).toBe('a2');
     });
 
-    test('should handle historical play edits by appending corrections chronologically', () => {
+    test('should handle historical play edits by resolving them in place chronologically', () => {
         const ctx1 = { i: 1, b: 0, col: 'c1' };
         const ctx2 = { i: 1, b: 1, col: 'c1' };
 
@@ -118,17 +118,13 @@ describe('HistoryManager.generateLinearHistory', () => {
 
         const history = historyManager.generateLinearHistory(game);
 
-        // Expected: [Header, a1 (stricken), a2, a3 (correction)]
-        expect(history).toHaveLength(4);
-        expect(history[1].events[0].id).toBe('a1');
-        expect(history[1].isStricken).toBe(true);
+        // Expected: [Header, a3 (resolved edit), a2]
+        expect(history).toHaveLength(3);
+        expect(history[1].events[0].id).toBe('a3');
+        expect(history[1].isStricken).toBe(false);
 
         expect(history[2].events[0].id).toBe('a2');
         expect(history[2].isStricken).toBe(false);
-
-        expect(history[3].events[0].id).toBe('a3');
-        expect(history[3].isCorrection).toBe(true);
-        expect(history[3].isStricken).toBe(false);
     });
 
     test('should propagate state changes through subsequent plays after a correction', () => {
@@ -140,23 +136,20 @@ describe('HistoryManager.generateLinearHistory', () => {
                 createResult('a1', 'Out', ctx1), // 1 Out
                 createResult('a2', 'Out', ctx2), // 2 Outs
                 // Edit a1: Change Out to Safe
-                createResult('a3', 'Safe', ctx1), // 0 Outs (stricken a1)
+                createResult('a3', 'Safe', ctx1), // 0 Outs
             ],
         };
 
         const history = historyManager.generateLinearHistory(game);
 
-        // Header, a1 (Stricken), a2, a3 (Correction)
-        // a1 (Stricken)
+        // Header, a3 (resolved edit), a2
+        // a3
         expect(history[1].stateBefore.outs).toBe(0);
+        expect(history[1].stateAfter.outs).toBe(0); // Safe hit doesn't add out
 
         // a2
-        expect(history[2].stateBefore.outs).toBe(0); // Because a1 is stricken
+        expect(history[2].stateBefore.outs).toBe(0); // Because a3 replaced a1
         expect(history[2].stateAfter.outs).toBe(1);
-
-        // a3 (Correction)
-        expect(history[3].stateBefore.outs).toBe(1);
-        expect(history[3].stateAfter.outs).toBe(1); // Safe hit doesn't add out
     });
 
     test('should handle multiple corrections of the same play', () => {
@@ -171,13 +164,11 @@ describe('HistoryManager.generateLinearHistory', () => {
 
         const history = historyManager.generateLinearHistory(game);
 
-        // Expected: [Header, a1 (stricken), a2 (stricken, correction), a3 (correction)]
-        expect(history).toHaveLength(4);
-        expect(history[1].isStricken).toBe(true);
-        expect(history[2].isStricken).toBe(true);
-        expect(history[2].isCorrection).toBe(true);
-        expect(history[3].isStricken).toBe(false);
-        expect(history[3].isCorrection).toBe(true);
+        // Expected: [Header, a3 (final resolved edit)]
+        expect(history).toHaveLength(2);
+        expect(history[1].events[0].id).toBe('a3');
+        expect(history[1].isStricken).toBe(false);
+        expect(history[1].isCorrection).toBe(false);
     });
 
     test('should reset state on inning transitions', () => {
@@ -733,13 +724,11 @@ describe('HistoryManager Name Resolution', () => {
             ],
         };
         const history = historyManager.generateLinearHistory(game);
-        // Header, a1 (stricken), c1, a2
-        expect(history).toHaveLength(4);
-        expect(history[1].events[0].id).toBe('a1');
-        expect(history[1].isStricken).toBe(true);
-        expect(history[2].events[0].id).toBe('c1');
-        expect(history[2].isStricken).toBe(false);
-        expect(history[3].events[0].id).toBe('a2');
-        expect(history[3].isStricken).toBe(false);
+        // In the new Dual Timeline architecture, CLEAR_DATA acts as a tombstone for all prior actions
+        // in the same context, and is itself omitted.
+        // Therefore, only 'a2' remains.
+        expect(history).toHaveLength(2); // Header, a2
+        expect(history[1].events[0].id).toBe('a2');
+        expect(history[1].isStricken).toBe(false);
     });
 });

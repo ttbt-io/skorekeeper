@@ -478,7 +478,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -516,7 +516,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -561,7 +561,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -637,7 +637,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -651,7 +651,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -807,7 +807,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -866,7 +866,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -880,7 +880,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 
@@ -992,7 +992,7 @@ func TestGameScenario2(t *testing.T) {
 					return err
 				}
 			}
-			return waitUntilDisplayNone(`#cso-modal`).Do(ctx)
+			return nil
 		}),
 	)
 

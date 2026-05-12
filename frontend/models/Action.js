@@ -26,6 +26,8 @@ export class Action {
         this.id = data.id || generateUUID();
         this.type = data.type || '';
         this.payload = data.payload || {};
+        this.refId = data.refId || null;
+        this.insertAfterId = data.insertAfterId || null;
         this.schemaVersion = data.schemaVersion || CurrentSchemaVersion;
         this.timestamp = data.timestamp || Date.now();
         this.userId = data.userId || '';
@@ -39,6 +41,8 @@ export class Action {
             id: this.id,
             type: this.type,
             payload: this.payload,
+            refId: this.refId,
+            insertAfterId: this.insertAfterId,
             schemaVersion: this.schemaVersion,
             timestamp: this.timestamp,
             userId: this.userId,

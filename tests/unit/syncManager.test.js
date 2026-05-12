@@ -95,6 +95,11 @@ describe('SyncManager Rate Limiting & Batching', () => {
         expect(spy).toHaveBeenCalled();
     });
 
+    afterEach(() => {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+    });
+
     test('processHttpQueue should respect HTTP 429 and Retry-After', async() => {
         jest.useFakeTimers();
         const setTimeoutSpy = jest.spyOn(window, 'setTimeout');
@@ -113,7 +118,6 @@ describe('SyncManager Rate Limiting & Batching', () => {
         expect(syncManager.httpQueue.length).toBe(1);
         expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2000);
         setTimeoutSpy.mockRestore();
-        jest.useRealTimers();
     });
 
     test('processHttpQueue should implement exponential backoff on network failure', async() => {
@@ -145,7 +149,6 @@ describe('SyncManager Rate Limiting & Batching', () => {
 
         expect(window.fetch).toHaveBeenCalledTimes(2);
         setTimeoutSpy.mockRestore();
-        jest.useRealTimers();
     });
 
     test('processHttpQueue should cap batches at 100 actions and continue draining', async() => {

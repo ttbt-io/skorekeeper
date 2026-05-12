@@ -383,7 +383,7 @@ export class StatsEngine {
                     });
                     if (lastSlot !== -1) {
                         const e = events[`${team}-${lastSlot}-${lastColId}`];
-                        currentPA = { inning: inn, team, balls: e.balls, strikes: e.strikes, outs: e.outNum || 0, paths: e.paths };
+                        currentPA = { inning: inn, team, balls: e.balls, strikes: e.strikes, outs: inningOuts[`${team}-${inn}`] || 0, paths: e.paths };
                         break;
                     }
                 }

@@ -103,16 +103,30 @@ func OpenSidebar(ctx context.Context) error {
 		return err
 	}
 	log.Printf("OpenSidebar found %s", buttonSel)
-	if err := chromedp.Run(ctx, chromedp.Click(buttonSel)); err != nil {
-		log.Printf("OpenSidebar click(%s): %v", buttonSel, err)
-		return err
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	for {
+		if err := chromedp.Run(timeoutCtx, chromedp.Evaluate(`document.querySelector('`+buttonSel+`').click()`, nil)); err != nil {
+			log.Printf("OpenSidebar evaluate click(%s): %v", buttonSel, err)
+		}
+
+		// Check if it opened
+		checkCtx, cancelCheck := context.WithTimeout(timeoutCtx, 500*time.Millisecond)
+		err := chromedp.Run(checkCtx, chromedp.WaitNotPresent(`#app-sidebar.-translate-x-full`))
+		cancelCheck()
+		if err == nil {
+			return nil // success
+		}
+
+		select {
+		case <-timeoutCtx.Done():
+			return fmt.Errorf("timeout waiting for sidebar to open")
+		case <-time.After(100 * time.Millisecond):
+			// retry click
+		}
 	}
-	log.Print("OpenSidebar waiting for #app-sidebar")
-	if err := chromedp.Run(ctx, chromedp.WaitVisible(`#app-sidebar`)); err != nil {
-		return err
-	}
-	// Ensure sidebar is actually on screen (transform removed)
-	return chromedp.Run(ctx, chromedp.WaitNotPresent(`#app-sidebar.-translate-x-full`))
 }
 
 // Login performs the login flow: Open sidebar, click Login, wait for auth.
@@ -397,8 +411,15 @@ func RecordBallInPlay(ctx context.Context, result, playType, location string) er
 		// Set Location (if provided)
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if location != "" {
-				// Location buttons are .pos-key[data-pos="X"]
-				return chromedp.Click(fmt.Sprintf(".pos-key[data-pos=\"%s\"]", location)).Do(ctx)
+				return chromedp.Evaluate(fmt.Sprintf(`
+					(() => {
+						const el = document.querySelector('.pos-key[data-pos="%s"]');
+						if(el) {
+							const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+							el.dispatchEvent(event);
+						}
+					})()
+				`, location), nil).Do(ctx)
 			}
 			return nil
 		}),

@@ -77,11 +77,6 @@ F8
 3 Outs
 Inning Summary: 1 Run, 0 Hits, 0 LOB.
 BOTTOM 2 - RULEBENDERS
-Kink (#17) now batting
-Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
-⚾ Kink singles.
-1B
-Mistaken record for Kink was cleared.
 Knot (#16) now batting
 Oddballs 1, Rulebenders 0. 0 Outs. Bases empty.
 🔴 Knot is out for batting out of order.
@@ -92,7 +87,7 @@ Oddballs 1, Rulebenders 0. 1 Out. Bases empty.
 • Strike
 • Strike
 • Strike
-❌ Kink is set down on strikes.
+❌ Kink swings through it for strike three.
 K
 2 Outs
 Warp (#18) now batting

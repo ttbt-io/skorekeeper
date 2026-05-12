@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { ActionTypes, gameReducer, getInitialState } from '../reducer.js';
+import { buildTimeline, migrateLegacyActionLog } from './timeline.js';
 
 /**
  * HistoryManager transforms the raw action log into a stable, linear representation
@@ -33,10 +34,15 @@ export class HistoryManager {
             return [];
         }
 
-        // Pass 1: Undo Reduction
-        const effectiveLog = this.getEffectiveLog(game.actionLog);
+        // Phase 0: Migrate legacy logs
+        const migratedLog = migrateLegacyActionLog(game.actionLog);
 
-        // Pass 2: Replay and Insertion
+        // Pass 1: Build Chronological Game Timeline
+        // We only use buildTimeline here, as reassignGridCoordinates is applied
+        // during the main reducer pass to generate state.events.
+        const effectiveLog = buildTimeline(migratedLog);
+
+        // Pass 2: Replay and Group by Plate Appearance
         let history = [];
         const contextMap = new Map(); // ctxKey -> number of items seen for this context
         let currentCtxKey = null;
@@ -268,11 +274,20 @@ export class HistoryManager {
                     }
                 }
 
-                const prevState = JSON.parse(JSON.stringify(itemState));
+                const needsAugmentation = [
+                    ActionTypes.PLAY_RESULT,
+                    ActionTypes.RUNNER_ADVANCE,
+                    ActionTypes.RUNNER_BATCH_UPDATE,
+                    ActionTypes.SUBSTITUTION,
+                ].includes(action.type);
+
+                const prevState = needsAugmentation ? JSON.parse(JSON.stringify(itemState)) : null;
                 itemState = gameReducer(itemState, action);
 
-                // Augment action with resolved names based on prevState
-                this.augmentActionWithNames(action, prevState, team, inn);
+                if (needsAugmentation) {
+                    // Augment action with resolved names based on prevState
+                    this.augmentActionWithNames(action, prevState, team, inn);
+                }
             });
 
             // stateAfter is the state after all events in this item have been applied
@@ -389,17 +404,15 @@ export class HistoryManager {
         const inningColIds = state.columns.filter(c => c.inning === inning).map(c => c.id);
 
         let maxOutNum = 0;
-        const score = { away: 0, home: 0 };
+        const score = {
+            away: state.score?.away || 0,
+            home: state.score?.home || 0,
+        };
 
         Object.keys(state.events).forEach(key => {
             const [evtTeam, bIdx, ...colParts] = key.split('-');
             const colId = colParts.join('-');
             const evt = state.events[key];
-
-            // Score calculation
-            if (evt.paths[3] === 1) {
-                score[evtTeam]++;
-            }
 
             // Runners on base for this team and inning
             if (evtTeam === team && inningColIds.includes(colId)) {
