@@ -181,6 +181,22 @@ export function reassignGridCoordinates(timeline) {
                     }
                 });
             }
+            if (payload.runners) {
+                payload.runners.forEach(runner => {
+                    const mappedKey = runnerKeyMapping.get(runner.key);
+                    if (mappedKey) {
+                        runner.key = mappedKey;
+                    }
+                });
+            }
+            if (payload.updates) {
+                payload.updates.forEach(u => {
+                    const mappedKey = runnerKeyMapping.get(u.key);
+                    if (mappedKey) {
+                        u.key = mappedKey;
+                    }
+                });
+            }
 
             // Track outs to know when inning ends
             if (newAction.type === ActionTypes.PITCH) {
@@ -206,10 +222,12 @@ export function reassignGridCoordinates(timeline) {
                     const runnerOuts = (payload.runnerAdvancements || []).filter(r => r.outcome === RunnerActionOut).length;
                     state[team].outs += (isBatterOut ? 1 : 0) + runnerOuts;
                 }
-            } else if (newAction.type === ActionTypes.RUNNER_ADVANCE) {
-                if (payload.runners) {
-                    payload.runners.forEach(r => {
-                        if (r.outcome === RunnerActionOut) {
+            } else if (newAction.type === ActionTypes.RUNNER_ADVANCE || newAction.type === ActionTypes.RUNNER_BATCH_UPDATE) {
+                const upds = newAction.type === ActionTypes.RUNNER_BATCH_UPDATE ? payload.updates : payload.runners;
+                if (upds) {
+                    upds.forEach(r => {
+                        const outcome = r.action || r.outcome;
+                        if (outcome === RunnerActionOut || ['CS', 'PO', 'LE', 'LB', 'INT', 'Left Early', 'Look Back', 'Int'].includes(outcome)) {
                             state[team].outs++;
                         }
                     });

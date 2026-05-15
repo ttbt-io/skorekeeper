@@ -13,6 +13,9 @@ frontend/dist/
 frontend/css/style.css
 frontend/assets/demo-game.json
 frontend/assets/manual/
+frontend/vendor/compromise.js
+frontend/vendor/fuse.js
+frontend/vendor/nearley.js
 
 # Website Build
 www/assets/css/style.css

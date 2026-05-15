@@ -23,10 +23,11 @@ echo "--- Building Skorekeeper PWA ---"
 echo "[1/3] Installing Node.js dependencies..."
 npm install
 
-echo "[2/3] Building Frontend Assets (Tailwind CSS)..."
+echo "[2/3] Building Frontend Assets (Tailwind CSS & Vendor)..."
 mkdir -p frontend/dist www/assets/manual
 touch frontend/dist/.keep
 npm run build:css
+npm run build:vendor
 if [[ $buildall == "true" ]]; then
   ./tools/screenshots/run-screenshots.sh
   ./tools/website-assets/generate-assets.sh

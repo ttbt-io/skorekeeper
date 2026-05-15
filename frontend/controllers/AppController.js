@@ -65,6 +65,7 @@ import { ActiveGameController } from './ActiveGameController.js';
 import { ProfileController } from './ProfileController.js';
 import { parseQuery, buildQuery } from '../utils/searchParser.js';
 import { PullToRefresh } from '../ui/pullToRefresh.js';
+import { SpeechManager } from '../utils/SpeechManager.js';
 
 /**
  * The main application controller for the Skorekeeper PWA.
@@ -182,7 +183,10 @@ export class AppController {
             isLocationMode: false,
             isReadOnly: false,
             currentUser: null,
+            pendingSpeechActions: [],
         };
+
+        this.speechManager = new SpeechManager(() => this.state.activeGame);
 
         this.contextMenuTimer = null;
         this.contextMenuTarget = null;
@@ -1987,6 +1991,11 @@ export class AppController {
             // else { console.warn... } // Optional: suppress warning for optional elements
         };
 
+        click('btn-speech-toggle', () => this.toggleSpeech());
+        click('btn-cso-speech-toggle', () => this.toggleSpeech());
+        click('btn-speech-confirm', () => this.confirmSpeechActions());
+        click('btn-speech-cancel', () => this.cancelSpeechActions());
+
         // Synchronize scoreboard scrolling
         const sbContainers = ['sb-header-innings', 'sb-innings-away', 'sb-innings-home'].map(id => byId(id));
         let isSyncing = false;
@@ -2279,6 +2288,10 @@ export class AppController {
 
         click('btn-undo', this.undo);
         click('btn-redo', this.redo);
+        click('btn-speech-toggle', () => this.toggleSpeech());
+        click('btn-cso-speech-toggle', () => this.toggleSpeech());
+        click('btn-speech-confirm', () => this.confirmSpeechActions());
+        click('btn-speech-cancel', () => this.cancelSpeechActions());
         click('btn-close-profile', () => document.getElementById('player-profile-modal').classList.add('hidden'));
         click('btn-share-game', this.openShareModal);
         click('btn-close-share', () => document.getElementById('share-modal').classList.add('hidden'));
@@ -3095,6 +3108,120 @@ export class AppController {
             }
         }
         return null;
+    }
+
+    /**
+     * Toggles voice input.
+     */
+    toggleSpeech() {
+        const btns = [document.getElementById('btn-speech-toggle'), document.getElementById('btn-cso-speech-toggle')];
+        if (this.speechManager.isListening) {
+            this.speechManager.stop();
+            // visual reset handled in onEnd
+        } else {
+            this.speechManager.start(
+                (result) => this.handleSpeechResult(result),
+                (error) => this.handleSpeechError(error),
+                () => {
+                    // onEnd callback: Reset visual state
+                    btns.forEach(btn => {
+                        if (btn) {
+                            btn.classList.remove('text-red-500', 'animate-pulse');
+                        }
+                    });
+                },
+            );
+            btns.forEach(btn => {
+                if (btn) {
+                    btn.classList.add('text-red-500', 'animate-pulse');
+                }
+            });
+        }
+    }
+
+    handleSpeechResult(result) {
+        this.state.pendingSpeechActions = result.actions;
+        this.renderSpeechPreview();
+
+        if (this.state.pendingSpeechActions.length > 0) {
+            this.speakFeedback(result.actions);
+        }
+    }
+
+    handleSpeechError(error) {
+        console.error('Speech Error:', error);
+        // visual reset handled in onEnd
+    }
+
+    renderSpeechPreview() {
+        const bar = document.getElementById('speech-preview-bar');
+        const container = document.getElementById('speech-action-chips');
+
+        if (!bar || !container) {
+            return;
+        }
+
+        if (!this.state.pendingSpeechActions || this.state.pendingSpeechActions.length === 0) {
+            bar.classList.add('hidden');
+            return;
+        }
+
+        container.innerHTML = '';
+        this.state.pendingSpeechActions.forEach(action => {
+            const chip = document.createElement('div');
+            chip.className = 'bg-blue-900 text-white text-[10px] px-2 py-1 rounded border border-blue-700 font-bold';
+            chip.textContent = this.getActionLabel(action);
+            container.appendChild(chip);
+        });
+
+        bar.classList.remove('hidden');
+    }
+
+    getActionLabel(action) {
+        if (action.type === ActionTypes.PITCH) {
+            return `Pitch: ${action.payload.type === 'ball' ? 'Ball' : 'Strike'}`;
+        }
+        if (action.type === ActionTypes.PLAY_RESULT) {
+            return `Hit: ${action.payload.bipState.base}`;
+        }
+        if (action.type === ActionTypes.RUNNER_ADVANCE) {
+            return `Runner to ${action.payload.runners[0].outcome.replace('To ', '')}`;
+        }
+        if (action.type === ActionTypes.SUBSTITUTION) {
+            return `Sub: ${action.payload.subParams.name || 'Player'}`;
+        }
+        return action.type;
+    }
+
+    async confirmSpeechActions() {
+        if (!this.state.pendingSpeechActions) {
+            return;
+        }
+        for (const action of this.state.pendingSpeechActions) {
+            await this.dispatch(action);
+        }
+        this.state.pendingSpeechActions = [];
+        this.renderSpeechPreview();
+        this.render();
+    }
+
+    cancelSpeechActions() {
+        this.state.pendingSpeechActions = [];
+        this.renderSpeechPreview();
+    }
+
+    speakFeedback(actions) {
+        if (typeof window === 'undefined' || !window.speechSynthesis) {
+            return;
+        }
+
+        const labels = actions.map(a => this.getActionLabel(a));
+        const text = `Staged: ${labels.join(', ')}. Say confirm or tap to save.`;
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
     }
 
     /**

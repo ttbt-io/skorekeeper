@@ -386,4 +386,35 @@ export const manualSections = [
             <p class="mb-4">To use the overlay, open the <strong>Share Game</strong> modal and click <strong>Copy Broadcast Overlay Link</strong>. Add this link as a "Browser Source" in your streaming software.</p>
         `,
     },
+    {
+        id: 'voice',
+        title: 'Voice Scoring',
+        tags: ['voice', 'speech', 'microphone', 'dictation'],
+        content: `
+            <h2 class="text-2xl font-bold mb-4">Voice Scoring (Beta)</h2>
+            <p class="mb-4">Skorekeeper allows you to record plays hands-free using your voice. This feature uses the browser's built-in speech recognition and a custom natural language engine to convert spoken phrases into game actions.</p>
+
+            <h3 class="text-xl font-bold mb-2">How to Use</h3>
+            <p class="mb-4">1. Click the <strong>Microphone</strong> icon in the sidebar menu or in the Current State Overlay (CSO) header.</p>
+            <p class="mb-4">2. The icon will turn <span class="text-red-500 font-bold">red and pulse</span>, indicating the app is listening.</p>
+            <p class="mb-4">3. Speak your play clearly. You can combine multiple actions in one sentence.</p>
+
+            <div class="bg-blue-900 border border-blue-700 rounded-lg p-4 mb-4 text-blue-100 shadow-inner">
+                <h4 class="font-bold mb-2 uppercase text-xs tracking-widest text-blue-300">Dictation Examples</h4>
+                <ul class="list-disc pl-5 space-y-1 text-sm">
+                    <li>"Ball" or "Strike" (records a pitch)</li>
+                    <li>"Single" or "Home run" (records a hit)</li>
+                    <li>"Single, runner to third" (records a hit and runner advance)</li>
+                    <li>"Strikeout" or "Fly out" (records an out)</li>
+                    <li>"Pinch runner Jones for number 11" (records a substitution)</li>
+                </ul>
+            </div>
+
+            <h3 class="text-xl font-bold mb-2">Review & Confirm</h3>
+            <p class="mb-4">For safety and high-fidelity scoring, actions are not applied immediately. Instead, they are <strong>staged</strong> for your review.</p>
+            <p class="mb-4">1. Once you finish speaking, the <strong>Speech Preview</strong> bar will appear at the bottom of the screen.</p>
+            <p class="mb-4">2. Review the understood actions displayed as blue chips.</p>
+            <p class="mb-4">3. Click <strong>Confirm</strong> to apply the actions to the game, or <strong>Cancel</strong> to discard them and try again.</p>
+        `,
+    },
 ];

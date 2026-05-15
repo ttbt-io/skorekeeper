@@ -1470,9 +1470,13 @@ func NewServerHandler(opts Options) (*RaftManager, *Registry, http.Handler) {
 
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
 		if opts.UseMockAuth {
+			email := r.URL.Query().Get("email")
+			if email == "" {
+				email = "test@example.com"
+			}
 			http.SetCookie(w, &http.Cookie{
 				Name:  "mock_auth_user",
-				Value: "test@example.com",
+				Value: email,
 				Path:  "/",
 			})
 		} else if userId := getUserID(r); userId == "" || !isValidEmail(userId) {
