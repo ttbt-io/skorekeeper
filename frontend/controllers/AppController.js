@@ -3310,7 +3310,10 @@ export class AppController {
             return `Pitch: ${action.payload.type === 'ball' ? 'Ball' : 'Strike'}`;
         }
         if (action.type === ActionTypes.PLAY_RESULT) {
-            return `Hit: ${action.payload.bipState.base}`;
+            const isOut = action.payload.bipState.res === 'Out';
+            const prefix = isOut ? 'Out' : 'Hit';
+            const value = isOut ? action.payload.bipState.type : action.payload.bipState.base;
+            return `${prefix}: ${value}`;
         }
         if (action.type === ActionTypes.RUNNER_ADVANCE) {
             return `Runner to ${action.payload.runners[0].outcome.replace('To ', '')}`;

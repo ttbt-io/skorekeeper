@@ -503,7 +503,7 @@ describe('Softball Game Voice Scoring: End-to-End Scenarios', () => {
             let state = createNewGame();
 
             state = applyCommand(state, 'pitching change 15');
-            expect(state.pitchers.away).toBe('15');
+            expect(state.pitchers.home).toBe('Harmony');
         });
     });
 
@@ -594,6 +594,36 @@ describe('Softball Game Voice Scoring: End-to-End Scenarios', () => {
             expect(state.events['away-0-col-1-0'].paths[1]).toBe(1); // Alice on 2B
             expect(state.events['away-1-col-1-0'].paths[0]).toBe(1); // Becky is on 1B (single, not double)
             expect(state.score.away).toBe(0); // Score reset to 0
+        });
+
+        test('should undo intermediate substitutions and pitcher changes when correcting a play', () => {
+            let state = createNewGame();
+
+            state = applyCommand(state, 'single'); // Alice on 1B
+
+            // Becky hits a double, and Alice scores
+            state = applyCommand(state, 'double, runner scores');
+            expect(state.events['away-0-col-1-0'].paths[3]).toBe(1); // Alice scores
+
+            // Apply a substitution: pinch runner Ivy (number 26) for Alice (number 10)
+            state = applyCommand(state, 'pinch runner 26 for 10');
+            expect(state.roster.away[0].current.id).toBe('a9'); // Ivy is now in slot 0
+
+            // Apply a pitcher change: pitching change Hope (number 3)
+            state = applyCommand(state, 'pitching change 3');
+            expect(state.pitchers.home).toBe('Hope');
+
+            // Correction: the previous play was actually a single and Alice advanced to second
+            state = applyCommand(state, 'the previous play was actually a single, runner to second');
+
+            // Verify the play result and advancements are corrected
+            expect(state.events['away-0-col-1-0'].paths[3]).toBe(0); // Alice score undone!
+            expect(state.events['away-0-col-1-0'].paths[1]).toBe(1); // Alice on 2B
+            expect(state.events['away-1-col-1-0'].paths[0]).toBe(1); // Becky is on 1B (single, not double)
+
+            // Verify the intermediate substitution and pitcher change were also undone
+            expect(state.roster.away[0].current.id).toBe('a1'); // Restored to Alice
+            expect(state.pitchers.home).toBe(''); // Restored to no pitcher change (or default)
         });
     });
 

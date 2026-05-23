@@ -292,6 +292,10 @@ function applyGameMetadataUpdate(state, payload) {
     };
 }
 
+function isUnsafeObjectKey(key) {
+    return key === '__proto__' || key === 'constructor' || key === 'prototype';
+}
+
 function applyRunnerBatchUpdate(state, payload) {
     const { updates, activeCtx, activeTeam } = payload;
     // updates: [{ key, action, base }]
@@ -321,6 +325,9 @@ function applyRunnerBatchUpdate(state, payload) {
 
     let runningOutNum = maxOutNum;
     updates.forEach(({ key, action, base }) => {
+        if (typeof key !== 'string' || isUnsafeObjectKey(key)) {
+            return;
+        }
         if (!state.events[key]) {
             state.events[key] = {
                 outcome: '',
@@ -780,7 +787,10 @@ function applyPlayResult(state, payload) {
             event.paths = [1, 1, 1, 1];
         }
     } else if (!isAirOut) {
-        if (base === '1B') {
+        if (['BOO', 'Int', 'SO'].includes(type)) {
+            event.paths = [0, 0, 0, 2]; event.outPos = [0, 0, 0, 0.75];
+        }
+        else if (base === '1B') {
             event.paths = [2, 0, 0, 0]; event.outPos = [0.75, 0, 0, 0];
         }
         else if (base === '2B') {

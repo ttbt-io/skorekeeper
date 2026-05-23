@@ -101,7 +101,11 @@ export function parseEvent(text, gameState = {}) {
         const actionsToUndo = [];
         for (let i = idxInEffective; i < effectiveLog.length; i++) {
             const action = effectiveLog[i];
-            if (action.type === ActionTypes.PLAY_RESULT || action.type === ActionTypes.RUNNER_ADVANCE || action.type === ActionTypes.RUNNER_BATCH_UPDATE) {
+            if (action.type === ActionTypes.PLAY_RESULT ||
+                action.type === ActionTypes.RUNNER_ADVANCE ||
+                action.type === ActionTypes.RUNNER_BATCH_UPDATE ||
+                action.type === ActionTypes.SUBSTITUTION ||
+                action.type === ActionTypes.PITCHER_UPDATE) {
                 actionsToUndo.push(action);
             }
         }
@@ -426,9 +430,13 @@ function resolveSingleIntent(intent, state) {
     } else if (intent.type === 'SUBSTITUTION' || intent.type === 'PITCHER_UPDATE') {
         actionType = intent.type === 'SUBSTITUTION' ? ActionTypes.SUBSTITUTION : ActionTypes.PITCHER_UPDATE;
 
+        const targetTeam = actionType === ActionTypes.PITCHER_UPDATE
+            ? (state.activeTeam === 'away' ? 'home' : 'away')
+            : state.activeTeam;
+
         let resolvedPlayer = intent.player;
         if (intent.player && !intent.player.id && intent.player.jersey) {
-            resolvedPlayer = resolvePlayer(intent.player.jersey, state);
+            resolvedPlayer = resolvePlayer(intent.player.jersey, state, targetTeam);
         }
 
         if (actionType === ActionTypes.SUBSTITUTION) {
@@ -445,7 +453,7 @@ function resolveSingleIntent(intent, state) {
 
             let resolvedReplaced = intent.replaced;
             if (intent.replaced && !intent.replaced.id && intent.replaced.jersey) {
-                resolvedReplaced = resolvePlayer(intent.replaced.jersey, state);
+                resolvedReplaced = resolvePlayer(intent.replaced.jersey, state, targetTeam);
             }
 
             if (!resolvedReplaced || !resolvedReplaced.id) {
@@ -453,16 +461,14 @@ function resolveSingleIntent(intent, state) {
             }
 
             payload = {
-                team: state.activeTeam,
+                team: targetTeam,
                 subParams: resolvedPlayer,
             };
-            if (resolvedReplaced && resolvedReplaced.id) {
-                const roster = state.roster && state.roster[state.activeTeam || 'away'];
-                if (roster) {
-                    const idx = roster.findIndex(slot => slot.current && slot.current.id === resolvedReplaced.id);
-                    if (idx !== -1) {
-                        payload.rosterIndex = idx;
-                    }
+            const roster = state.roster && state.roster[targetTeam || 'away'];
+            if (roster) {
+                const idx = roster.findIndex(slot => slot.current && slot.current.id === resolvedReplaced.id);
+                if (idx !== -1) {
+                    payload.rosterIndex = idx;
                 }
             }
         } else {
@@ -470,7 +476,7 @@ function resolveSingleIntent(intent, state) {
                 throw new Error(`Could not resolve player reference: ${JSON.stringify(intent.player)}`);
             }
             payload = {
-                team: state.activeTeam,
+                team: targetTeam,
                 pitcher: resolvedPlayer.name || String(resolvedPlayer.jersey),
             };
         }
@@ -759,8 +765,8 @@ function checkAmbiguity(actions, gameState) {
 }
 
 
-function resolvePlayer(jersey, state) {
-    const teams = state.activeTeam ? [state.activeTeam] : ['away', 'home'];
+function resolvePlayer(jersey, state, targetTeam) {
+    const teams = targetTeam ? [targetTeam] : (state.activeTeam ? [state.activeTeam] : ['away', 'home']);
     for (const team of teams) {
         const roster = state.roster && state.roster[team];
         if (!Array.isArray(roster)) {

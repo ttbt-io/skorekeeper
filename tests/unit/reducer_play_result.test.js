@@ -100,4 +100,34 @@ describe('Game Reducer - PLAY_RESULT', () => {
         expect(event.outcome).toBe('SF8');
         expect(event.outNum).toBe(1);
     });
+
+    test('Stepped Out (SO)', () => {
+        const action = createAction({ res: 'Out', base: 'Home', type: 'SO', seq: '' });
+        const state = gameReducer(initialState, action);
+        const event = state.events['away-0-col-1-0'];
+
+        expect(event.outcome).toBe('SO');
+        expect(event.outNum).toBe(1);
+        expect(event.paths).toEqual([0, 0, 0, 2]);
+    });
+
+    test('Batting Out of Order (BOO)', () => {
+        const action = createAction({ res: 'Out', base: 'Home', type: 'BOO', seq: '' });
+        const state = gameReducer(initialState, action);
+        const event = state.events['away-0-col-1-0'];
+
+        expect(event.outcome).toBe('BOO');
+        expect(event.outNum).toBe(1);
+        expect(event.paths).toEqual([0, 0, 0, 2]);
+    });
+
+    test('Interference (Int)', () => {
+        const action = createAction({ res: 'Out', base: 'Home', type: 'Int', seq: '' });
+        const state = gameReducer(initialState, action);
+        const event = state.events['away-0-col-1-0'];
+
+        expect(event.outcome).toBe('Int');
+        expect(event.outNum).toBe(1);
+        expect(event.paths).toEqual([0, 0, 0, 2]);
+    });
 });
