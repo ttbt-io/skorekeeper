@@ -40,6 +40,15 @@ export class ProfileController {
             onDeleteRemote: () => this.handleDeleteRemote(),
             onBack: () => this.app.toggleSidebar(true),
         });
+
+        // 4. Voice scoring settings
+        const selectVoiceMode = document.getElementById('select-voice-mode');
+        if (selectVoiceMode) {
+            selectVoiceMode.value = localStorage.getItem('voiceScoringMode') || 'ptt';
+            selectVoiceMode.onchange = (e) => {
+                localStorage.setItem('voiceScoringMode', e.target.value);
+            };
+        }
     }
 
     async handleDeleteLocal() {

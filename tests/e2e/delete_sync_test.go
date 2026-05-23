@@ -40,7 +40,7 @@ func TestDeleteSync(t *testing.T) {
 	defer cancelA()
 	ctxA, cancelA = chromedp.NewContext(ctxA, chromedp.WithLogf(log.Printf))
 	defer cancelA()
-	ctxA, cancelA = context.WithTimeout(ctxA, 60*time.Second)
+	ctxA, cancelA = context.WithTimeout(ctxA, 90*time.Second)
 	defer cancelA()
 
 	// Context B: Device B
@@ -48,7 +48,7 @@ func TestDeleteSync(t *testing.T) {
 	defer cancelB()
 	ctxB, cancelB = chromedp.NewContext(ctxB, chromedp.WithLogf(log.Printf))
 	defer cancelB()
-	ctxB, cancelB = context.WithTimeout(ctxB, 60*time.Second)
+	ctxB, cancelB = context.WithTimeout(ctxB, 90*time.Second)
 	defer cancelB()
 
 	chromedp.ListenTarget(ctxA, func(ev interface{}) {

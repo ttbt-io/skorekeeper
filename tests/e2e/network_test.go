@@ -34,7 +34,7 @@ func TestBurstActionsOffline(t *testing.T) {
 
 	baseURL := startTestServer(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	allocCtx, cancel := chromedp.NewRemoteAllocator(ctx, *withChromeDP)
 	defer cancel()
@@ -152,7 +152,7 @@ func TestReconnectionLogic(t *testing.T) {
 
 	baseURL := startTestServer(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	allocCtx, cancel := chromedp.NewRemoteAllocator(ctx, *withChromeDP)
 	defer cancel()

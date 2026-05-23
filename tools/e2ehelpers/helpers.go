@@ -183,35 +183,18 @@ func Login(ctx context.Context, baseURL string) error {
 			return fmt.Errorf("neither login button found")
 		}),
 		chromedp.Sleep(1*time.Second),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			log.Printf("Login: Waiting for #dashboard-view")
-			return nil
-		}),
-		chromedp.WaitVisible(`#dashboard-view`, chromedp.ByQuery),
+		chromedp.WaitReady(`body[data-app-ready="true"]`),
 	)
 }
 
 // LoginWithUser performs login and sets the mock user cookie.
 func LoginWithUser(ctx context.Context, baseURL, email string) error {
-	// Extract domain from baseURL
-	// baseURL format: https://devtest.local:port or http://localhost:port
-	// We need "devtest.local" or "localhost"
-	parts := strings.Split(baseURL, "//")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid baseURL format: %s", baseURL)
-	}
-	hostPort := parts[1]
-	host := strings.Split(hostPort, ":")[0]
-
 	// Directly set cookie and reload to simulate login
 	return chromedp.Run(ctx,
-		network.ClearBrowserCookies(),
-		network.SetCookie("mock_auth_user", email).
-			WithDomain(host).
-			WithPath("/").
-			WithSecure(true),
+		chromedp.Navigate(fmt.Sprintf("%s/api/login?email=%s", baseURL, email)),
+		chromedp.WaitVisible(`body`),
 		chromedp.Navigate(baseURL+"/"),
-		chromedp.WaitVisible(`#dashboard-view`, chromedp.ByQuery),
+		chromedp.WaitReady(`body[data-app-ready="true"]`),
 	)
 }
 

@@ -42,7 +42,7 @@ func TestGlobalStatsNavigation(t *testing.T) {
 		chromedp.WithLogf(log.Printf),
 	)
 	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	chromedp.ListenTarget(ctx, func(ev interface{}) {

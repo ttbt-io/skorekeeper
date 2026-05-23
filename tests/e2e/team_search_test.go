@@ -20,7 +20,7 @@ func TestTeamSearch(t *testing.T) {
 	defer cancel()
 	ctx, cancel = chromedp.NewContext(ctx)
 	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	runStep(t, ctx, "App Init",

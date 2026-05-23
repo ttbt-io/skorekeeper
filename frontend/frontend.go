@@ -18,5 +18,5 @@ import (
 	"embed"
 )
 
-//go:embed *.html *.js *.json *.png css/*.css .sso/* assets/* renderers/*.js vendor/*.mjs models/*.js services/*.js controllers/*.js game/*.js ui/*.js utils/*.js dist/*
+//go:embed *.html *.js *.json *.png css/*.css .sso/* assets/* renderers/*.js vendor/*.js vendor/*.mjs models/*.js services/*.js controllers/*.js game/*.js ui/*.js utils/*.js workers/*.js dist/*
 var FS embed.FS

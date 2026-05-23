@@ -59,6 +59,10 @@ function updateSW() {
         .filter(name => name.endsWith('.js'))
         .map(name => './utils/' + name);
 
+    const workerFiles = fs.readdirSync(path.join(FRONTEND, 'workers'))
+        .filter(name => name.endsWith('.js'))
+        .map(name => './workers/' + name);
+
     const vendorFiles = fs.readdirSync(path.join(FRONTEND, 'vendor'))
         .filter(name => name.endsWith('.js') || name.endsWith('.mjs'))
         .map(name => './vendor/' + name);
@@ -77,6 +81,7 @@ function updateSW() {
         ...gameFiles,
         ...uiFiles,
         ...utilFiles,
+        ...workerFiles,
         ...vendorFiles,
         ...ssoFiles,
     ].sort();
@@ -89,7 +94,7 @@ function updateSW() {
     let optionalAssets = [];
     if (fs.existsSync(manualDir)) {
         optionalAssets = fs.readdirSync(manualDir)
-            .filter(name => name.endsWith('.png'))
+            .filter(name => name.endsWith('.png') && !name.includes('debug') && !name.includes('-failed'))
             .map(name => './assets/manual/' + name)
             .sort();
     }

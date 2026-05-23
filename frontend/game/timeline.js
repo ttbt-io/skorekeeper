@@ -37,11 +37,20 @@ export function migrateLegacyActionLog(log) {
     }
 
     const lastGenerativeMap = new Map(); // legacyCtxKey -> action.id
+    const idToCtxKeyMap = new Map();
     let requiresMigration = false;
 
     // First pass to check if any migration is needed to avoid unnecessary cloning
     for (const action of log) {
-        if (!action.payload || action.type === ActionTypes.UNDO) {
+        if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
+            const undoneCtxKey = idToCtxKeyMap.get(action.payload.refId);
+            if (undoneCtxKey) {
+                lastGenerativeMap.delete(undoneCtxKey);
+            }
+            continue;
+        }
+
+        if (!action.payload) {
             continue;
         }
         const team = action.payload.activeTeam || action.payload.team;
@@ -50,6 +59,8 @@ export function migrateLegacyActionLog(log) {
         }
 
         const ctxKey = `${team}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+        idToCtxKeyMap.set(action.id, ctxKey);
+
         if (action.type === ActionTypes.PLAY_RESULT || action.type === ActionTypes.CLEAR_DATA) {
             const prevId = lastGenerativeMap.get(ctxKey);
             if (prevId && !action.refId && !action.insertAfterId) {
@@ -67,7 +78,15 @@ export function migrateLegacyActionLog(log) {
     lastGenerativeMap.clear();
 
     return log.map(action => {
-        if (!action.payload || action.type === ActionTypes.UNDO) {
+        if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {
+            const undoneCtxKey = idToCtxKeyMap.get(action.payload.refId);
+            if (undoneCtxKey) {
+                lastGenerativeMap.delete(undoneCtxKey);
+            }
+            return action;
+        }
+
+        if (!action.payload) {
             return action;
         }
 
@@ -77,6 +96,7 @@ export function migrateLegacyActionLog(log) {
         }
 
         const ctxKey = `${team}-${action.payload.activeCtx.b}-${action.payload.activeCtx.col}`;
+        idToCtxKeyMap.set(action.id, ctxKey);
 
         if (action.type === ActionTypes.PLAY_RESULT || action.type === ActionTypes.CLEAR_DATA) {
             const prevId = lastGenerativeMap.get(ctxKey);

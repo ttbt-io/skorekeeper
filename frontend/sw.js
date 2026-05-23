@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const CACHE_NAME = 'skorekeeper-v0.2.30';
+const CACHE_NAME = 'skorekeeper-v0.2.38';
 const CORE_ASSETS = [
     './',
     './.sso/proxy.mjs',
@@ -68,8 +68,16 @@ const CORE_ASSETS = [
     './ui/pullToRefresh.js',
     './ui/sharingManager.js',
     './utils.js',
+    './utils/SpeechManager.js',
+    './utils/fuzzy.js',
+    './utils/grammar.js',
+    './utils/parser.js',
     './utils/searchParser.js',
+    './vendor/compromise.js',
+    './vendor/fuse.js',
+    './vendor/nearley.js',
     './vendor/qrcode.mjs',
+    './workers/nlpWorker.js',
 ];
 
 const OPTIONAL_ASSETS = [
