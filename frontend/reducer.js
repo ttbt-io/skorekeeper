@@ -591,9 +591,9 @@ function applyRunnerAdvance(state, payload) {
                 event.outNum = Math.min(3, inningStats + 1);
             }
 
-        } else if (r.outcome === 'To 2nd' || r.outcome === 'To 2B') {
+        } else if (r.outcome === 'To 2nd') {
             event.paths[1] = 1;
-        } else if (r.outcome === 'To 3rd' || r.outcome === 'To 3B') {
+        } else if (r.outcome === 'To 3rd') {
             if (r.base === 0) {
                 event.paths[1] = 1;
             }
@@ -839,11 +839,11 @@ function applyPlayResult(state, payload) {
                     const inningStats = calculateInningOutsExclude(state, activeTeam, inningColIds, rKey);
                     rev.outNum = Math.min(3, inningStats + 1);
                 }
-            } else if (r.outcome === 'To 2nd' || r.outcome === 'To 2B') {
+            } else if (r.outcome === 'To 2nd') {
                 rev.paths[1] = 1;
                 //rev.pathInfo[1] = 'Adv';
             }
-            else if (r.outcome === 'To 3rd' || r.outcome === 'To 3B') {
+            else if (r.outcome === 'To 3rd') {
                 if (r.base === 0) {
                     rev.paths[1] = 1;
                 }

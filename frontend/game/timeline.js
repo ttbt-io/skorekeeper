@@ -76,7 +76,6 @@ export function migrateLegacyActionLog(log) {
     }
 
     lastGenerativeMap.clear();
-    idToCtxKeyMap.clear();
 
     return log.map(action => {
         if (action.type === ActionTypes.UNDO && action.payload && action.payload.refId) {

@@ -121,34 +121,58 @@ describe('Voice Scoring: Exhaustive Syntax Fuzzing', () => {
     );
 
     // Total commands generated: ~367
+    //
+    // Success categories:
+    //   - Parsed cleanly (no error)               → grammar success
+    //   - AmbiguityError                           → grammar success, semantic disambiguation required
+    //   - Semantic error (e.g. "No runners on base") → grammar parsed but game-state constraint violated;
+    //     acceptable for a fuzz test with a minimal game state
+    //
+    // Failure category:
+    //   - Syntax error from the grammar (unexpected token, incomplete input, etc.) → test fails
     test(`should successfully parse all ${generatedCommands.length} generated plausible commands without throwing syntax errors`, () => {
-        let successCount = 0;
-        let errors = [];
+        const syntaxErrors = [];
+        const semanticErrors = [];
+        const ambiguities = [];
+        let parseSuccesses = 0;
 
         for (const cmd of generatedCommands) {
             try {
                 const cleaned = cleanTranscript(cmd, gameState);
                 parseEvent(cleaned, gameState);
-                successCount++;
+                parseSuccesses++;
             } catch (err) {
-                const isSyntaxError = err.message.includes('col') ||
-                                      err.message.includes('Unexpected') ||
-                                      err.message.includes('expecting');
-
-                // AmbiguityError or a semantic execution error means the grammar parsed it successfully!
-                if (err.name === 'AmbiguityError' || err.message.includes('Ambiguous') || !isSyntaxError) {
-                    successCount++;
+                if (err.name === 'AmbiguityError') {
+                    // Grammar parsed successfully; needs disambiguation UI
+                    ambiguities.push(cmd);
                 } else {
-                    errors.push({ command: cmd, error: err.message });
+                    // Distinguish syntax errors (grammar failure) from semantic errors (game state constraint)
+                    const isSyntaxError = err.message.includes('Syntax error') ||
+                                          err.message.includes('Unexpected') ||
+                                          err.message.includes('expecting') ||
+                                          err.message.includes('Incomplete input');
+                    if (isSyntaxError) {
+                        syntaxErrors.push({ command: cmd, error: err.message });
+                    } else {
+                        // Semantic error: grammar parsed it, but game state constraint violated.
+                        // Acceptable in a fuzz test with minimal game state.
+                        semanticErrors.push({ command: cmd, error: err.message });
+                    }
                 }
             }
         }
 
-        if (errors.length > 0) {
-            console.error('Failed commands:', errors);
+        const total = parseSuccesses + ambiguities.length + semanticErrors.length + syntaxErrors.length;
+
+        if (syntaxErrors.length > 0) {
+            console.error('SYNTAX FAILURES (grammar could not parse):', syntaxErrors);
+        }
+        if (semanticErrors.length > 0) {
+            console.info(`Semantic errors (game-state constraints, not grammar failures): ${semanticErrors.length}`);
         }
 
-        expect(successCount).toBe(generatedCommands.length);
-        expect(errors.length).toBe(0);
+        // Only syntax errors are a true test failure
+        expect(syntaxErrors.length).toBe(0);
+        expect(total).toBe(generatedCommands.length);
     });
 });

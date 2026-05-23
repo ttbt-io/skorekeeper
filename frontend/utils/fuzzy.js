@@ -27,6 +27,12 @@ const fuse = new Fuse(BASEBALL_LEXICON, {
     includeScore: true,
 });
 
+// NOTE: lastRosterRef / activeFuse are module-level singletons cached for
+// performance (avoids re-instantiating Fuse on every call when the roster
+// hasn't changed). This makes the module non-reentrant across different roster
+// contexts within the same JS module scope (e.g. parallel test runs that share
+// a module instance). Tests should reset between suite runs if roster isolation
+// is needed.
 let lastRosterRef = null;
 let activeFuse = fuse;
 
@@ -181,7 +187,10 @@ function cleanNormalTranscript(text, gameState = {}) {
     const uniquePlayerNames = Array.from(new Set(playerNames)).sort((a, b) => b.length - a.length);
     uniquePlayerNames.forEach(name => {
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // Match player name (optionally preceded by "runner") only when followed by 'to [base]' or 'scores'
+        // Only replace a player name when it is followed by 'to [base]' or 'scores',
+        // i.e. when it is clearly acting as a runner reference. This is intentional:
+        // bare mentions (e.g. "Smith-Peterson steals second" without a leading "runner")
+        // are not substituted and must be handled by the grammar or a future NER pass.
         const regex = new RegExp('(?:\\brunner\\s+)?\\b' + escaped + '\\b(?=\\s+(?:to\\s+(?:first|second|third|home|1b|2b|3b)|scores))', 'gi');
         cleaned = cleaned.replace(regex, 'runner');
     });

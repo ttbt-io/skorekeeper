@@ -137,21 +137,25 @@ export function parseEvent(text, gameState = {}) {
 
     const parser = new nearley.Parser(nearley.Grammar.fromCompiled(grammar));
 
+    let parseResult;
     try {
         parser.feed(cleanText);
-
         if (parser.results.length > 0) {
-            const intents = parser.results[0];
-            return resolveIntents(intents, gameState);
+            parseResult = parser.results[0];
         } else {
             throw new Error(`Incomplete input: "${text}"`);
         }
     } catch (err) {
+        // Only re-wrap genuine grammar/parse failures (from parser.feed).
+        // AmbiguityError and semantic errors thrown by resolveIntents propagate as-is.
         if (err instanceof AmbiguityError || err.name === 'AmbiguityError') {
             throw err;
         }
         throw new Error(`Syntax error: could not parse "${text}". ${err.message}`);
     }
+
+    // resolveIntents may throw AmbiguityError or semantic errors — let them propagate unmodified.
+    return resolveIntents(parseResult, gameState);
 }
 
 /**
@@ -205,6 +209,30 @@ function resolveSingleIntent(intent, state) {
     if (intent.type === 'BIP' || intent.type === 'OUT') {
         actionType = ActionTypes.PLAY_RESULT;
 
+        // Strikeout: model as a PITCH sequence, not as a PLAY_RESULT.
+        // Must be detected early, before the bipState payload is constructed,
+        // so that the PLAY_RESULT branch is never partially built then discarded.
+        if (intent.type === 'OUT' && (
+            intent.result === 'strikeout' ||
+            intent.result === 'strikeout looking' ||
+            intent.result === 'strikeout swinging'
+        )) {
+            const key = `${state.activeTeam}-${state.activeCtx.b}-${state.activeCtx.col}`;
+            const currentStrikes = state.events && state.events[key] ? state.events[key].strikes || 0 : 0;
+            const strikesNeeded = Math.max(1, 3 - currentStrikes);
+            const pitchCode = intent.result === 'strikeout looking' ? 'Called' : 'Swinging';
+            return Array.from({ length: strikesNeeded }, (_, i) => ({
+                type: ActionTypes.PITCH,
+                payload: {
+                    activeCtx: state.activeCtx,
+                    activeTeam: state.activeTeam,
+                    batterId: state.activeBatterId,
+                    type: 'strike',
+                    code: i === strikesNeeded - 1 ? pitchCode : 'Swinging',
+                },
+            }));
+        }
+
         let runnerAdvancements = [];
         if (intent.result === 'HR') {
             const runners = getRunnersOnBase(state);
@@ -222,39 +250,13 @@ function resolveSingleIntent(intent, state) {
             batterId: state.activeBatterId,
             bipState: {
                 res: intent.type === 'BIP' ? 'Safe' : 'Out',
-                base: intent.type === 'OUT' ? (intent.result === 'strikeout' ? 'Home' : '1B') : ((intent.result === 'HR') ? 'Home' : (intent.result || '1B')),
+                base: intent.type === 'OUT' ? '1B' : ((intent.result === 'HR') ? 'Home' : (intent.result || '1B')),
                 type: intent.result || '1B',
                 pos: intent.pos || '',
                 seq: intent.sequence || intent.pos || '',
             },
             runnerAdvancements,
         };
-        // Handle strikeout specifically if it's considered an OUT in grammar
-        if (intent.result === 'strikeout' || intent.result === 'strikeout looking' || intent.result === 'strikeout swinging') {
-            const key = `${state.activeTeam}-${state.activeCtx.b}-${state.activeCtx.col}`;
-            const currentStrikes = state.events && state.events[key] ? state.events[key].strikes || 0 : 0;
-            const strikesNeeded = Math.max(1, 3 - currentStrikes);
-
-            const strikeActions = [];
-            for (let i = 0; i < strikesNeeded; i++) {
-                const isLast = (i === strikesNeeded - 1);
-                let pitchCode = 'Swinging';
-                if (intent.result === 'strikeout looking') {
-                    pitchCode = 'Called';
-                }
-                strikeActions.push({
-                    type: ActionTypes.PITCH,
-                    payload: {
-                        activeCtx: state.activeCtx,
-                        activeTeam: state.activeTeam,
-                        batterId: state.activeBatterId,
-                        type: 'strike',
-                        code: isLast ? pitchCode : 'Swinging',
-                    },
-                });
-            }
-            return strikeActions;
-        }
     } else if (intent.type === 'WALK') {
         const key = `${state.activeTeam}-${state.activeCtx.b}-${state.activeCtx.col}`;
         const currentBalls = state.events && state.events[key] ? state.events[key].balls || 0 : 0;
@@ -346,6 +348,8 @@ function resolveSingleIntent(intent, state) {
         if (intent.base) {
             const baseMap = { '1B': 1, '2B': 2, '3B': 3, 'home': 4 };
             const targetBaseNum = baseMap[intent.base];
+            // runners.base is 1-indexed (1=1st, 2=2nd, 3=3rd).
+            // A runner stealing 2nd must currently be on 1st (targetBaseNum - 1).
             targetRunner = runners.find(r => r.base === targetBaseNum - 1);
             if (!targetRunner) {
                 throw new Error(`No runner on base in position to steal ${intent.base}.`);
@@ -424,7 +428,8 @@ function resolveSingleIntent(intent, state) {
                 key: resolved.runnerKey,
                 id: resolved.runnerId,
                 base: resolved.fromBase - 1, // 0-indexed
-                outcome: resolved.base === 'home' ? 'Score' : (resolved.base === '3B' ? 'To 3B' : 'To 2B'),
+                // Use canonical outcome strings matching the reducer's RunnerActionScore / 'To Xrd' vocabulary.
+                outcome: resolved.base === 'home' ? 'Score' : (resolved.base === '3B' ? 'To 3rd' : 'To 2nd'),
             }],
         };
     } else if (intent.type === 'SUBSTITUTION' || intent.type === 'PITCHER_UPDATE') {
@@ -456,7 +461,9 @@ function resolveSingleIntent(intent, state) {
                 resolvedReplaced = resolvePlayer(intent.replaced.jersey, state, targetTeam);
             }
 
-            if (!resolvedReplaced || !resolvedReplaced.id) {
+            // Only throw if a replaced player was explicitly provided but couldn't be resolved.
+            // intent.replaced is null for "pinch runner <n>" (no explicit replaced player), which is valid.
+            if (intent.replaced && (!resolvedReplaced || !resolvedReplaced.id)) {
                 throw new Error(`Could not resolve player to be replaced: ${JSON.stringify(intent.replaced)}`);
             }
 
@@ -464,11 +471,13 @@ function resolveSingleIntent(intent, state) {
                 team: targetTeam,
                 subParams: resolvedPlayer,
             };
-            const roster = state.roster && state.roster[targetTeam || 'away'];
-            if (roster) {
-                const idx = roster.findIndex(slot => slot.current && slot.current.id === resolvedReplaced.id);
-                if (idx !== -1) {
-                    payload.rosterIndex = idx;
+            if (resolvedReplaced && resolvedReplaced.id) {
+                const roster = state.roster && state.roster[targetTeam || 'away'];
+                if (roster) {
+                    const idx = roster.findIndex(slot => slot.current && slot.current.id === resolvedReplaced.id);
+                    if (idx !== -1) {
+                        payload.rosterIndex = idx;
+                    }
                 }
             }
         } else {
@@ -914,7 +923,7 @@ function getWalkRunnerAdvancements(state) {
             key: r1.key,
             id: r1.id,
             base: 1,
-            outcome: 'To 2B',
+            outcome: 'To 2nd',
         });
         if (has2B) {
             const r2 = runners.find(r => r.base === 2);
@@ -922,7 +931,7 @@ function getWalkRunnerAdvancements(state) {
                 key: r2.key,
                 id: r2.id,
                 base: 2,
-                outcome: 'To 3B',
+                outcome: 'To 3rd',
             });
             if (has3B) {
                 const r3 = runners.find(r => r.base === 3);

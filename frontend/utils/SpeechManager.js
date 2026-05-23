@@ -11,7 +11,11 @@ export class SpeechManager {
         // Initialize Web Worker for NLP (Phase 6)
         if (typeof window !== 'undefined' && window.Worker) {
             try {
-                // Use eval to hide import.meta from the static analyzer (Jest/Node)
+                // eval('import.meta.url') is used intentionally to hide the
+                // import.meta reference from static analyzers (Jest/Node) that
+                // don't support it. This requires 'unsafe-eval' in the CSP
+                // if a strict CSP is in use. The alternative is a build-time
+                // flag, but this keeps the source environment-agnostic.
                 let metaUrl = null;
                 try {
                     metaUrl = eval('import.meta.url');
@@ -155,7 +159,13 @@ export class SpeechManager {
                         }
                     } catch (err) {
                         if (this.onErrorCallback) {
-                            this.onErrorCallback(err.message);
+                            // Forward the full error shape (name + options) to match the Worker path,
+                            // so AmbiguityError is not silently degraded to a plain string message.
+                            this.onErrorCallback({
+                                name: err.name,
+                                message: err.message,
+                                options: err.options || null,
+                            });
                         }
                     }
                 });

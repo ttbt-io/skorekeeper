@@ -58,7 +58,7 @@ describe('NLP Parser: End-to-End Tests', () => {
         expect(res[1].type).toBe(ActionTypes.RUNNER_ADVANCE);
 
         expect(res[1].payload.runners[0].id).toBe('p3');
-        expect(res[1].payload.runners[0].outcome).toBe('To 3B');
+        expect(res[1].payload.runners[0].outcome).toBe('To 3rd');
     });
 
     test('should throw error on invalid physical state', () => {
