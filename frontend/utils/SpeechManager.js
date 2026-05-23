@@ -36,7 +36,11 @@ export class SpeechManager {
                     } else if (e.data.type === 'error') {
                         console.error('NLP Error from Worker:', e.data.message);
                         if (this.onErrorCallback) {
-                            this.onErrorCallback(e.data.message);
+                            this.onErrorCallback({
+                                name: e.data.name || 'Error',
+                                message: e.data.message,
+                                options: e.data.options || null,
+                            });
                         }
                     }
                 };

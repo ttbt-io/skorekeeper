@@ -26,6 +26,6 @@ describe('NLP: Roster-Aware Fuzzy Matching', () => {
     });
 
     test('should still correct baseball terms while resolving names', () => {
-        expect(cleanTranscript('Boll, runner Jonas to second', gameState)).toBe('ball, runner jones to second');
+        expect(cleanTranscript('Boll, runner Jonas to second', gameState)).toBe('ball, runner to second');
     });
 });

@@ -313,6 +313,23 @@ limitations under the License.
                     </div>
                 </div>
 
+                <!-- Voice Scoring Settings -->
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Voice Scoring Settings</h3>
+                    <div class="space-y-4">
+                        <div class="flex flex-col gap-1">
+                            <label for="select-voice-mode" class="text-sm font-bold text-gray-700">Speech Listening Mode</label>
+                            <select id="select-voice-mode" class="border border-gray-300 rounded p-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="ptt">Push-to-Talk (Single phrase)</option>
+                                <option value="continuous">Continuous Listening (Always on)</option>
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1">
+                                PTT listens for a single play and stops. Continuous keeps the microphone active for successive play commands.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Danger Zone -->
                 <div class="border border-red-200 rounded-lg overflow-hidden">
                     <div class="bg-red-50 p-4 border-b border-red-200">
@@ -970,6 +987,21 @@ limitations under the License.
                     <span class="block text-xs font-normal opacity-90">Keeps both versions as separate games.</span>
                 </button>
             </div>
+        </div>
+    </div>
+    <!-- Disambiguation Modal -->
+    <div id="disambiguation-modal" class="fixed inset-0 z-[80] flex items-center justify-center hidden modal-backdrop-blur p-4">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl">
+            <h2 id="disambiguation-modal-title" class="text-2xl font-bold mb-4 text-slate-800">Runner Advancement Choice</h2>
+            <p id="disambiguation-modal-desc" class="text-gray-600 mb-6">Choose how the unforced runner advanced on this play:</p>
+            
+            <div id="disambiguation-options-container" class="grid gap-3 mb-4">
+                <!-- Dynamically generated choice buttons will go here -->
+            </div>
+            
+            <button id="btn-disambiguation-cancel" class="w-full py-3 border border-gray-300 text-gray-700 font-bold rounded hover:bg-gray-50 transition-colors">
+                Cancel Play
+            </button>
         </div>
     </div>
     <div id="save-indicator" class="fixed bottom-4 right-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-full text-sm font-bold hidden z-50 flex items-center gap-2">

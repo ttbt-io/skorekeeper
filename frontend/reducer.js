@@ -339,8 +339,8 @@ function applyRunnerBatchUpdate(state, payload) {
         const evt = state.events[key];
 
         // Clone arrays
-        evt.paths = [...evt.paths];
-        evt.pathInfo = [...evt.pathInfo];
+        evt.paths = evt.paths ? [...evt.paths] : [0, 0, 0, 0];
+        evt.pathInfo = evt.pathInfo ? [...evt.pathInfo] : ['', '', '', ''];
         if (evt.outPos) {
             evt.outPos = [...evt.outPos];
         }
@@ -584,9 +584,9 @@ function applyRunnerAdvance(state, payload) {
                 event.outNum = Math.min(3, inningStats + 1);
             }
 
-        } else if (r.outcome === 'To 2nd') {
+        } else if (r.outcome === 'To 2nd' || r.outcome === 'To 2B') {
             event.paths[1] = 1;
-        } else if (r.outcome === 'To 3rd') {
+        } else if (r.outcome === 'To 3rd' || r.outcome === 'To 3B') {
             if (r.base === 0) {
                 event.paths[1] = 1;
             }
@@ -829,11 +829,11 @@ function applyPlayResult(state, payload) {
                     const inningStats = calculateInningOutsExclude(state, activeTeam, inningColIds, rKey);
                     rev.outNum = Math.min(3, inningStats + 1);
                 }
-            } else if (r.outcome === 'To 2nd') {
+            } else if (r.outcome === 'To 2nd' || r.outcome === 'To 2B') {
                 rev.paths[1] = 1;
                 //rev.pathInfo[1] = 'Adv';
             }
-            else if (r.outcome === 'To 3rd') {
+            else if (r.outcome === 'To 3rd' || r.outcome === 'To 3B') {
                 if (r.base === 0) {
                     rev.paths[1] = 1;
                 }
@@ -947,7 +947,7 @@ function applyPitch(state, payload) {
     // Copy mutable sub-objects
     event.pitchSequence = [...event.pitchSequence];
     event.paths = [...event.paths];
-    event.pathInfo = [...event.pathInfo];
+    event.pathInfo = event.pathInfo ? [...event.pathInfo] : ['', '', '', ''];
     // Determine pitcher (defense)
     const defense = activeTeam === TeamAway ? TeamHome : TeamAway;
     const pitcher = state.pitchers[defense] || ''; // Should be passed or in state

@@ -187,6 +187,7 @@ export class AppController {
         };
 
         this.speechManager = new SpeechManager(() => this.state.activeGame);
+        this.speechListeningIntentional = false;
 
         this.contextMenuTimer = null;
         this.contextMenuTarget = null;
@@ -3115,20 +3116,65 @@ export class AppController {
      */
     toggleSpeech() {
         const btns = [document.getElementById('btn-speech-toggle'), document.getElementById('btn-cso-speech-toggle')];
-        if (this.speechManager.isListening) {
+        if (this.speechManager.isListening || this.speechListeningIntentional) {
+            this.speechListeningIntentional = false;
             this.speechManager.stop();
-            // visual reset handled in onEnd
+            // Reset visual state
+            btns.forEach(btn => {
+                if (btn) {
+                    btn.classList.remove('text-red-500', 'animate-pulse');
+                }
+            });
         } else {
+            this.speechListeningIntentional = true;
+            const mode = localStorage.getItem('voiceScoringMode') || 'ptt';
+            if (mode === 'continuous') {
+                this.startListeningContinuous();
+            } else {
+                this.speechManager.start(
+                    (result) => this.handleSpeechResult(result),
+                    (error) => this.handleSpeechError(error),
+                    () => {
+                        // onEnd callback: Reset visual state
+                        btns.forEach(btn => {
+                            if (btn) {
+                                btn.classList.remove('text-red-500', 'animate-pulse');
+                            }
+                        });
+                    },
+                );
+                btns.forEach(btn => {
+                    if (btn) {
+                        btn.classList.add('text-red-500', 'animate-pulse');
+                    }
+                });
+            }
+        }
+    }
+
+    startListeningContinuous() {
+        const btns = [document.getElementById('btn-speech-toggle'), document.getElementById('btn-cso-speech-toggle')];
+        const run = () => {
+            if (!this.speechListeningIntentional) {
+                return;
+            }
             this.speechManager.start(
                 (result) => this.handleSpeechResult(result),
                 (error) => this.handleSpeechError(error),
                 () => {
-                    // onEnd callback: Reset visual state
-                    btns.forEach(btn => {
-                        if (btn) {
-                            btn.classList.remove('text-red-500', 'animate-pulse');
-                        }
-                    });
+                    // onEnd callback
+                    const mode = localStorage.getItem('voiceScoringMode') || 'ptt';
+                    if (mode === 'continuous' && this.speechListeningIntentional) {
+                        // Restart listening loop after a brief delay
+                        setTimeout(() => run(), 100);
+                    } else {
+                        // Reset visual state if we are done listening
+                        btns.forEach(btn => {
+                            if (btn) {
+                                btn.classList.remove('text-red-500', 'animate-pulse');
+                            }
+                        });
+                    }
                 },
             );
             btns.forEach(btn => {
@@ -3136,7 +3182,8 @@ export class AppController {
                     btn.classList.add('text-red-500', 'animate-pulse');
                 }
             });
-        }
+        };
+        run();
     }
 
     handleSpeechResult(result) {
@@ -3150,7 +3197,88 @@ export class AppController {
 
     handleSpeechError(error) {
         console.error('Speech Error:', error);
-        // visual reset handled in onEnd
+        if (error && (error.name === 'AmbiguityError' || error.options)) {
+            // Save state of intentional speech listening
+            const wasListening = this.speechListeningIntentional;
+            // Temporarily pause speech listening to prevent feedback/loops during modal interactions
+            this.speechListeningIntentional = false;
+            this.speechManager.stop();
+
+            this.showDisambiguationModal(error.message, error.options, wasListening);
+        }
+    }
+
+    showDisambiguationModal(message, options, wasListening) {
+        const modal = document.getElementById('disambiguation-modal');
+        const desc = document.getElementById('disambiguation-modal-desc');
+        const container = document.getElementById('disambiguation-options-container');
+        const cancelBtn = document.getElementById('btn-disambiguation-cancel');
+
+        if (!modal || !container) {
+            return;
+        }
+
+        if (desc) {
+            desc.textContent = message || 'Choose how the unforced runner advanced on this play:';
+        }
+
+        container.innerHTML = '';
+
+        options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full py-3 px-4 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700 transition-colors text-left flex items-center justify-between border border-slate-700 shadow';
+            btn.textContent = opt.text;
+
+            const arrow = document.createElement('span');
+            arrow.textContent = '→';
+            arrow.className = 'text-slate-400 font-normal ml-2';
+            btn.appendChild(arrow);
+
+            btn.onclick = async() => {
+                modal.classList.add('hidden');
+
+                this.state.pendingSpeechActions = [];
+                this.renderSpeechPreview();
+
+                for (const act of opt.actions) {
+                    await this.dispatch(act);
+                }
+
+                this.render();
+
+                if (wasListening) {
+                    this.speechListeningIntentional = true;
+                    const mode = localStorage.getItem('voiceScoringMode') || 'ptt';
+                    if (mode === 'continuous') {
+                        this.startListeningContinuous();
+                    } else {
+                        this.toggleSpeech();
+                    }
+                }
+            };
+
+            container.appendChild(btn);
+        });
+
+        if (cancelBtn) {
+            cancelBtn.onclick = () => {
+                modal.classList.add('hidden');
+                this.state.pendingSpeechActions = [];
+                this.renderSpeechPreview();
+
+                if (wasListening) {
+                    this.speechListeningIntentional = true;
+                    const mode = localStorage.getItem('voiceScoringMode') || 'ptt';
+                    if (mode === 'continuous') {
+                        this.startListeningContinuous();
+                    } else {
+                        this.toggleSpeech();
+                    }
+                }
+            };
+        }
+
+        modal.classList.remove('hidden');
     }
 
     renderSpeechPreview() {

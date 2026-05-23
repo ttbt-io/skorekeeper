@@ -18,7 +18,9 @@ self.onmessage = async(e) => {
         console.error('NLP Worker Error:', err);
         self.postMessage({
             type: 'error',
+            name: err.name,
             message: err.message,
+            options: err.options || null,
             transcript,
         });
     }
